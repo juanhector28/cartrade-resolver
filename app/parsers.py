@@ -108,19 +108,24 @@ def extract_km(text: str) -> Optional[Tuple[int, str]]:
 
 def extract_price_usd(text: str) -> Optional[Tuple[int, str]]:
     """Extract USD price. Returns (price, confidence) or None.
-    Handles formats: "$ 28,500", "$28,500", "USD 14,000", "14500 USD".
+    Handles formats: "$ 28,500", "$28,500", "$10,950.00", "USD 14,000".
+    Decimals like .00 / .99 are stripped before parsing.
     """
     if not text:
         return None
     patterns = [
-        r"\$\s*([0-9][\d,\.]{2,9})",
-        r"USD\s*([0-9][\d,\.]{2,9})",
-        r"([0-9][\d,\.]{2,9})\s*USD\b",
+        r"\$\s*([0-9][\d,\.]{2,12})",
+        r"USD\s*([0-9][\d,\.]{2,12})",
+        r"([0-9][\d,\.]{2,12})\s*USD\b",
     ]
     for pat in patterns:
         m = re.search(pat, text, re.IGNORECASE)
         if m:
-            raw = m.group(1).replace(",", "").replace(".", "")
+            raw = m.group(1)
+            # Strip trailing .XX decimals (.00, .99, .50, etc.)
+            raw = re.sub(r"\.\d{1,2}$", "", raw)
+            # Remove thousand separators
+            raw = raw.replace(",", "").replace(".", "")
             try:
                 price = int(raw)
                 if 500 <= price <= 200_000:
