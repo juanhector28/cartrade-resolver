@@ -28,15 +28,19 @@ async def resolve(url: str) -> Listing:
     listing = Listing(platform="encuentra24", url=url)
 
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True,
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True,
                                      headers={"User-Agent": USER_AGENT,
                                               "Accept-Language": "es-SV,es;q=0.9"}) as cli:
             r = await cli.get(url)
             r.raise_for_status()
             html = r.text
+    except httpx.TimeoutException as e:
+        log.warning("encuentra24 timeout (>30s): %s", url)
+        listing.errors.append(f"timeout: {e!s}")
+        return listing
     except httpx.HTTPError as e:
-        log.warning("http fetch failed: %s", e)
-        listing.errors.append(f"http error: {e!s}")
+        log.warning("encuentra24 http error: %s | url=%s", repr(e), url)
+        listing.errors.append(f"http error: {repr(e)}")
         return listing
 
     tree = HTMLParser(html)
