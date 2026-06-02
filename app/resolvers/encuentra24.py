@@ -4,9 +4,10 @@ Encuentra24 exposes Open Graph meta tags reliably and the body contains
 structured key-value text like 'año2024', 'kilometraje5,790'. We don't need
 a headless browser; httpx + selectolax is enough.
 
-Price strategy: og:description ALWAYS contains "Precio $X,XXX.XX" — most reliable
-source. Body text can have nearby car prices (related listings) so we prefer
-og:description.
+Price strategy: og:title is the most up-to-date source. When sellers drop
+the price, the visible headline updates first, but og:description (which
+contains the long-form 'Precio $X,XXX.XX') often lags with the old price.
+So we prefer og:title for price, falling back to og:description.
 """
 from __future__ import annotations
 import re
@@ -104,21 +105,41 @@ async def resolve(url: str) -> Listing:
     elif listing.transmission is None:
         listing.transmission = parsers.to_field(parsers.extract_transmission(og_title))
 
-    # Price: og:description ALWAYS has "Precio $X,XXX.XX" — most reliable source.
-    # Body text can pick up prices from related listings nearby on the page.
-    if og_desc:
-        # Look specifically for "Precio $X,XXX.XX" pattern in description
-        m = re.search(r"Precio\s*\$\s*([0-9][\d,\.]{2,12})", og_desc, re.IGNORECASE)
+    # Price extraction priority:
+    # 1. og:title (the visible headline price — most up-to-date when seller drops price)
+    # 2. og:description "Precio $X,XXX.XX" pattern
+    # 3. og:description any dollar match
+    # 4. Body text (least reliable)
+    #
+    # Why this order: when sellers drop prices, the headline updates first, but
+    # the description often lags with the old price. Headline wins.
+    if og_title:
+        # Match dollar amount in og_title: "Chevrolet Traverse 2019 $19,500 | Encuentra24"
+        m = re.search(r"\$\s*([0-9][\d,\.]{2,12})", og_title)
         if m:
             raw = m.group(1)
-            # Strip trailing decimal like .00 / .50
             raw = re.sub(r"\.\d{1,2}$", "", raw)
             raw = raw.replace(",", "").replace(".", "")
             try:
                 price = int(raw)
                 if 500 <= price <= 200_000:
                     listing.price_usd = Field(value=price, confidence="high")
-                    log.info("price extracted from og:desc: $%d", price)
+                    log.info("price extracted from og:title (headline): $%d", price)
+            except ValueError:
+                pass
+
+    # og:description fallback — "Precio $X,XXX.XX" pattern
+    if listing.price_usd is None and og_desc:
+        m = re.search(r"Precio\s*\$\s*([0-9][\d,\.]{2,12})", og_desc, re.IGNORECASE)
+        if m:
+            raw = m.group(1)
+            raw = re.sub(r"\.\d{1,2}$", "", raw)
+            raw = raw.replace(",", "").replace(".", "")
+            try:
+                price = int(raw)
+                if 500 <= price <= 200_000:
+                    listing.price_usd = Field(value=price, confidence="high")
+                    log.info("price extracted from og:desc 'Precio' pattern: $%d", price)
             except ValueError:
                 pass
         # Fallback to generic dollar match in og_desc
@@ -171,3 +192,4 @@ async def resolve(url: str) -> Listing:
              len(listing.photos))
 
     return listing
+
