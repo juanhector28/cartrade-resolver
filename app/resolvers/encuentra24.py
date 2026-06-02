@@ -105,16 +105,51 @@ async def resolve(url: str) -> Listing:
     elif listing.transmission is None:
         listing.transmission = parsers.to_field(parsers.extract_transmission(og_title))
 
-    # Price extraction priority:
-    # 1. og:title (the visible headline price — most up-to-date when seller drops price)
-    # 2. og:description "Precio $X,XXX.XX" pattern
-    # 3. og:description any dollar match
-    # 4. Body text (least reliable)
+    # Price extraction — Encuentra24 quirk:
+    # When sellers drop the price, only the visible headline updates ($ X,XXX
+    # shown next to the car title in the body). The og:description text often
+    # lags with the old "Precio $X,XXX" from the description text. The og:title
+    # rarely contains a price at all.
     #
-    # Why this order: when sellers drop prices, the headline updates first, but
-    # the description often lags with the old price. Headline wins.
-    if og_title:
-        # Match dollar amount in og_title: "Chevrolet Traverse 2019 $19,500 | Encuentra24"
+    # Strategy (in order):
+    # 1. Body text BEFORE "Descripción" section — this is the visible headline price.
+    #    We slice the body to isolate it from the description (old price) and
+    #    "Más anuncios" (other listings from same seller).
+    # 2. og:title (in case it has a price)
+    # 3. og:description "Precio $X,XXX.XX" pattern (last resort, may be stale)
+
+    # 1. Body headline price — slice body to the section before "Descripción"
+    headline_section = body_text
+    desc_marker = re.search(r"Descripci[óo]n", body_text, re.IGNORECASE)
+    if desc_marker:
+        headline_section = body_text[:desc_marker.start()]
+    # Also cut off "Detalles adicionales" if it's after "Descripción" wouldn't fire
+    detail_marker = re.search(r"Detalles adicionales", headline_section, re.IGNORECASE)
+    if detail_marker:
+        # Keep what's after "Detalles" too since price often shown again there;
+        # but cut off "Más anuncios" or "Otras publicaciones" from related listings
+        pass
+    rel_marker = re.search(r"M[áa]s anuncios|Otras publicaciones|Más vehículos", headline_section, re.IGNORECASE)
+    if rel_marker:
+        headline_section = headline_section[:rel_marker.start()]
+
+    # Look for the first $ X,XXX pattern in headline section
+    if headline_section:
+        m = re.search(r"\$\s*([0-9][\d,\.]{2,10})", headline_section)
+        if m:
+            raw = m.group(1)
+            raw = re.sub(r"\.\d{1,2}$", "", raw)
+            raw = raw.replace(",", "").replace(".", "")
+            try:
+                price = int(raw)
+                if 500 <= price <= 200_000:
+                    listing.price_usd = Field(value=price, confidence="high")
+                    log.info("price extracted from body headline: $%d", price)
+            except ValueError:
+                pass
+
+    # 2. og:title fallback
+    if listing.price_usd is None and og_title:
         m = re.search(r"\$\s*([0-9][\d,\.]{2,12})", og_title)
         if m:
             raw = m.group(1)
@@ -124,11 +159,11 @@ async def resolve(url: str) -> Listing:
                 price = int(raw)
                 if 500 <= price <= 200_000:
                     listing.price_usd = Field(value=price, confidence="high")
-                    log.info("price extracted from og:title (headline): $%d", price)
+                    log.info("price extracted from og:title: $%d", price)
             except ValueError:
                 pass
 
-    # og:description fallback — "Precio $X,XXX.XX" pattern
+    # 3. og:description fallback — "Precio $X,XXX.XX" pattern (often stale)
     if listing.price_usd is None and og_desc:
         m = re.search(r"Precio\s*\$\s*([0-9][\d,\.]{2,12})", og_desc, re.IGNORECASE)
         if m:
@@ -138,11 +173,12 @@ async def resolve(url: str) -> Listing:
             try:
                 price = int(raw)
                 if 500 <= price <= 200_000:
-                    listing.price_usd = Field(value=price, confidence="high")
-                    log.info("price extracted from og:desc 'Precio' pattern: $%d", price)
+                    # Mark as medium confidence since description may be stale
+                    listing.price_usd = Field(value=price, confidence="medium")
+                    log.info("price extracted from og:desc 'Precio' (may be stale): $%d", price)
             except ValueError:
                 pass
-        # Fallback to generic dollar match in og_desc
+        # Final fallback to generic dollar match in og_desc
         if listing.price_usd is None:
             listing.price_usd = parsers.to_field(parsers.extract_price_usd(og_desc))
 
