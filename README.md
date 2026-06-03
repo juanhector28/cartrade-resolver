@@ -126,3 +126,45 @@ y `RATE_MAX_REQUESTS`.
 - Railway pro plan: $20/mo (cientos-miles req/día)
 - S3 snapshots (opcional): $1-5/mo
 - Proxies residenciales (si OLX te bloquea a escala): $50-100/mo Bright Data
+
+
+CarTrade Resolver (FastAPI -> Supabase)
+Frontend (cartrade.live) -> this service (Render) -> Supabase.
+Keeps Carly's matching logic and your DB schema on the server. The browser never
+sees your Supabase key, and the inventory is queried live (no more embedded JSON).
+Endpoints
+`GET  /health` — liveness.
+`POST /carly/search` — body `{ "q": "SUV para familia menos de 15k", "country": "sv", "limit": 3 }`.
+Returns ranked matches with `monthly_est`, `tag`, and `why`.
+`POST /resolve` — body `{ "url": "https://www.encuentra24.com/.../32434900" }`.
+Returns the indexed listing if found, otherwise a "request from seller" lead.
+`GET  /stats` — indexed / addressable / GMV by country (for the landing & pitch).
+Deploy on Render
+New Web Service from this repo/folder.
+Build command: `pip install -r requirements.txt`
+Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+Environment variables:
+`SUPABASE_URL`          = https://<project>.supabase.co
+`SUPABASE_SERVICE_KEY`  = your service_role key (server-side only — never in the browser)
+`ALLOWED_ORIGINS`       = https://cartrade.live,https://www.cartrade.live
+`SUPABASE_TABLE`        = scraped_listings   (optional, this is the default)
+Test (after deploy)
+```
+curl https://YOUR-SERVICE.onrender.com/health
+curl -X POST https://YOUR-SERVICE.onrender.com/carly/search \
+  -H "Content-Type: application/json" \
+  -d '{"q":"pickup para trabajo","country":"gt","limit":3}'
+curl https://YOUR-SERVICE.onrender.com/stats
+```
+Frontend
+Set `RESOLVER_BASE` in `carly_api.js` to your Render URL, include it after the hero
+markup, and remove the embedded `window.CT_CARS` + old engine. The hero inputs
+(`#clzcInp`, chips, `#heroLinkInput`) now hit the live API.
+Security notes
+The `service_role` key bypasses RLS — keep it ONLY in this server's env, never in client code.
+Alternative: use the `anon` key + a read-only RLS SELECT policy on `scraped_listings`,
+exposing only safe columns. Slightly more setup, lower blast radius.
+CORS is locked to `ALLOWED_ORIGINS`.
+
+
+
