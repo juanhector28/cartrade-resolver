@@ -1,7 +1,6 @@
 import requests
 
-URL = "https://TU-RENDER-URL.onrender.com/inventory-run/crautos"
-
+URL = "https://cartrade-resolver.onrender.com/inventory-run/crautos"
 payload = {
     "limit": 500,
     "delay": 1
