@@ -179,31 +179,56 @@ def discover_form_defaults(session):
 
 
 def extract_ids(html):
-    return set(re.findall(r"cardetail\.cfm\?c=(\d+)", html))
+    patterns = [
+        r"cardetail\.cfm\?c=(\d+)",
+        r"cardetail\.cfm\?car=(\d+)",
+        r"/autosusados/cardetail\.cfm\?c=(\d+)",
+        r"c=(\d{5,9})",
+    ]
 
+    ids = set()
+    for p in patterns:
+        ids.update(re.findall(p, html))
+
+    return ids
 
 def collect_ids(session, delay):
     payload = discover_form_defaults(session)
     print(f"Payload de busqueda: {payload}")
+
     all_ids = set()
+
+    # Fallback 1: index page
+    r0 = fetch(session, "GET", INDEX_URL)
+    if r0:
+        index_ids = extract_ids(r0.text)
+        all_ids |= index_ids
+        print(f"  index.cfm: {len(index_ids)} ids encontrados")
+
     page = 1
     empty_streak = 0
+
     while True:
         r = fetch(session, "POST", SEARCH_URL, params={"p": page}, data=payload)
         if not r:
             break
+
         ids = extract_ids(r.text)
         new = ids - all_ids
         all_ids |= ids
+
         print(f"  pagina {page}: {len(ids)} ids ({len(new)} nuevos, total {len(all_ids)})")
+
         if not new:
             empty_streak += 1
             if empty_streak >= 2:
                 break
         else:
             empty_streak = 0
+
         page += 1
         time.sleep(delay + random.uniform(0, 0.5))
+
     return all_ids
 
 
