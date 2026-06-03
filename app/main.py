@@ -3,6 +3,8 @@
 POST /resolve-link
 POST /inventory-run
 GET  /inventory-preview
+POST /carly/search        (added) Carly: NL car search over real inventory
+GET  /stats               (added) inventory-domination metrics
 GET  /health
 """
 from __future__ import annotations
@@ -12,7 +14,7 @@ import re
 import time
 import logging
 import httpx
-from typing import Optional
+from typing import Optional, List
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -190,13 +192,245 @@ def normalize_transmission(value: str | None):
     return None
 
 
+# ============================================================================
+# ENRICHMENT (added) — body_type + quality_score, populated at scrape time so
+# new rows are immediately addressable and searchable by Carly.
+# Mirrors the one-time SQL enrichment we ran on the existing 5,879 rows.
+# ============================================================================
+_SUV = {
+    "tucson", "rav4", "cr-v", "crv", "sportage", "santa fe", "santafe", "pilot", "cx-5", "cx5",
+    "range rover", "outlander", "outlander sport", "qashqai", "explorer", "hr-v", "hrv", "kicks",
+    "creta", "vitara", "grand vitara", "sorento", "edge", "rogue", "rogue sport", "escape", "trax",
+    "tracker", "grand cherokee", "cherokee", "x-trail", "xtrail", "montero sport", "montero",
+    "montero gls", "pajero", "levante", "compass", "renegade", "soul", "4runner", "land cruiser",
+    "landcruiser", "e-tron", "etron", "wrangler", "tiguan", "t-cross", "tcross", "taos", "seltos",
+    "stonic", "captiva", "equinox", "kona", "palisade", "telluride", "macan", "cayenne", "bronco",
+    "bronco sport", "expedition", "tahoe", "suburban", "highlander", "sequoia", "fortuner", "terios",
+    "raize", "corolla cross", "c-hr", "chr", "eclipse cross", "captur", "duster", "koleos", "haval",
+    "jolion", "territory", "eclipse", "asx", "crosstrek", "forester", "outback", "xc40", "xc60",
+    "xc90", "tiggo", "ux", "murano", "pathfinder", "armada", "juke", "ecosport", "venue", "xv",
+    "santa cruz", "defender", "discovery", "discovery sport", "velar", "evoque", "urus", "bentayga",
+    "gv70", "gv80", "zr-v", "zrv", "wr-v", "wrv", "rush", "prado", "mdx", "rdx", "everest",
+    "coolray", "mustang", "camaro", "rexton", "gs8", "f-pace", "tivoli", "sonet", "3008", "5008",
+    "jimny", "azkarra", "gx3", "veloster", "cooper", "mini", "h6", "x-terra", "xterra",
+    "trailblazer", "blazer", "traverse", "acadia", "enclave", "terrain", "encore", "cx-30", "cx-3",
+    "cx-9", "cx-50", "cx-90",
+}
+_PICKUP = {
+    "hilux", "frontier", "ranger", "tacoma", "d-max", "dmax", "f-150", "f150", "l200", "np300",
+    "ridgeline", "colorado", "tundra", "titan", "gladiator", "dakota", "hardbody", "bt-50", "bt50",
+    "amarok", "sierra", "silverado", "ram", "ram 1500", "dongfeng rich", "terraking", "navara",
+    "triton", "glory 500", "sail", "wingle", "alaskan", "maverick", "f-250", "f250", "raptor",
+    "k2700", "hi-lux",
+}
+_HATCH = {
+    "yaris", "rio", "picanto", "spark", "march", "swift", "i10", "grand i10", "grand i-10", "fit",
+    "gol", "polo", "fiesta", "mazda2", "mazda 2", "demio", "sonic", "beat", "mirage", "up", "kwid",
+    "agya", "morning", "i20", "fabia", "clio", "sandero", "aygo", "308", "208", "118i", "116i",
+    "120i", "a1", "golf", "jazz", "note", "vios", "brio", "ignis", "celerio", "alto", "wagon r",
+    "splash", "onix", "ka", "figo", "aveo", "c3", "echo", "k3",
+}
+_VAN = {
+    "odyssey", "sienna", "caravan", "grand caravan", "hiace", "hi-ace", "urvan", "transit", "h1",
+    "h-1", "starex", "carnival", "sedona", "town & country", "quest", "previa", "vellfire", "alphard",
+    "voyager", "noah", "voxy", "serena", "staria", "carens", "xpander", "ertiga", "spin", "livina",
+    "t2", "k2500",
+}
+_SEDAN = {
+    "accent", "corolla", "elantra", "civic", "sentra", "versa", "soluto", "jetta", "sonata", "camry",
+    "altima", "optima", "k5", "forte", "cerato", "lancer", "attrage", "city", "virtus", "logan",
+    "passat", "accord", "legacy", "mirage g4", "almera", "sunny", "sylphy", "ioniq", "model 3",
+    "model s", "impreza", "wrx", "mazda3", "mazda 3", "mazda6", "mazda 6", "focus", "cruze", "prius",
+    "corsa", "vento", "grand siena", "siena", "verna", "sedan", "a3", "a4", "a5", "a6", "328i",
+}
+
+
+def _family_body(m: str) -> Optional[str]:
+    """Body type by luxury model family / trim prefix (handles trims like gle450, rx 450h)."""
+    if re.match(r"^x[1-7]\b", m):
+        return "suv"
+    if re.match(r"^q[2-8]\b", m):
+        return "suv"
+    if re.match(r"^qx\d", m):
+        return "suv"
+    if re.match(r"^(gle|glc|gla|glb|gls|gl|eqb|eqc|g-class|gv)\b", m):
+        return "suv"
+    if re.match(r"^(rx|nx|ux|gx|lx|rz)\b", m):
+        return "suv"
+    if re.match(r"^cx-?\d", m):
+        return "suv"
+    if "range rover" in m:
+        return "suv"
+    if re.match(r"^(c|e|s|cla|cls)-?class\b", m) or re.match(r"^[ces]\d{3}\b", m):
+        return "sedan"
+    if re.match(r"^a-?class\b", m):
+        return "hatch"
+    if re.match(r"^\d series\b", m) or re.match(r"^\d{3}i\b", m):
+        return "sedan"
+    return None
+
+
+def classify_body_type(model: str | None, title: str | None) -> str:
+    m = (model or "").strip().lower()
+    t = (title or "").lower()
+    fam = _family_body(m)
+    if fam:
+        return fam
+    if m in _PICKUP:
+        return "pickup"
+    if m in _SUV:
+        return "suv"
+    if m in _VAN:
+        return "van"
+    if m in _HATCH:
+        return "hatch"
+    if m in _SEDAN:
+        return "sedan"
+    blob = m + " " + t
+    if any(k in blob for k in ("pickup", "pick-up", "pick up", "doble cabina", "hilux", "ranger",
+                               "frontier", "tacoma", "d-max", "dmax", "l200", "np300", "f-150",
+                               "f150", "amarok", "silverado", "tundra", "titan", "colorado",
+                               "ridgeline", "raptor")):
+        return "pickup"
+    if any(k in blob for k in ("suv", "crossover", "4x4", "todo terreno", "jeepeta", "jeep",
+                               "camioneta", "rav4", "tucson", "sportage", "santa fe", "explorer",
+                               "cr-v", "grand cherokee", "land cruiser", "range rover", "prado")):
+        return "suv"
+    if any(k in blob for k in ("hatchback", " hatch", "5 puertas")):
+        return "hatch"
+    if any(k in blob for k in ("minivan", "microbus", "furgon", "furgón", "van ")):
+        return "van"
+    if any(k in blob for k in ("sedan", "sedán", "berlina", "4 puertas")):
+        return "sedan"
+    return "sedan"  # conservative default (most common class)
+
+
+def _num(v):
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def compute_quality_score(photo_count: int, price, year, km, make, model, location, fuel, transmission) -> int:
+    photos = min(photo_count or 0, 6) / 6 * 40
+    fields = [price, year, km, make, model, location, fuel, transmission]
+    comp = sum(1 for f in fields if f not in (None, "", 0)) / len(fields) * 25
+    km_n = _num(km)
+    km_sc = 15 if (km_n is not None and 1000 < km_n < 400000) else (7 if km_n else 0)
+    pr_n = _num(price)
+    pr_sc = 8 if (pr_n is not None and 500 <= pr_n <= 200000) else 0
+    yr_n = _num(year)
+    yr_sc = max(0.0, min(1.0, ((yr_n - 2008) / 17))) * 12 if yr_n else 0
+    return round(photos + comp + km_sc + pr_sc + yr_sc)
+
+
+# ============================================================================
+# CARLY (added) — deterministic NL intent parser over the live inventory.
+# Swap the parser for an LLM later behind this same endpoint.
+# ============================================================================
+CARLY_COLS = (
+    "id,country,url,make,model,year,km,price_usd,monthly_est,transmission,"
+    "fuel_type,location,body_type,quality_score,photo_count,primary_photo"
+)
+MAKES = [
+    "toyota", "nissan", "honda", "hyundai", "kia", "mitsubishi", "ford", "chevrolet", "mazda",
+    "volkswagen", "suzuki", "jeep", "bmw", "mercedes", "audi", "lexus", "subaru", "land rover",
+    "porsche", "cadillac",
+]
+TAGS = ["Mejor match", "Alternativa sólida", "Vale la pena"]
+
+
+def _norm(s: str) -> str:
+    s = (s or "").lower()
+    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u")):
+        s = s.replace(a, b)
+    return s
+
+
+class Intent(BaseModel):
+    body_types: List[str] = []
+    price_max: Optional[int] = None
+    price_min: Optional[int] = None
+    transmission: Optional[str] = None
+    make: Optional[str] = None
+    use: Optional[str] = None
+    newest_first: bool = False
+
+
+def parse_intent(text: str) -> Intent:
+    t = _norm(text)
+    it = Intent()
+    m_k = re.search(r"(\d+)\s*k\b", t)
+    m_mil = re.search(r"(\d+)\s*mil", t)
+    m_num = re.search(r"\$?\s*(\d{4,6})", t)
+    val = None
+    if m_k:
+        val = int(m_k.group(1)) * 1000
+    elif m_mil:
+        val = int(m_mil.group(1)) * 1000
+    elif m_num:
+        val = int(m_num.group(1))
+    if val:
+        if re.search(r"(mas de|arriba|desde|minimo|min)", t):
+            it.price_min = val
+        else:
+            it.price_max = val
+    if re.search(r"(automatic|automatica|\bauto\b)", t):
+        it.transmission = "Automática"
+    elif re.search(r"(manual|mecanic|estandar)", t):
+        it.transmission = "Manual"
+    if re.search(r"(famili|nin|espacio|grande|hijos|esposa)", t):
+        it.use = "familia"
+        it.body_types = ["suv", "van"]
+    if re.search(r"(primer auto|primer carro|economic|barat|ahorr|estudiante|economi)", t):
+        it.use = "primer"
+        it.body_types = ["sedan", "hatch"]
+        if not it.price_max:
+            it.price_max = 12000
+    if re.search(r"(pickup|pick up|camioneta|trabajo|carga|negocio|finca)", t):
+        it.use = "trabajo"
+        it.body_types = ["pickup"]
+    if re.search(r"(suv|crossover|todo terreno|4x4)", t):
+        it.body_types = ["suv"]
+    if re.search(r"\bsedan\b", t):
+        it.body_types = ["sedan"]
+    if re.search(r"(full|lujo|equipad|mas full|premium|\btop\b)", t):
+        it.use = "full"
+        it.newest_first = True
+    for mk in MAKES:
+        if mk in t:
+            it.make = mk
+            break
+    return it
+
+
+def build_why(car: dict, it: Intent) -> str:
+    bits = []
+    if it.use == "familia":
+        bits.append("Espacio familiar")
+    elif it.use == "trabajo":
+        bits.append("Lista para trabajo")
+    elif it.use == "primer":
+        bits.append("Buen primer auto")
+    elif it.use == "full":
+        bits.append("De las más equipadas")
+    else:
+        bits.append("Sólida opción")
+    if car.get("km"):
+        bits.append(f"{int(car['km']):,} km reales")
+    if it.price_max and car.get("price_usd") and car["price_usd"] <= it.price_max:
+        bits.append("en tu presupuesto")
+    return " · ".join(bits) + "."
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cache.init_db()
     yield
 
 
-app = FastAPI(title="CarTrade Link Resolver", version="1.4.0", lifespan=lifespan)
+app = FastAPI(title="CarTrade Link Resolver", version="1.5.0", lifespan=lifespan)
 
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://cartrade.live,https://www.cartrade.live").split(",")
 if os.environ.get("RESOLVER_DEV") == "1":
@@ -220,12 +454,22 @@ class InventoryRunRequest(BaseModel):
     pages: int = 2
 
 
+class CarlySearchRequest(BaseModel):
+    q: str = ""
+    country: Optional[str] = None
+    limit: int = 3
+    addressable_only: bool = True
+
+
 @app.get("/")
 async def root():
     return {
         "service": "cartrade-resolver",
-        "version": "1.4.0",
-        "endpoints": ["POST /resolve-link", "POST /inventory-run", "GET /inventory-preview", "GET /health"],
+        "version": "1.5.0",
+        "endpoints": [
+            "POST /resolve-link", "POST /inventory-run", "GET /inventory-preview",
+            "POST /carly/search", "GET /stats", "GET /health",
+        ],
         "supported_countries": list(COUNTRY_SEARCH_URLS.keys()),
     }
 
@@ -345,20 +589,38 @@ async def inventory_run(body: InventoryRunRequest):
             payload["thumb"] = thumb
 
             if supabase:
+                make_value = field_value(payload, "make")
+                model_value = field_value(payload, "model")
+                price_value = field_value(payload, "price_usd")
+                year_value = field_value(payload, "year")
+                km_value = field_value(payload, "km")
+                location_value = field_value(payload, "location")
+
+                # --- enrichment (added): populate body_type/quality_score/photo_count/primary_photo
+                body_type_value = classify_body_type(model_value, title_value)
+                quality_value = compute_quality_score(
+                    len(cleaned_photos), price_value, year_value, km_value,
+                    make_value, model_value, location_value, fuel_value, transmission_value,
+                )
+
                 db_record = {
                     "source": "encuentra24",
                     "country": country,
                     "url": url,
-                    "make": field_value(payload, "make"),
-                    "model": field_value(payload, "model"),
+                    "make": make_value,
+                    "model": model_value,
                     "fuel_type": fuel_value,
                     "transmission": transmission_value,
                     "title": title_value,
-                    "price_usd": field_value(payload, "price_usd"),
-                    "year": field_value(payload, "year"),
-                    "km": field_value(payload, "km"),
-                    "location": field_value(payload, "location"),
+                    "price_usd": price_value,
+                    "year": year_value,
+                    "km": km_value,
+                    "location": location_value,
                     "photos": cleaned_photos,
+                    "photo_count": len(cleaned_photos),       # added
+                    "primary_photo": photo,                    # added
+                    "body_type": body_type_value,              # added
+                    "quality_score": quality_value,            # added
                     "raw_payload": payload,
                     "status": "staging",
                 }
@@ -434,7 +696,99 @@ async def resolve_link(body: ResolveRequest, request: Request):
     payload = listing.to_dict()
     payload["elapsed_seconds"] = round(elapsed, 2)
 
+    # --- added: tell the frontend whether this listing is already in our inventory
+    if supabase:
+        try:
+            existing = supabase.table("scraped_listings").select("id").eq("url", url).limit(1).execute().data
+            payload["in_inventory"] = bool(existing)
+        except Exception:
+            payload["in_inventory"] = None
+
     if has_essentials:
         cache.put(url, payload)
 
     return payload
+
+
+@app.post("/carly/search")
+async def carly_search(body: CarlySearchRequest):
+    """Carly: parse a Spanish query, match the live inventory, rank, and return top N."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not connected.")
+
+    it = parse_intent(body.q)
+    q = supabase.table("scraped_listings").select(CARLY_COLS)
+
+    if body.addressable_only:
+        q = q.eq("is_addressable", True)
+    if body.country:
+        q = q.eq("country", body.country)
+    if it.body_types:
+        q = q.in_("body_type", it.body_types)
+    if it.transmission:
+        q = q.eq("transmission", it.transmission)
+    if it.make:
+        q = q.ilike("make", f"%{it.make}%")
+    if it.price_max:
+        q = q.lte("price_usd", it.price_max)
+    if it.price_min:
+        q = q.gte("price_usd", it.price_min)
+
+    if it.use == "primer":
+        q = q.order("price_usd", desc=False).order("quality_score", desc=True)
+    elif it.newest_first:
+        q = q.order("year", desc=True).order("quality_score", desc=True)
+    else:
+        q = q.order("quality_score", desc=True).order("year", desc=True)
+
+    limit = max(1, min(body.limit, 12))
+    try:
+        rows = q.limit(limit).execute().data or []
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Supabase query failed: {e!s}")
+
+    results = []
+    for i, car in enumerate(rows):
+        results.append({
+            **{k: car.get(k) for k in (
+                "id", "country", "url", "make", "model", "year", "km", "price_usd",
+                "monthly_est", "transmission", "location", "body_type",
+                "quality_score", "primary_photo",
+            )},
+            "tag": TAGS[i] if i < len(TAGS) else "Opción",
+            "why": build_why(car, it),
+        })
+
+    return {"query": body.q, "intent": it.model_dump(), "count": len(results), "results": results}
+
+
+@app.get("/stats")
+async def stats():
+    """Inventory-domination metrics by country (for the landing / pitch)."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not connected.")
+
+    try:
+        rows = supabase.table("scraped_listings").select("country,price_usd,is_addressable").execute().data or []
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Supabase query failed: {e!s}")
+
+    agg = {}
+    for r in rows:
+        c = r.get("country") or "??"
+        a = agg.setdefault(c, {"indexed": 0, "addressable": 0, "gmv_usd": 0})
+        a["indexed"] += 1
+        if r.get("is_addressable"):
+            a["addressable"] += 1
+        p = r.get("price_usd")
+        if p and p > 0:
+            a["gmv_usd"] += int(p)
+
+    by_country = [{"country": k, **v} for k, v in sorted(agg.items(), key=lambda x: -x[1]["indexed"])]
+    totals = {
+        "countries": len(agg),
+        "indexed": sum(v["indexed"] for v in agg.values()),
+        "addressable": sum(v["addressable"] for v in agg.values()),
+        "gmv_usd": sum(v["gmv_usd"] for v in agg.values()),
+    }
+    return {"totals": totals, "by_country": by_country}
