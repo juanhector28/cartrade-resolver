@@ -44,9 +44,9 @@ else:
 
 _health: dict[str, dict] = {
     "encuentra24": {"last_ok": None, "last_error": None, "last_at": None},
-    "olx":         {"last_ok": None, "last_error": None, "last_at": None},
-    "facebook":    {"last_ok": None, "last_error": None, "last_at": None},
-    "mercadolibre":{"last_ok": None, "last_error": None, "last_at": None},
+    "olx": {"last_ok": None, "last_error": None, "last_at": None},
+    "facebook": {"last_ok": None, "last_error": None, "last_at": None},
+    "mercadolibre": {"last_ok": None, "last_error": None, "last_at": None},
 }
 
 
@@ -112,7 +112,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="CarTrade Link Resolver",
-    version="1.3.2",
+    version="1.3.3",
     lifespan=lifespan,
 )
 
@@ -146,7 +146,7 @@ class InventoryRunRequest(BaseModel):
 async def root():
     return {
         "service": "cartrade-resolver",
-        "version": "1.3.2",
+        "version": "1.3.3",
         "endpoints": [
             "POST /resolve-link",
             "POST /inventory-run",
@@ -275,6 +275,18 @@ async def inventory_run(body: InventoryRunRequest):
                 else None
             )
 
+            fuel_value = (
+                payload.get("fuel", {}).get("value")
+                if isinstance(payload.get("fuel"), dict)
+                else None
+            )
+
+            transmission_value = (
+                payload.get("transmission", {}).get("value")
+                if isinstance(payload.get("transmission"), dict)
+                else None
+            )
+
             results.append(payload)
 
             if supabase:
@@ -292,16 +304,8 @@ async def inventory_run(body: InventoryRunRequest):
                         if isinstance(payload.get("model"), dict)
                         else None
                     ),
-                    "fuel_type": (
-                        payload.get("fuel", {}).get("value")
-                        if isinstance(payload.get("fuel"), dict)
-                        else infer_fuel_from_text(title_value)
-                    ),
-                    "transmission": (
-                        payload.get("transmission", {}).get("value")
-                        if isinstance(payload.get("transmission"), dict)
-                        else infer_transmission_from_text(title_value)
-                    ),
+                    "fuel_type": fuel_value or infer_fuel_from_text(title_value),
+                    "transmission": transmission_value or infer_transmission_from_text(title_value),
                     "title": title_value,
                     "price_usd": (
                         payload.get("price_usd", {}).get("value")
