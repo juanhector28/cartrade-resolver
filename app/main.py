@@ -160,8 +160,8 @@ async def inventory_preview(limit: int = 20):
 async def inventory_run(body: InventoryRunRequest):
     if body.country != "sv":
         raise HTTPException(status_code=400, detail="Only sv is supported for this test.")
-    if body.pages < 1 or body.pages > 20:
-        raise HTTPException(status_code=400, detail="For this test, pages must be between 1 and 20.")
+    if body.pages < 1 or body.pages > 34:
+        raise HTTPException(status_code=400, detail="For this test, pages must be between 1 and 34.")
 
     search_url = "https://www.encuentra24.com/el-salvador-es/autos-usados"
     discovered_urls = set()
