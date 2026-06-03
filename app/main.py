@@ -272,8 +272,8 @@ async def inventory_run(body: InventoryRunRequest):
             detail=f"Unsupported country. Use one of: {', '.join(COUNTRY_SEARCH_URLS.keys())}"
         )
 
-    if body.pages < 1 or body.pages > 50:
-        raise HTTPException(status_code=400, detail="Pages must be between 1 and 50.")
+    if body.pages < 1 or body.pages > 200:
+        raise HTTPException(status_code=400, detail="Pages must be between 1 and 200.")
 
     search_url = COUNTRY_SEARCH_URLS[country]
     discovered_urls = set()
