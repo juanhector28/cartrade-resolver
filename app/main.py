@@ -32,6 +32,14 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY else None
 
+COUNTRY_SEARCH_URLS = {
+    "sv": "https://www.encuentra24.com/el-salvador-es/autos-usados",
+    "gt": "https://www.encuentra24.com/guatemala-es/autos-usados",
+    "cr": "https://www.encuentra24.com/costa-rica-es/autos-usados",
+    "pa": "https://www.encuentra24.com/panama-es/autos-usados",
+    "hn": "https://www.encuentra24.com/honduras-es/autos-usados",
+    "ni": "https://www.encuentra24.com/nicaragua-es/autos-usados",
+}
 
 _health = {
     "encuentra24": {"last_ok": None, "last_error": None, "last_at": None},
@@ -59,29 +67,126 @@ def field_value(payload: dict, key: str):
     return v
 
 
+def listing_id(url: str | None):
+    m = re.search(r"/(\d{6,9})/?$", (url or "").rstrip("/"))
+    return m.group(1) if m else None
+
+
+def photo_id(url: str):
+    m = re.search(r"/(\d{6,9})_", url)
+    return m.group(1) if m else None
+
+
+def photo_key(url: str):
+    return url.rstrip("/").split("/")[-1]
+
+
+def to_large_photo(url: str):
+    return re.sub(r"/t_or_fh_\w+/", "/t_or_fh_l/", url)
+
+
+def to_medium_photo(url: str):
+    return re.sub(r"/t_or_fh_\w+/", "/t_or_fh_m/", url)
+
+
+def clean_photos(photos: list, source_url: str):
+    lid = listing_id(source_url)
+    cleaned = []
+    seen = set()
+
+    for raw_url in photos or []:
+        if not isinstance(raw_url, str):
+            continue
+
+        url = raw_url.strip().rstrip("\\").strip()
+
+        if not url.startswith("http"):
+            continue
+
+        if url.endswith("/"):
+            continue
+
+        segment = url.rstrip("/").split("/")[-1]
+
+        # complete filename = listingid_hash or listingid_hash-suffix
+        if not re.match(r"^\d{6,9}_[0-9a-f]{6,}(-[0-9a-f]{4,})?$", segment):
+            continue
+
+        # prevent cross-listing photo contamination
+        if lid and photo_id(url) != lid:
+            continue
+
+        key = photo_key(url)
+        if key in seen:
+            continue
+
+        seen.add(key)
+        cleaned.append(to_large_photo(url))
+
+    return cleaned[:8]
+
+
 def infer_fuel_from_text(text: str | None):
     if not text:
         return None
+
     t = text.lower()
+
     if "diesel" in t:
         return "Diesel"
     if "gasolina" in t:
-        return "Gasoline"
+        return "Gasolina"
     if "híbrido" in t or "hibrido" in t or "hybrid" in t:
-        return "Hybrid"
+        return "Híbrido"
     if "eléctrico" in t or "electrico" in t or "electric" in t:
-        return "Electric"
+        return "Eléctrico"
+
     return None
 
 
 def infer_transmission_from_text(text: str | None):
     if not text:
         return None
+
     t = text.lower()
+
     if "manual" in t:
         return "Manual"
     if "automático" in t or "automatica" in t or "automática" in t or "automatico" in t or "automatic" in t:
-        return "Automatic"
+        return "Automática"
+
+    return None
+
+
+def normalize_fuel(value: str | None):
+    if not value:
+        return None
+
+    t = value.strip().lower()
+
+    if t == "diesel":
+        return "Diesel"
+    if t == "gasolina":
+        return "Gasolina"
+    if t in {"híbrido", "hibrido", "hybrid"}:
+        return "Híbrido"
+    if t in {"eléctrico", "electrico", "electric"}:
+        return "Eléctrico"
+
+    return None
+
+
+def normalize_transmission(value: str | None):
+    if not value:
+        return None
+
+    t = value.strip().lower()
+
+    if t.startswith("manual"):
+        return "Manual"
+    if t.startswith("autom") or t == "automatic":
+        return "Automática"
+
     return None
 
 
@@ -91,7 +196,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="CarTrade Link Resolver", version="1.3.4", lifespan=lifespan)
+app = FastAPI(title="CarTrade Link Resolver", version="1.4.0", lifespan=lifespan)
 
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://cartrade.live,https://www.cartrade.live").split(",")
 if os.environ.get("RESOLVER_DEV") == "1":
@@ -119,8 +224,9 @@ class InventoryRunRequest(BaseModel):
 async def root():
     return {
         "service": "cartrade-resolver",
-        "version": "1.3.4",
+        "version": "1.4.0",
         "endpoints": ["POST /resolve-link", "POST /inventory-run", "GET /inventory-preview", "GET /health"],
+        "supported_countries": list(COUNTRY_SEARCH_URLS.keys()),
     }
 
 
@@ -139,38 +245,44 @@ async def health():
 
 
 @app.get("/inventory-preview")
-async def inventory_preview(limit: int = 20):
+async def inventory_preview(limit: int = 20, country: str | None = None):
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not connected.")
+
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="Limit must be between 1 and 100.")
 
-    response = (
-        supabase
-        .table("scraped_listings")
-        .select("*")
-        .order("scraped_at", desc=True)
-        .limit(limit)
-        .execute()
-    )
+    query = supabase.table("scraped_listings").select("*").order("scraped_at", desc=True).limit(limit)
+
+    if country:
+        query = query.eq("country", country)
+
+    response = query.execute()
+
     return {"count": len(response.data), "items": response.data}
 
 
 @app.post("/inventory-run")
 async def inventory_run(body: InventoryRunRequest):
-    if body.country != "sv":
-        raise HTTPException(status_code=400, detail="Only sv is supported for this test.")
-    if body.pages < 1 or body.pages > 34:
-        raise HTTPException(status_code=400, detail="For this test, pages must be between 1 and 34.")
+    country = body.country.lower().strip()
 
-    search_url = "https://www.encuentra24.com/el-salvador-es/autos-usados"
+    if country not in COUNTRY_SEARCH_URLS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported country. Use one of: {', '.join(COUNTRY_SEARCH_URLS.keys())}"
+        )
+
+    if body.pages < 1 or body.pages > 50:
+        raise HTTPException(status_code=400, detail="Pages must be between 1 and 50.")
+
+    search_url = COUNTRY_SEARCH_URLS[country]
     discovered_urls = set()
     page_debug = []
 
     async with httpx.AsyncClient(
         timeout=30.0,
         follow_redirects=True,
-        headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "es-SV,es;q=0.9"},
+        headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "es;q=0.9"},
     ) as cli:
         for page in range(1, body.pages + 1):
             page_url = f"{search_url}?page={page}"
@@ -182,11 +294,15 @@ async def inventory_run(body: InventoryRunRequest):
 
             for node in tree.css("a[href]"):
                 href = node.attributes.get("href", "")
+
                 if "/autos-usados/" not in href:
                     continue
+
                 if href.startswith("/"):
                     href = "https://www.encuentra24.com" + href
+
                 href = href.split("?")[0]
+
                 if re.search(r"/\d+$", href):
                     page_urls.add(href)
 
@@ -200,6 +316,7 @@ async def inventory_run(body: InventoryRunRequest):
 
     saved_count = 0
     error_count = 0
+    no_photo_count = 0
 
     for i, url in enumerate(sorted(discovered_urls), start=1):
         try:
@@ -210,28 +327,38 @@ async def inventory_run(body: InventoryRunRequest):
             description_value = field_value(payload, "description")
             text_for_inference = f"{title_value or ''} {description_value or ''}"
 
-            fuel_value = field_value(payload, "fuel")
-            transmission_value = field_value(payload, "transmission")
+            fuel_value = normalize_fuel(field_value(payload, "fuel")) or infer_fuel_from_text(text_for_inference)
+            transmission_value = normalize_transmission(field_value(payload, "transmission")) or infer_transmission_from_text(text_for_inference)
+
+            cleaned_photos = clean_photos(payload.get("photos", []), url)
+            if not cleaned_photos:
+                no_photo_count += 1
+
+            photo = cleaned_photos[0] if cleaned_photos else None
+            thumb = to_medium_photo(photo) if photo else None
 
             payload["inventory_source"] = "encuentra24"
-            payload["inventory_country"] = "sv"
+            payload["inventory_country"] = country
             payload["inventory_scraped_at"] = int(time.time())
+            payload["cleaned_photos"] = cleaned_photos
+            payload["photo"] = photo
+            payload["thumb"] = thumb
 
             if supabase:
                 db_record = {
                     "source": "encuentra24",
-                    "country": "sv",
+                    "country": country,
                     "url": url,
                     "make": field_value(payload, "make"),
                     "model": field_value(payload, "model"),
-                    "fuel_type": fuel_value or infer_fuel_from_text(text_for_inference),
-                    "transmission": transmission_value or infer_transmission_from_text(text_for_inference),
+                    "fuel_type": fuel_value,
+                    "transmission": transmission_value,
                     "title": title_value,
                     "price_usd": field_value(payload, "price_usd"),
                     "year": field_value(payload, "year"),
                     "km": field_value(payload, "km"),
                     "location": field_value(payload, "location"),
-                    "photos": payload.get("photos", []),
+                    "photos": cleaned_photos,
                     "raw_payload": payload,
                     "status": "staging",
                 }
@@ -246,12 +373,13 @@ async def inventory_run(body: InventoryRunRequest):
         time.sleep(0.5)
 
     return {
-        "country": body.country,
+        "country": country,
         "pages": body.pages,
         "discovered_count": len(discovered_urls),
         "resolved_count": len(discovered_urls),
         "saved_count": saved_count,
         "error_count": error_count,
+        "no_photo_count": no_photo_count,
         "page_debug": page_debug,
     }
 
