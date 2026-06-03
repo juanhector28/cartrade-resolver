@@ -1,18 +1,23 @@
 """CarTrade link resolver — FastAPI entry point.
 
 POST /resolve-link
+POST /inventory-run
 GET  /health
 """
 from __future__ import annotations
+
 import os
+import re
 import time
 import logging
+import httpx
 from typing import Optional
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, HttpUrl, ValidationError
+from pydantic import BaseModel, HttpUrl
+from selectolax.parser import HTMLParser
 
 from . import cache, rate_limit, platforms
 from .resolvers import encuentra24, olx, facebook, mercadolibre, fallback
@@ -23,7 +28,6 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("resolver")
 
 
-# Health tracking — last result per platform
 _health: dict[str, dict] = {
     "encuentra24": {"last_ok": None, "last_error": None, "last_at": None},
     "olx":         {"last_ok": None, "last_error": None, "last_at": None},
@@ -53,17 +57,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="CarTrade Link Resolver",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
-# CORS — production allows cartrade.live; dev allows everything.
 CORS_ORIGINS = os.environ.get(
     "CORS_ORIGINS",
     "https://cartrade.live,https://www.cartrade.live"
 ).split(",")
 
-# In dev mode (no env var or explicitly set), allow all origins
 if os.environ.get("RESOLVER_DEV") == "1":
     CORS_ORIGINS = ["*"]
 
@@ -80,12 +82,17 @@ class ResolveRequest(BaseModel):
     url: HttpUrl
 
 
+class InventoryRunRequest(BaseModel):
+    country: str = "sv"
+    pages: int = 2
+
+
 @app.get("/")
 async def root():
     return {
         "service": "cartrade-resolver",
-        "version": "1.0.0",
-        "endpoints": ["POST /resolve-link", "GET /health"],
+        "version": "1.1.0",
+        "endpoints": ["POST /resolve-link", "POST /inventory-run", "GET /health"],
     }
 
 
@@ -102,8 +109,83 @@ async def health():
     }
 
 
+@app.post("/inventory-run")
+async def inventory_run(body: InventoryRunRequest):
+    if body.country != "sv":
+        raise HTTPException(status_code=400, detail="Only sv is supported for this test.")
+
+    if body.pages < 1 or body.pages > 5:
+        raise HTTPException(status_code=400, detail="For this test, pages must be between 1 and 5.")
+
+    search_url = "https://www.encuentra24.com/el-salvador-es/autos-usados"
+    discovered_urls = set()
+
+    async with httpx.AsyncClient(
+        timeout=30.0,
+        follow_redirects=True,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept-Language": "es-SV,es;q=0.9",
+        },
+    ) as cli:
+        for page in range(1, body.pages + 1):
+            page_url = f"{search_url}?page={page}"
+            log.info("inventory discovering page=%s url=%s", page, page_url)
+
+            r = await cli.get(page_url)
+            r.raise_for_status()
+
+            tree = HTMLParser(r.text)
+
+            for node in tree.css("a[href]"):
+                href = node.attributes.get("href", "")
+
+                if "/autos-usados/" not in href:
+                    continue
+
+                if href.startswith("/"):
+                    href = "https://www.encuentra24.com" + href
+
+                href = href.split("?")[0]
+
+                if re.search(r"/\d+$", href):
+                    discovered_urls.add(href)
+
+    results = []
+
+    for i, url in enumerate(sorted(discovered_urls), start=1):
+        log.info("inventory resolving %s/%s url=%s", i, len(discovered_urls), url)
+
+        try:
+            listing = await encuentra24.resolve(url)
+            payload = listing.to_dict()
+            payload["inventory_source"] = "encuentra24"
+            payload["inventory_country"] = "sv"
+            payload["inventory_scraped_at"] = int(time.time())
+            results.append(payload)
+
+        except Exception as e:
+            log.exception("inventory resolver error url=%s", url)
+            results.append({
+                "url": url,
+                "error": str(e),
+                "inventory_source": "encuentra24",
+                "inventory_country": "sv",
+                "inventory_scraped_at": int(time.time()),
+            })
+
+        time.sleep(0.5)
+
+    return {
+        "country": body.country,
+        "pages": body.pages,
+        "discovered_count": len(discovered_urls),
+        "resolved_count": len(results),
+        "results": results,
+    }
+
+
 def _client_ip(req: Request) -> str:
-    # Railway/Fly set x-forwarded-for; fall back to client.host
     xff = req.headers.get("x-forwarded-for")
     if xff:
         return xff.split(",")[0].strip()
@@ -115,32 +197,29 @@ async def resolve_link(body: ResolveRequest, request: Request):
     url = str(body.url)
     ip = _client_ip(request)
 
-    # ─── Rate limit ──────────────────────────────────────────────
     allowed, remaining = rate_limit.check(ip)
     if not allowed:
         log.warning("rate limit hit ip=%s", ip)
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
 
-    # ─── Validate URL is from a whitelisted domain ───────────────
     if not platforms.is_allowed(url):
         log.info("rejected non-whitelisted url=%s ip=%s", url, ip)
         raise HTTPException(
             status_code=400,
             detail="URL is not from a supported listing platform.")
 
-    # ─── Cache check ─────────────────────────────────────────────
     cached = cache.get(url)
     if cached:
         cached["cached"] = True
         log.info("cache hit url=%s ip=%s", url, ip)
         return cached
 
-    # ─── Dispatch to resolver ───────────────────────────────────
     platform = platforms.detect(url)
     log.info("resolving platform=%s url=%s ip=%s remaining=%d", platform, url, ip, remaining)
 
     started = time.time()
     listing: Listing
+
     try:
         if platform == "encuentra24":
             listing = await encuentra24.resolve(url)
@@ -161,7 +240,6 @@ async def resolve_link(body: ResolveRequest, request: Request):
     log.info("resolved platform=%s elapsed=%.2fs errors=%d photos=%d",
              platform, elapsed, len(listing.errors), len(listing.photos))
 
-    # Health tracking
     has_essentials = listing.title is not None or len(listing.photos) > 0
     _record(platform, ok=has_essentials and not listing.errors,
             error="; ".join(listing.errors)[:200] if listing.errors else None)
@@ -169,7 +247,6 @@ async def resolve_link(body: ResolveRequest, request: Request):
     payload = listing.to_dict()
     payload["elapsed_seconds"] = round(elapsed, 2)
 
-    # Cache it (don't cache total failures)
     if has_essentials:
         cache.put(url, payload)
 
