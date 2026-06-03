@@ -25,24 +25,15 @@ from . import cache, rate_limit, platforms
 from .resolvers import encuentra24, olx, facebook, mercadolibre, fallback
 from .resolvers.base import Listing
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("resolver")
-
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-
-supabase = None
-
-if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
-    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    log.info("Supabase connected.")
-else:
-    log.warning("Supabase env vars missing.")
+supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY else None
 
 
-_health: dict[str, dict] = {
+_health = {
     "encuentra24": {"last_ok": None, "last_error": None, "last_at": None},
     "olx": {"last_ok": None, "last_error": None, "last_at": None},
     "facebook": {"last_ok": None, "last_error": None, "last_at": None},
@@ -52,7 +43,7 @@ _health: dict[str, dict] = {
 
 def _record(platform: str, ok: bool, error: Optional[str] = None):
     h = _health.get(platform)
-    if h is not None:
+    if h:
         h["last_at"] = int(time.time())
         if ok:
             h["last_ok"] = int(time.time())
@@ -61,66 +52,48 @@ def _record(platform: str, ok: bool, error: Optional[str] = None):
             h["last_error"] = error
 
 
+def field_value(payload: dict, key: str):
+    v = payload.get(key)
+    if isinstance(v, dict):
+        return v.get("value")
+    return v
+
+
 def infer_fuel_from_text(text: str | None):
     if not text:
         return None
-
-    text = text.lower()
-
-    if "diesel" in text:
+    t = text.lower()
+    if "diesel" in t:
         return "Diesel"
-
-    if "híbrido" in text or "hibrido" in text or "hybrid" in text:
-        return "Hybrid"
-
-    if "eléctrico" in text or "electrico" in text or "electric" in text:
-        return "Electric"
-
-    if "gasolina" in text:
+    if "gasolina" in t:
         return "Gasoline"
-
+    if "híbrido" in t or "hibrido" in t or "hybrid" in t:
+        return "Hybrid"
+    if "eléctrico" in t or "electrico" in t or "electric" in t:
+        return "Electric"
     return None
 
 
 def infer_transmission_from_text(text: str | None):
     if not text:
         return None
-
-    text = text.lower()
-
-    if "manual" in text:
+    t = text.lower()
+    if "manual" in t:
         return "Manual"
-
-    if (
-        "automático" in text
-        or "automatica" in text
-        or "automatico" in text
-        or "automatic" in text
-    ):
+    if "automático" in t or "automatica" in t or "automática" in t or "automatico" in t or "automatic" in t:
         return "Automatic"
-
     return None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cache.init_db()
-    log.info("Resolver started. Cache DB: %s", cache.CACHE_DB)
     yield
-    log.info("Resolver shutting down.")
 
 
-app = FastAPI(
-    title="CarTrade Link Resolver",
-    version="1.3.3",
-    lifespan=lifespan,
-)
+app = FastAPI(title="CarTrade Link Resolver", version="1.3.4", lifespan=lifespan)
 
-CORS_ORIGINS = os.environ.get(
-    "CORS_ORIGINS",
-    "https://cartrade.live,https://www.cartrade.live"
-).split(",")
-
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://cartrade.live,https://www.cartrade.live").split(",")
 if os.environ.get("RESOLVER_DEV") == "1":
     CORS_ORIGINS = ["*"]
 
@@ -146,13 +119,8 @@ class InventoryRunRequest(BaseModel):
 async def root():
     return {
         "service": "cartrade-resolver",
-        "version": "1.3.3",
-        "endpoints": [
-            "POST /resolve-link",
-            "POST /inventory-run",
-            "GET /inventory-preview",
-            "GET /health",
-        ],
+        "version": "1.3.4",
+        "endpoints": ["POST /resolve-link", "POST /inventory-run", "GET /inventory-preview", "GET /health"],
     }
 
 
@@ -174,38 +142,24 @@ async def health():
 async def inventory_preview(limit: int = 20):
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not connected.")
-
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="Limit must be between 1 and 100.")
 
-    try:
-        response = (
-            supabase
-            .table("scraped_listings")
-            .select("*")
-            .order("scraped_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
-
-        return {
-            "count": len(response.data),
-            "items": response.data,
-        }
-
-    except Exception as e:
-        log.exception("inventory preview failed")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Inventory preview error: {e!s}"
-        )
+    response = (
+        supabase
+        .table("scraped_listings")
+        .select("*")
+        .order("scraped_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return {"count": len(response.data), "items": response.data}
 
 
 @app.post("/inventory-run")
 async def inventory_run(body: InventoryRunRequest):
     if body.country != "sv":
         raise HTTPException(status_code=400, detail="Only sv is supported for this test.")
-
     if body.pages < 1 or body.pages > 5:
         raise HTTPException(status_code=400, detail="For this test, pages must be between 1 and 5.")
 
@@ -216,15 +170,10 @@ async def inventory_run(body: InventoryRunRequest):
     async with httpx.AsyncClient(
         timeout=30.0,
         follow_redirects=True,
-        headers={
-            "User-Agent": "Mozilla/5.0",
-            "Accept-Language": "es-SV,es;q=0.9",
-        },
+        headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "es-SV,es;q=0.9"},
     ) as cli:
         for page in range(1, body.pages + 1):
             page_url = f"{search_url}?page={page}"
-            log.info("inventory discovering page=%s url=%s", page, page_url)
-
             r = await cli.get(page_url)
             r.raise_for_status()
 
@@ -233,20 +182,15 @@ async def inventory_run(body: InventoryRunRequest):
 
             for node in tree.css("a[href]"):
                 href = node.attributes.get("href", "")
-
                 if "/autos-usados/" not in href:
                     continue
-
                 if href.startswith("/"):
                     href = "https://www.encuentra24.com" + href
-
                 href = href.split("?")[0]
-
                 if re.search(r"/\d+$", href):
                     page_urls.add(href)
 
             discovered_urls.update(page_urls)
-
             page_debug.append({
                 "page": page,
                 "page_url": page_url,
@@ -254,102 +198,50 @@ async def inventory_run(body: InventoryRunRequest):
                 "sample_urls": sorted(page_urls)[:5],
             })
 
-    results = []
     saved_count = 0
     error_count = 0
 
     for i, url in enumerate(sorted(discovered_urls), start=1):
-        log.info("inventory resolving %s/%s url=%s", i, len(discovered_urls), url)
-
         try:
             listing = await encuentra24.resolve(url)
             payload = listing.to_dict()
 
+            title_value = field_value(payload, "title")
+            description_value = field_value(payload, "description")
+            text_for_inference = f"{title_value or ''} {description_value or ''}"
+
+            fuel_value = field_value(payload, "fuel")
+            transmission_value = field_value(payload, "transmission")
+
             payload["inventory_source"] = "encuentra24"
             payload["inventory_country"] = "sv"
             payload["inventory_scraped_at"] = int(time.time())
-
-            title_value = (
-                payload.get("title", {}).get("value")
-                if isinstance(payload.get("title"), dict)
-                else None
-            )
-
-            fuel_value = (
-                payload.get("fuel", {}).get("value")
-                if isinstance(payload.get("fuel"), dict)
-                else None
-            )
-
-            transmission_value = (
-                payload.get("transmission", {}).get("value")
-                if isinstance(payload.get("transmission"), dict)
-                else None
-            )
-
-            results.append(payload)
 
             if supabase:
                 db_record = {
                     "source": "encuentra24",
                     "country": "sv",
                     "url": url,
-                    "make": (
-                        payload.get("make", {}).get("value")
-                        if isinstance(payload.get("make"), dict)
-                        else None
-                    ),
-                    "model": (
-                        payload.get("model", {}).get("value")
-                        if isinstance(payload.get("model"), dict)
-                        else None
-                    ),
-                    "fuel_type": fuel_value or infer_fuel_from_text(title_value),
-                    "transmission": transmission_value or infer_transmission_from_text(title_value),
+                    "make": field_value(payload, "make"),
+                    "model": field_value(payload, "model"),
+                    "fuel_type": fuel_value or infer_fuel_from_text(text_for_inference),
+                    "transmission": transmission_value or infer_transmission_from_text(text_for_inference),
                     "title": title_value,
-                    "price_usd": (
-                        payload.get("price_usd", {}).get("value")
-                        if isinstance(payload.get("price_usd"), dict)
-                        else None
-                    ),
-                    "year": (
-                        payload.get("year", {}).get("value")
-                        if isinstance(payload.get("year"), dict)
-                        else None
-                    ),
-                    "km": (
-                        payload.get("km", {}).get("value")
-                        if isinstance(payload.get("km"), dict)
-                        else None
-                    ),
-                    "location": (
-                        payload.get("location", {}).get("value")
-                        if isinstance(payload.get("location"), dict)
-                        else None
-                    ),
+                    "price_usd": field_value(payload, "price_usd"),
+                    "year": field_value(payload, "year"),
+                    "km": field_value(payload, "km"),
+                    "location": field_value(payload, "location"),
                     "photos": payload.get("photos", []),
                     "raw_payload": payload,
                     "status": "staging",
                 }
 
-                supabase.table("scraped_listings").upsert(
-                    db_record,
-                    on_conflict="url"
-                ).execute()
-
+                supabase.table("scraped_listings").upsert(db_record, on_conflict="url").execute()
                 saved_count += 1
 
         except Exception as e:
             error_count += 1
             log.exception("inventory resolver error url=%s", url)
-
-            results.append({
-                "url": url,
-                "error": str(e),
-                "inventory_source": "encuentra24",
-                "inventory_country": "sv",
-                "inventory_scraped_at": int(time.time()),
-            })
 
         time.sleep(0.5)
 
@@ -357,7 +249,7 @@ async def inventory_run(body: InventoryRunRequest):
         "country": body.country,
         "pages": body.pages,
         "discovered_count": len(discovered_urls),
-        "resolved_count": len(results),
+        "resolved_count": len(discovered_urls),
         "saved_count": saved_count,
         "error_count": error_count,
         "page_debug": page_debug,
@@ -378,26 +270,18 @@ async def resolve_link(body: ResolveRequest, request: Request):
 
     allowed, remaining = rate_limit.check(ip)
     if not allowed:
-        log.warning("rate limit hit ip=%s", ip)
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
 
     if not platforms.is_allowed(url):
-        log.info("rejected non-whitelisted url=%s ip=%s", url, ip)
-        raise HTTPException(
-            status_code=400,
-            detail="URL is not from a supported listing platform.")
+        raise HTTPException(status_code=400, detail="URL is not from a supported listing platform.")
 
     cached = cache.get(url)
     if cached:
         cached["cached"] = True
-        log.info("cache hit url=%s ip=%s", url, ip)
         return cached
 
     platform = platforms.detect(url)
-    log.info("resolving platform=%s url=%s ip=%s remaining=%d", platform, url, ip, remaining)
-
     started = time.time()
-    listing: Listing
 
     try:
         if platform == "encuentra24":
@@ -411,14 +295,10 @@ async def resolve_link(body: ResolveRequest, request: Request):
         else:
             listing = await fallback.resolve(url)
     except Exception as e:
-        log.exception("resolver crashed url=%s", url)
         _record(platform, ok=False, error=str(e)[:200])
         raise HTTPException(status_code=500, detail=f"Resolver error: {e!s}")
 
     elapsed = time.time() - started
-    log.info("resolved platform=%s elapsed=%.2fs errors=%d photos=%d",
-             platform, elapsed, len(listing.errors), len(listing.photos))
-
     has_essentials = listing.title is not None or len(listing.photos) > 0
     _record(platform, ok=has_essentials and not listing.errors,
             error="; ".join(listing.errors)[:200] if listing.errors else None)
