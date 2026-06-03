@@ -241,6 +241,26 @@ async def inventory_run(body: InventoryRunRequest):
                     "source": "encuentra24",
                     "country": "sv",
                     "url": url,
+                    "make": (
+                        payload.get("make", {}).get("value")
+                        if isinstance(payload.get("make"), dict)
+                        else None
+                    ),
+                    "model": (
+                        payload.get("model", {}).get("value")
+                        if isinstance(payload.get("model"), dict)
+                        else None
+                    ),
+                    "fuel_type": (
+                        payload.get("fuel", {}).get("value")
+                        if isinstance(payload.get("fuel"), dict)
+                        else None
+                    ),
+                    "transmission": (
+                        payload.get("transmission", {}).get("value")
+                        if isinstance(payload.get("transmission"), dict)
+                        else None
+                    ),
                     "title": (
                         payload.get("title", {}).get("value")
                         if isinstance(payload.get("title"), dict)
