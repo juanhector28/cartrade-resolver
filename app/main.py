@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="CarTrade Link Resolver",
-    version="1.3.0",
+    version="1.3.1",
     lifespan=lifespan,
 )
 
@@ -105,7 +105,7 @@ class InventoryRunRequest(BaseModel):
 async def root():
     return {
         "service": "cartrade-resolver",
-        "version": "1.3.0",
+        "version": "1.3.1",
         "endpoints": [
             "POST /resolve-link",
             "POST /inventory-run",
@@ -176,6 +176,7 @@ async def inventory_run(body: InventoryRunRequest):
 
     search_url = "https://www.encuentra24.com/el-salvador-es/autos-usados"
     discovered_urls = set()
+    page_debug = []
 
     async with httpx.AsyncClient(
         timeout=30.0,
@@ -193,6 +194,7 @@ async def inventory_run(body: InventoryRunRequest):
             r.raise_for_status()
 
             tree = HTMLParser(r.text)
+            page_urls = set()
 
             for node in tree.css("a[href]"):
                 href = node.attributes.get("href", "")
@@ -206,7 +208,16 @@ async def inventory_run(body: InventoryRunRequest):
                 href = href.split("?")[0]
 
                 if re.search(r"/\d+$", href):
-                    discovered_urls.add(href)
+                    page_urls.add(href)
+
+            discovered_urls.update(page_urls)
+
+            page_debug.append({
+                "page": page,
+                "page_url": page_url,
+                "found_count": len(page_urls),
+                "sample_urls": sorted(page_urls)[:5],
+            })
 
     results = []
     saved_count = 0
@@ -288,6 +299,7 @@ async def inventory_run(body: InventoryRunRequest):
         "resolved_count": len(results),
         "saved_count": saved_count,
         "error_count": error_count,
+        "page_debug": page_debug,
     }
 
 
