@@ -2,6 +2,7 @@
 
 POST /resolve-link
 POST /inventory-run
+GET  /inventory-preview
 GET  /health
 """
 from __future__ import annotations
@@ -70,7 +71,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="CarTrade Link Resolver",
-    version="1.2.0",
+    version="1.3.0",
     lifespan=lifespan,
 )
 
@@ -104,8 +105,13 @@ class InventoryRunRequest(BaseModel):
 async def root():
     return {
         "service": "cartrade-resolver",
-        "version": "1.2.0",
-        "endpoints": ["POST /resolve-link", "POST /inventory-run", "GET /health"],
+        "version": "1.3.0",
+        "endpoints": [
+            "POST /resolve-link",
+            "POST /inventory-run",
+            "GET /inventory-preview",
+            "GET /health",
+        ],
     }
 
 
@@ -121,6 +127,43 @@ async def health():
         "cache_ttl_seconds": cache.CACHE_TTL_SECONDS,
         "supabase_connected": supabase is not None,
     }
+
+
+@app.get("/inventory-preview")
+async def inventory_preview(limit: int = 20):
+    if not supabase:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase not connected."
+        )
+
+    if limit < 1 or limit > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit must be between 1 and 100."
+        )
+
+    try:
+        response = (
+            supabase
+            .table("scraped_listings")
+            .select("*")
+            .order("scraped_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+        return {
+            "count": len(response.data),
+            "items": response.data,
+        }
+
+    except Exception as e:
+        log.exception("inventory preview failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Inventory preview error: {e!s}"
+        )
 
 
 @app.post("/inventory-run")
