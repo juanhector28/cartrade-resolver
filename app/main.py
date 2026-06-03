@@ -2,6 +2,7 @@
 
 POST /resolve-link
 POST /inventory-run
+POST /inventory-run/crautos
 GET  /inventory-preview
 POST /carly/search        (added) Carly: NL car search over real inventory
 GET  /stats               (added) inventory-domination metrics
@@ -12,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import time
+import sqlite3
 import logging
 import httpx
 from typing import Optional, List
@@ -454,6 +456,11 @@ class InventoryRunRequest(BaseModel):
     pages: int = 2
 
 
+class CrautosInventoryRunRequest(BaseModel):
+    limit: int = 50
+    delay: float = 1.0
+
+
 class CarlySearchRequest(BaseModel):
     q: str = ""
     country: Optional[str] = None
@@ -467,7 +474,7 @@ async def root():
         "service": "cartrade-resolver",
         "version": "1.5.0",
         "endpoints": [
-            "POST /resolve-link", "POST /inventory-run", "GET /inventory-preview",
+            "POST /resolve-link", "POST /inventory-run", "POST /inventory-run/crautos", "GET /inventory-preview",
             "POST /carly/search", "GET /stats", "GET /health",
         ],
         "supported_countries": list(COUNTRY_SEARCH_URLS.keys()),
@@ -504,6 +511,142 @@ async def inventory_preview(limit: int = 20, country: str | None = None):
     response = query.execute()
 
     return {"count": len(response.data), "items": response.data}
+
+
+
+@app.post("/inventory-run/crautos")
+async def inventory_run_crautos(body: CrautosInventoryRunRequest):
+    """CRAutos inventory ingestion for Costa Rica.
+
+    Flow:
+    1) Discover CRAutos listing IDs.
+    2) Scrape detail pages.
+    3) Save a local SQLite copy in /tmp.
+    4) Upsert normalized rows into Supabase scraped_listings.
+    """
+    if body.limit < 1 or body.limit > 500:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 500.")
+
+    if body.delay < 0.5 or body.delay > 10:
+        raise HTTPException(status_code=400, detail="Delay must be between 0.5 and 10 seconds.")
+
+    try:
+        from .scrapers.crautos import crautos_scraper as crautos
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "CRAutos scraper module not found. Expected it at "
+                "app/scrapers/crautos/crautos_scraper.py. "
+                f"Original error: {e!s}"
+            ),
+        )
+
+    db_path = "/tmp/crautos.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(crautos.SCHEMA)
+
+    started = time.time()
+    saved_count = 0
+    error_count = 0
+    discovered_count = 0
+    no_photo_count = 0
+    sample_urls = []
+
+    try:
+        session = crautos.make_session()
+        ids = crautos.collect_ids(session, body.delay)
+        discovered_count = len(ids)
+
+        done = {str(r[0]) for r in conn.execute("SELECT id FROM cars")}
+        pending = sorted(ids - done)[:body.limit]
+
+        for car_id in pending:
+            try:
+                r = crautos.fetch(session, "GET", crautos.DETAIL_URL, params={"c": car_id})
+                if not r:
+                    error_count += 1
+                    continue
+
+                car = crautos.parse_detail(r.text, car_id)
+                crautos.save_car(conn, car)
+
+                photos = [u for u in (car.get("fotos") or "").split("|") if u]
+                if not photos:
+                    no_photo_count += 1
+
+                title_value = " ".join(
+                    str(x) for x in [car.get("marca"), car.get("modelo"), car.get("anio")]
+                    if x not in (None, "")
+                ).strip() or None
+
+                make_value = car.get("marca")
+                model_value = car.get("modelo")
+                price_value = car.get("precio_usd")
+                year_value = car.get("anio")
+                km_value = car.get("kilometraje")
+                location_value = car.get("provincia")
+                fuel_value = normalize_fuel(car.get("combustible")) or car.get("combustible")
+                transmission_value = normalize_transmission(car.get("transmision")) or car.get("transmision")
+                photo = photos[0] if photos else None
+
+                if supabase:
+                    body_type_value = classify_body_type(model_value, title_value)
+                    quality_value = compute_quality_score(
+                        len(photos), price_value, year_value, km_value,
+                        make_value, model_value, location_value, fuel_value, transmission_value,
+                    )
+
+                    db_record = {
+                        "source": "crautos",
+                        "country": "cr",
+                        "url": car.get("url"),
+                        "make": make_value,
+                        "model": model_value,
+                        "fuel_type": fuel_value,
+                        "transmission": transmission_value,
+                        "title": title_value,
+                        "price_usd": price_value,
+                        "year": year_value,
+                        "km": km_value,
+                        "location": location_value,
+                        "photos": photos,
+                        "photo_count": len(photos),
+                        "primary_photo": photo,
+                        "body_type": body_type_value,
+                        "quality_score": quality_value,
+                        "raw_payload": car,
+                        "status": "staging",
+                    }
+
+                    supabase.table("scraped_listings").upsert(db_record, on_conflict="url").execute()
+
+                saved_count += 1
+                if len(sample_urls) < 5 and car.get("url"):
+                    sample_urls.append(car["url"])
+
+            except Exception as e:
+                error_count += 1
+                log.exception("crautos inventory error id=%s", car_id)
+
+            time.sleep(body.delay)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CRAutos scraper failed: {e!s}")
+
+    return {
+        "source": "crautos",
+        "country": "cr",
+        "limit": body.limit,
+        "delay": body.delay,
+        "discovered_count": discovered_count,
+        "saved_count": saved_count,
+        "error_count": error_count,
+        "no_photo_count": no_photo_count,
+        "supabase_connected": supabase is not None,
+        "elapsed_seconds": round(time.time() - started, 2),
+        "sample_urls": sample_urls,
+    }
 
 
 @app.post("/inventory-run")
