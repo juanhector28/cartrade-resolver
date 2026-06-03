@@ -61,6 +61,47 @@ def _record(platform: str, ok: bool, error: Optional[str] = None):
             h["last_error"] = error
 
 
+def infer_fuel_from_text(text: str | None):
+    if not text:
+        return None
+
+    text = text.lower()
+
+    if "diesel" in text:
+        return "Diesel"
+
+    if "híbrido" in text or "hibrido" in text or "hybrid" in text:
+        return "Hybrid"
+
+    if "eléctrico" in text or "electrico" in text or "electric" in text:
+        return "Electric"
+
+    if "gasolina" in text:
+        return "Gasoline"
+
+    return None
+
+
+def infer_transmission_from_text(text: str | None):
+    if not text:
+        return None
+
+    text = text.lower()
+
+    if "manual" in text:
+        return "Manual"
+
+    if (
+        "automático" in text
+        or "automatica" in text
+        or "automatico" in text
+        or "automatic" in text
+    ):
+        return "Automatic"
+
+    return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cache.init_db()
@@ -71,7 +112,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="CarTrade Link Resolver",
-    version="1.3.1",
+    version="1.3.2",
     lifespan=lifespan,
 )
 
@@ -105,7 +146,7 @@ class InventoryRunRequest(BaseModel):
 async def root():
     return {
         "service": "cartrade-resolver",
-        "version": "1.3.1",
+        "version": "1.3.2",
         "endpoints": [
             "POST /resolve-link",
             "POST /inventory-run",
@@ -132,16 +173,10 @@ async def health():
 @app.get("/inventory-preview")
 async def inventory_preview(limit: int = 20):
     if not supabase:
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase not connected."
-        )
+        raise HTTPException(status_code=500, detail="Supabase not connected.")
 
     if limit < 1 or limit > 100:
-        raise HTTPException(
-            status_code=400,
-            detail="Limit must be between 1 and 100."
-        )
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 100.")
 
     try:
         response = (
@@ -234,6 +269,12 @@ async def inventory_run(body: InventoryRunRequest):
             payload["inventory_country"] = "sv"
             payload["inventory_scraped_at"] = int(time.time())
 
+            title_value = (
+                payload.get("title", {}).get("value")
+                if isinstance(payload.get("title"), dict)
+                else None
+            )
+
             results.append(payload)
 
             if supabase:
@@ -254,18 +295,14 @@ async def inventory_run(body: InventoryRunRequest):
                     "fuel_type": (
                         payload.get("fuel", {}).get("value")
                         if isinstance(payload.get("fuel"), dict)
-                        else None
+                        else infer_fuel_from_text(title_value)
                     ),
                     "transmission": (
                         payload.get("transmission", {}).get("value")
                         if isinstance(payload.get("transmission"), dict)
-                        else None
+                        else infer_transmission_from_text(title_value)
                     ),
-                    "title": (
-                        payload.get("title", {}).get("value")
-                        if isinstance(payload.get("title"), dict)
-                        else None
-                    ),
+                    "title": title_value,
                     "price_usd": (
                         payload.get("price_usd", {}).get("value")
                         if isinstance(payload.get("price_usd"), dict)
