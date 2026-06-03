@@ -2,7 +2,7 @@
    Point RESOLVER_BASE at your Render URL. Drop this in AFTER the hero markup.
    It reuses the existing hero DOM: #clzcInp #clzcSeeds #clQuery #clCards #clStatus #heroLinkInput */
 (function () {
-  var RESOLVER_BASE = "https://YOUR-SERVICE.onrender.com"; // <-- set me
+  var RESOLVER_BASE = "https://cartrade-resolver.onrender.com/"; // <-- set me
   var COUNTRY = "sv"; // default market; set per visitor if you geo-detect
 
   var SEEDS = [
