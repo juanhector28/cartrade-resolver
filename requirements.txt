@@ -5,3 +5,4 @@ selectolax==0.3.27
 playwright==1.48.0
 pydantic==2.9.2
 python-dotenv==1.0.1
+supabase
