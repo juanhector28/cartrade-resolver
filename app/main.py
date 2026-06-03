@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 from selectolax.parser import HTMLParser
+from supabase import create_client
 
 from . import cache, rate_limit, platforms
 from .resolvers import encuentra24, olx, facebook, mercadolibre, fallback
@@ -26,6 +27,18 @@ from .resolvers.base import Listing
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("resolver")
+
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+
+supabase = None
+
+if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    log.info("Supabase connected.")
+else:
+    log.warning("Supabase env vars missing.")
 
 
 _health: dict[str, dict] = {
@@ -57,7 +70,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="CarTrade Link Resolver",
-    version="1.1.0",
+    version="1.2.0",
     lifespan=lifespan,
 )
 
@@ -91,7 +104,7 @@ class InventoryRunRequest(BaseModel):
 async def root():
     return {
         "service": "cartrade-resolver",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "endpoints": ["POST /resolve-link", "POST /inventory-run", "GET /health"],
     }
 
@@ -106,6 +119,7 @@ async def health():
             "max_requests": rate_limit.MAX_REQUESTS,
         },
         "cache_ttl_seconds": cache.CACHE_TTL_SECONDS,
+        "supabase_connected": supabase is not None,
     }
 
 
@@ -152,6 +166,8 @@ async def inventory_run(body: InventoryRunRequest):
                     discovered_urls.add(href)
 
     results = []
+    saved_count = 0
+    error_count = 0
 
     for i, url in enumerate(sorted(discovered_urls), start=1):
         log.info("inventory resolving %s/%s url=%s", i, len(discovered_urls), url)
@@ -159,13 +175,59 @@ async def inventory_run(body: InventoryRunRequest):
         try:
             listing = await encuentra24.resolve(url)
             payload = listing.to_dict()
+
             payload["inventory_source"] = "encuentra24"
             payload["inventory_country"] = "sv"
             payload["inventory_scraped_at"] = int(time.time())
+
             results.append(payload)
 
+            if supabase:
+                db_record = {
+                    "source": "encuentra24",
+                    "country": "sv",
+                    "url": url,
+                    "title": (
+                        payload.get("title", {}).get("value")
+                        if isinstance(payload.get("title"), dict)
+                        else None
+                    ),
+                    "price_usd": (
+                        payload.get("price_usd", {}).get("value")
+                        if isinstance(payload.get("price_usd"), dict)
+                        else None
+                    ),
+                    "year": (
+                        payload.get("year", {}).get("value")
+                        if isinstance(payload.get("year"), dict)
+                        else None
+                    ),
+                    "km": (
+                        payload.get("km", {}).get("value")
+                        if isinstance(payload.get("km"), dict)
+                        else None
+                    ),
+                    "location": (
+                        payload.get("location", {}).get("value")
+                        if isinstance(payload.get("location"), dict)
+                        else None
+                    ),
+                    "photos": payload.get("photos", []),
+                    "raw_payload": payload,
+                    "status": "staging",
+                }
+
+                supabase.table("scraped_listings").upsert(
+                    db_record,
+                    on_conflict="url"
+                ).execute()
+
+                saved_count += 1
+
         except Exception as e:
+            error_count += 1
             log.exception("inventory resolver error url=%s", url)
+
             results.append({
                 "url": url,
                 "error": str(e),
@@ -181,7 +243,8 @@ async def inventory_run(body: InventoryRunRequest):
         "pages": body.pages,
         "discovered_count": len(discovered_urls),
         "resolved_count": len(results),
-        "results": results,
+        "saved_count": saved_count,
+        "error_count": error_count,
     }
 
 
