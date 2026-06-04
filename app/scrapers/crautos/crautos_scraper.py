@@ -493,12 +493,13 @@ def main():
         export_csv(conn)
         return
 
-    session = make_session()
+       session = make_session()
 
     print("== Fase 1: recolectando IDs del listado ==")
-        import asyncio
+
+    import asyncio
     from .crautos_discover_httpx import discover_crautos
-    
+
     discovered = asyncio.run(
         discover_crautos(
             limit=args.limit if args.limit > 0 else None,
@@ -506,7 +507,8 @@ def main():
         )
     )
 
-ids = {cid for cid, url in discovered}
+    ids = {cid for cid, url in discovered}
+
     print(f"Total IDs encontrados: {len(ids)}")
     with open("/tmp/crautos_ids.txt", "w") as f:
         f.write("\n".join(sorted(ids)))
