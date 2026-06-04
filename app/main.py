@@ -1106,7 +1106,6 @@ def _crautos_record_from_detail(detail: dict, status: str) -> dict:
         "body_type": body_v,
         "quality_score": qual,
         "currency": detail.get("moneda_original"),
-        "monthly_est": detail.get("cuota_usd_mes"),
         "seller_phone": detail.get("vendedor_tel") or detail.get("vendedor_wa"),
         "scraped_at": now,
         "updated_at": now,
@@ -1166,7 +1165,7 @@ def _run_crautos_scrape(batch: int, delay: float):
                 continue
             try:
                 detail = crautos.parse_detail(r.text, cid)
-                rec = _crautos_record_from_detail(detail, "scraped")
+                rec = _crautos_record_from_detail(detail, "staging")
                 supabase.table("scraped_listings").upsert(rec, on_conflict="url").execute()
                 job["done"] += 1
             except Exception:
