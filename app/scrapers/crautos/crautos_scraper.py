@@ -18,6 +18,7 @@ Es resumible: si lo cortas, al relanzar salta los IDs ya scrapeados.
 """
 
 import argparse
+import asyncio
 import os
 import csv
 import random
