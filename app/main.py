@@ -515,7 +515,7 @@ async def inventory_preview(limit: int = 20, country: str | None = None):
 
 
 @app.post("/inventory-run/crautos")
-async def inventory_run_crautos(body: CrautosInventoryRunRequest):
+def inventory_run_crautos(body: CrautosInventoryRunRequest):
     if body.limit < 1 or body.limit > 500:
         raise HTTPException(status_code=400, detail="Limit must be between 1 and 500.")
 
