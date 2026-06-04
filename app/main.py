@@ -544,7 +544,7 @@ async def inventory_run_crautos(body: CrautosInventoryRunRequest):
 
     db_path = "/tmp/crautos.db"
     conn = sqlite3.connect(db_path)
-    conn.executescript(crautos.SCHEMA)
+# conn.executescript(crautos.SCHEMA)
 
     started = time.time()
     saved_count = 0
