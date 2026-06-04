@@ -206,89 +206,71 @@ def extract_ids(html):
     return ids
 
 
-def find_next_url(html, current_url):
-    """URL absoluta de la pagina siguiente, o None si es la ultima.
+def collect_ids(session, delay, max_pages=800):
+    """Recorre TODO el inventario de crautos paginando por el campo 'p'
+    del formulario via POST (cada p es una pagina nueva de ~23 autos,
+    sin solape). Una sola sesion con cookies. Dedupe por el c= estable.
 
-    El 'siguiente' en crautos es el <a> que envuelve el icono
-    .fa-angle-right; su href trae el token c correcto para la sesion.
-    (Paginar con ?p=N no funciona: el server ignora el p y usa un token
-    de sesion rotativo ?c=NNNNN, por eso se LEE el enlace, no se adivina.)
+    Confirmado empiricamente: POST a searchresults.cfm con el payload del
+    form + p=N devuelve la pagina N. p=1 y p=2 no comparten autos.
     """
-    soup = BeautifulSoup(html or "", "lxml")
-
-    arrow = soup.find(class_="fa-angle-right")
-    if arrow:
-        a = arrow.find_parent("a", href=True)
-        if a and a.get("href"):
-            return urljoin(current_url, a["href"])
-
-    # respaldo: un <a> a searchresults.cfm?c=... distinto al actual
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        low = href.lower()
-        if "searchresults.cfm" in low and "c=" in low:
-            cand = urljoin(current_url, href)
-            if cand != current_url:
-                return cand
-
-    return None
-
-
-def collect_ids(session, delay, max_pages=300):
-    """Recorre todo el inventario de crautos siguiendo el enlace de
-    'siguiente' dentro de una sola sesion (cookies persistentes)."""
     payload = discover_form_defaults(session)
+    # el navegador manda strings y precio desde 0; modelstr vacio, no None
+    payload = {k: ("" if v is None else v) for k, v in payload.items()}
+    payload.setdefault("pricefrom", "0")
+    payload["pricefrom"] = "0"
     print(f"Payload de busqueda: {payload}")
 
     all_ids = set()
     seen_sigs = set()
+    empty_streak = 0
 
-    # 1) nacer la cookie de sesion
+    # cookie de sesion
     fetch(session, "GET", INDEX_URL)
 
-    # 2) iniciar la busqueda sin filtros = inventario completo.
-    #    POST del form; si el form fuera GET, cambiar a method GET y params=payload.
-    r = fetch(session, "POST", SEARCH_URL, data=payload)
-    if not r:
-        print("No se pudo iniciar la busqueda en searchresults.cfm")
-        return all_ids
+    for page in range(1, max_pages + 1):
+        data = dict(payload)
+        data["p"] = str(page)
 
-    url = str(r.url)
+        r = fetch(session, "POST", SEARCH_URL, data=data)
+        if not r:
+            print(f"  p={page}: sin respuesta, corto")
+            break
 
-    # 3) seguir la flecha de pagina en pagina
-    for page_no in range(1, max_pages + 1):
         html = r.text or ""
+        ids = extract_ids(html)
 
-        # corte por pagina repetida (ColdFusion a veces re-sirve la ultima)
-        sig = hash(html[:5000])
+        # pagina vacia = pasamos el final del inventario
+        if not ids:
+            print(f"  p={page}: 0 autos, fin del inventario")
+            break
+
+        # pagina identica a una ya vista (ColdFusion re-sirviendo) 
+        sig = hash(html[:6000])
         if sig in seen_sigs:
-            print(f"  pag {page_no}: repetida, corto")
+            print(f"  p={page}: pagina repetida, corto")
             break
         seen_sigs.add(sig)
 
-        ids = extract_ids(html)
         new = ids - all_ids
         all_ids |= ids
-        print(f"  pag {page_no} ({url}): {len(ids)} ids "
-              f"({len(new)} nuevos, total {len(all_ids)})")
+        print(f"  p={page}: {len(ids)} autos ({len(new)} nuevos, total {len(all_ids)})")
 
-        if DEBUG_DISCOVERY and page_no == 1 and not ids:
+        # corte robusto: varias paginas seguidas sin nada nuevo
+        if not new:
+            empty_streak += 1
+            if empty_streak >= 3:
+                print("  3 paginas seguidas sin autos nuevos, fin")
+                break
+        else:
+            empty_streak = 0
+
+        if DEBUG_DISCOVERY and page == 1 and not ids:
             soup = BeautifulSoup(html, "lxml")
             title = soup.title.get_text(" ", strip=True) if soup.title else "NO_TITLE"
-            print(f"  DEBUG pag1 vacia. TITLE={title}")
-            print(f"  DEBUG sample={re.sub(r'\\s+', ' ', html[:600]).strip()}")
-
-        next_url = find_next_url(html, url)
-        if not next_url or next_url == url:
-            print("  sin enlace siguiente, fin del inventario")
-            break
+            print(f"  DEBUG p1 vacia TITLE={title}")
 
         time.sleep(delay + random.uniform(0, 0.25))
-        r = fetch(session, "GET", next_url)
-        if not r:
-            print("  fallo al traer la pagina siguiente, corto")
-            break
-        url = str(r.url)
 
     print(f"Total IDs descubiertos: {len(all_ids)}")
     return all_ids
