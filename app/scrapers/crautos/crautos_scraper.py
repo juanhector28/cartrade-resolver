@@ -214,11 +214,16 @@ def collect_ids(session, delay, max_pages=800):
     Confirmado empiricamente: POST a searchresults.cfm con el payload del
     form + p=N devuelve la pagina N. p=1 y p=2 no comparten autos.
     """
-    payload = discover_form_defaults(session)
-    # el navegador manda strings y precio desde 0; modelstr vacio, no None
-    payload = {k: ("" if v is None else v) for k, v in payload.items()}
-    payload.setdefault("pricefrom", "0")
-    payload["pricefrom"] = "0"
+# Payload fijo confirmado por el diagnostico (devuelve 23 autos/pagina).
+    # No dependemos de discover_form_defaults porque leia mal priceto.
+    payload = {
+        "brand": "00", "style": "00", "fuel": "0", "trans": "0",
+        "financed": "00", "recibe": "0", "province": "0", "doors": "0",
+        "yearfrom": "1960", "yearto": "2027",
+        "pricefrom": "0", "priceto": "800000000",
+        "orderby": "0", "newused": "0", "modelstr": "",
+        "splitmode": "1", "lformat": "0", "l": "1",
+    }
     print(f"Payload de busqueda: {payload}")
 
     all_ids = set()
