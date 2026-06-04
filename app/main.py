@@ -516,35 +516,148 @@ async def inventory_preview(limit: int = 20, country: str | None = None):
 
 @app.post("/inventory-run/crautos")
 async def inventory_run_crautos(body: CrautosInventoryRunRequest):
-    """CRAutos inventory ingestion for Costa Rica.
-
-    Flow:
-    1) Discover CRAutos listing IDs.
-    2) Scrape detail pages.
-    3) Save a local SQLite copy in /tmp.
-    4) Upsert normalized rows into Supabase scraped_listings.
-    """
     if body.limit < 1 or body.limit > 500:
         raise HTTPException(status_code=400, detail="Limit must be between 1 and 500.")
 
     if body.delay < 0.5 or body.delay > 10:
         raise HTTPException(status_code=400, detail="Delay must be between 0.5 and 10 seconds.")
 
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not connected.")
+
     try:
         from .scrapers.crautos import crautos_scraper as crautos
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=(
-                "CRAutos scraper module not found. Expected it at "
-                "app/scrapers/crautos/crautos_scraper.py. "
-                f"Original error: {e!s}"
-            ),
+            detail=f"CRAutos scraper module not found: {e!s}",
         )
 
+    import sys
+    import sqlite3
+    import time as time_module
+
+    started = time_module.time()
     db_path = "/tmp/crautos.db"
+
+    old_argv = sys.argv[:]
+    try:
+        sys.argv = [
+            "crautos_scraper.py",
+            "--db", db_path,
+            "--limit", str(body.limit),
+            "--delay", str(body.delay),
+        ]
+        crautos.main()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CRAutos scraper failed: {e!s}")
+    finally:
+        sys.argv = old_argv
+
     conn = sqlite3.connect(db_path)
-# conn.executescript(crautos.SCHEMA)
+    conn.row_factory = sqlite3.Row
+
+    rows = conn.execute(
+        "SELECT * FROM cars ORDER BY scraped_at DESC LIMIT ?",
+        (body.limit,)
+    ).fetchall()
+
+    saved_count = 0
+    error_count = 0
+    no_photo_count = 0
+
+    for row in rows:
+        try:
+            r = dict(row)
+
+            photos = []
+            if r.get("fotos"):
+                photos = [p for p in r["fotos"].split("|") if p]
+
+            if not photos:
+                no_photo_count += 1
+
+            title = " ".join(
+                str(x) for x in [r.get("marca"), r.get("modelo"), r.get("anio")]
+                if x
+            )
+
+            make_value = r.get("marca")
+            model_value = r.get("modelo")
+            price_value = r.get("precio_usd")
+            year_value = r.get("anio")
+            km_value = r.get("kilometraje")
+            location_value = r.get("provincia")
+            fuel_value = normalize_fuel(r.get("combustible"))
+            transmission_value = normalize_transmission(r.get("transmision"))
+            primary_photo = photos[0] if photos else None
+
+            body_type_value = classify_body_type(model_value, title)
+            quality_value = compute_quality_score(
+                len(photos),
+                price_value,
+                year_value,
+                km_value,
+                make_value,
+                model_value,
+                location_value,
+                fuel_value,
+                transmission_value,
+            )
+
+            db_record = {
+                "source": "crautos",
+                "country": "cr",
+                "url": r.get("url"),
+                "make": make_value,
+                "model": model_value,
+                "fuel_type": fuel_value,
+                "transmission": transmission_value,
+                "title": title,
+                "price_usd": price_value,
+                "year": year_value,
+                "km": km_value,
+                "location": location_value,
+                "photos": photos,
+                "photo_count": len(photos),
+                "primary_photo": primary_photo,
+                "body_type": body_type_value,
+                "quality_score": quality_value,
+                "raw_payload": r,
+                "status": "staging",
+            }
+
+            supabase.table("scraped_listings").upsert(
+                db_record,
+                on_conflict="url"
+            ).execute()
+
+            saved_count += 1
+
+        except Exception:
+            error_count += 1
+            log.exception("CRAutos Supabase upsert error")
+
+    discovered_count = 0
+    try:
+        with open("/tmp/crautos_ids.txt", "r") as f:
+            discovered_count = len([x for x in f.read().splitlines() if x.strip()])
+    except Exception:
+        discovered_count = len(rows)
+
+    return {
+        "source": "crautos",
+        "country": "cr",
+        "limit": body.limit,
+        "delay": body.delay,
+        "discovered_count": discovered_count,
+        "saved_count": saved_count,
+        "error_count": error_count,
+        "no_photo_count": no_photo_count,
+        "supabase_connected": supabase is not None,
+        "elapsed_seconds": round(time_module.time() - started, 2),
+        "sample_urls": [dict(r).get("url") for r in rows[:5]],
+    }
 
     started = time.time()
     saved_count = 0
