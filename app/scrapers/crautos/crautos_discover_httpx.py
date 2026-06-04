@@ -28,23 +28,24 @@ def extract_ids(html: str) -> list[str]:
 def find_next_url(html: str, current_url: str) -> str | None:
     tree = HTMLParser(html or "")
 
-    arrow = tree.css_first(".fa-angle-right")
-    if arrow is not None:
-        node = arrow
-        for _ in range(6):
-            if node is None:
-                break
-            if node.tag == "a" and node.attributes.get("href"):
-                return urljoin(current_url, node.attributes["href"])
-            node = node.parent
-
     candidates = []
+
     for a in tree.css("a[href]"):
-        href = a.attributes.get("href")
-        if not href:
-            continue
+        href = a.attributes.get("href", "")
+        text = (a.text() or "").strip().lower()
+
         if "searchresults.cfm" in href:
             candidates.append(urljoin(current_url, href))
+
+        if text in {"siguiente", ">", ">>"}:
+            href = a.attributes.get("href")
+            if href:
+                candidates.append(urljoin(current_url, href))
+
+    # dedupe
+    candidates = list(dict.fromkeys(candidates))
+
+    print(f"[crautos] candidatos next: {candidates[-5:]}")
 
     return candidates[-1] if candidates else None
 
