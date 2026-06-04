@@ -214,7 +214,7 @@ def collect_ids(session, delay, max_pages=800):
     Confirmado empiricamente: POST a searchresults.cfm con el payload del
     form + p=N devuelve la pagina N. p=1 y p=2 no comparten autos.
     """
-# Payload fijo confirmado por el diagnostico (devuelve 23 autos/pagina).
+    # Payload fijo confirmado por el diagnostico (devuelve 23 autos/pagina).
     # No dependemos de discover_form_defaults porque leia mal priceto.
     payload = {
         "brand": "00", "style": "00", "fuel": "0", "trans": "0",
@@ -227,7 +227,6 @@ def collect_ids(session, delay, max_pages=800):
     print(f"Payload de busqueda: {payload}")
 
     all_ids = set()
-    seen_sigs = set()
     empty_streak = 0
 
     # cookie de sesion
@@ -250,22 +249,17 @@ def collect_ids(session, delay, max_pages=800):
             print(f"  p={page}: 0 autos, fin del inventario")
             break
 
-        # pagina identica a una ya vista (ColdFusion re-sirviendo) 
-        sig = hash(html[:6000])
-        if sig in seen_sigs:
-            print(f"  p={page}: pagina repetida, corto")
-            break
-        seen_sigs.add(sig)
-
         new = ids - all_ids
         all_ids |= ids
         print(f"  p={page}: {len(ids)} autos ({len(new)} nuevos, total {len(all_ids)})")
 
-        # corte robusto: varias paginas seguidas sin nada nuevo
+        # Corte SOLO por contenido nuevo. El contenido de crautos rota un poco
+        # entre requests, asi que NO cortamos por firma de HTML (daba falsos
+        # positivos). Cortamos cuando varias paginas seguidas no aportan IDs.
         if not new:
             empty_streak += 1
-            if empty_streak >= 3:
-                print("  3 paginas seguidas sin autos nuevos, fin")
+            if empty_streak >= 5:
+                print("  5 paginas seguidas sin autos nuevos, fin")
                 break
         else:
             empty_streak = 0
