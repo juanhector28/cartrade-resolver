@@ -1139,39 +1139,49 @@ def _run_crautos_discover(delay: float, max_pages: int):
         job["finished"] = _now_iso()
 
 
-def _run_crautos_scrape(batch: int, delay: float):
+def _run_crautos_scrape(target: int, delay: float, chunk: int = 200):
+    """Scrapea hasta `target` autos de la cola, en tandas de `chunk`,
+    encadenando una tras otra hasta vaciar o llegar al objetivo.
+    Cada auto se guarda al instante; si el proceso muere, lo ya hecho queda."""
     import time as _t
     job = CRAUTOS_JOBS["scrape"]
-    job.update(running=True, done=0, errors=0, started=_now_iso(), finished=None, error=None)
+    job.update(running=True, done=0, errors=0, started=_now_iso(),
+               finished=None, error=None, target=target)
     try:
         from .scrapers.crautos import crautos_scraper as crautos
         session = crautos.make_session()
-        res = (supabase.table("scraped_listings")
-               .select("url")
-               .eq("source", "crautos")
-               .eq("status", "discovered")
-               .limit(batch)
-               .execute())
-        urls = [r["url"] for r in (res.data or [])]
-        for url in urls:
-            m = re.search(r"c=(\d+)", url or "")
-            if not m:
-                job["errors"] += 1
-                continue
-            cid = m.group(1)
-            r = crautos.fetch(session, "GET", crautos.DETAIL_URL, params={"c": cid})
-            if not r:
-                job["errors"] += 1
-                continue
-            try:
-                detail = crautos.parse_detail(r.text, cid)
-                rec = _crautos_record_from_detail(detail, "staging")
-                supabase.table("scraped_listings").upsert(rec, on_conflict="url").execute()
-                job["done"] += 1
-            except Exception:
-                job["errors"] += 1
-                log.exception("crautos scrape detail failed")
-            _t.sleep(delay)
+        while job["done"] < target:
+            faltan = target - job["done"]
+            lote = min(chunk, faltan)
+            res = (supabase.table("scraped_listings")
+                   .select("url")
+                   .eq("source", "crautos")
+                   .eq("status", "discovered")
+                   .limit(lote)
+                   .execute())
+            urls = [r["url"] for r in (res.data or [])]
+            if not urls:
+                job["note"] = "cola vacia, fin"
+                break
+            for url in urls:
+                m = re.search(r"c=(\d+)", url or "")
+                if not m:
+                    job["errors"] += 1
+                    continue
+                cid = m.group(1)
+                r = crautos.fetch(session, "GET", crautos.DETAIL_URL, params={"c": cid})
+                if not r:
+                    job["errors"] += 1
+                    continue
+                try:
+                    detail = crautos.parse_detail(r.text, cid)
+                    rec = _crautos_record_from_detail(detail, "staging")
+                    supabase.table("scraped_listings").upsert(rec, on_conflict="url").execute()
+                    job["done"] += 1
+                except Exception:
+                    job["errors"] += 1
+                    log.exception("crautos scrape detail failed")
+                _t.sleep(delay)
     except Exception as e:
         job["error"] = str(e)
         log.exception("crautos scrape failed")
@@ -1186,7 +1196,7 @@ class CrautosDiscoverReq(BaseModel):
 
 
 class CrautosScrapeReq(BaseModel):
-    batch: int = 200
+    target: int = 13000   # cuantos scrapear en total esta corrida (encadena tandas)
     delay: float = 1.0
 
 
@@ -1207,10 +1217,10 @@ def crautos_scrape(body: CrautosScrapeReq, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail="Supabase not connected.")
     if CRAUTOS_JOBS["scrape"]["running"]:
         return {"status": "already_running", **CRAUTOS_JOBS["scrape"]}
-    background_tasks.add_task(_run_crautos_scrape, body.batch, body.delay)
-    return {"status": "started", "phase": "scrape", "batch": body.batch,
-            "hint": "Corre en background. Llamalo de nuevo para el siguiente lote. "
-                    "Revisa GET /inventory/crautos/status"}
+    background_tasks.add_task(_run_crautos_scrape, body.target, body.delay)
+    return {"status": "started", "phase": "scrape", "target": body.target,
+            "hint": "Encadena tandas de 200 hasta llegar al target o vaciar la cola. "
+                    "Segui el avance en GET /inventory/crautos/status"}
 
 
 @app.get("/inventory/crautos/status")
