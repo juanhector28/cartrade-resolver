@@ -25,6 +25,7 @@ import sqlite3
 import sys
 import time
 from datetime import datetime
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -107,6 +108,8 @@ CREATE INDEX IF NOT EXISTS idx_precio ON cars(precio_crc);
 def make_session():
     s = requests.Session()
     s.headers.update(HEADERS)
+    # Helps older ColdFusion sites keep search/pagination state consistently.
+    s.headers.update({"Referer": INDEX_URL})
     return s
 
 
@@ -178,56 +181,152 @@ def discover_form_defaults(session):
     return payload
 
 
+
 def extract_ids(html):
+    """Extract CRAutos detail IDs from any HTML response.
+
+    Keep the patterns focused on cardetail.cfm links so we do not accidentally
+    collect unrelated query-string parameters named c.
+    """
     patterns = [
         r"cardetail\.cfm\?c=(\d+)",
         r"cardetail\.cfm\?car=(\d+)",
         r"/autosusados/cardetail\.cfm\?c=(\d+)",
-        r"c=(\d{5,9})",
+        r"https?://(?:www\.)?crautos\.com/autosusados/cardetail\.cfm\?c=(\d+)",
     ]
 
     ids = set()
     for p in patterns:
-        ids.update(re.findall(p, html))
-
+        ids.update(re.findall(p, html, flags=re.I))
     return ids
 
-def collect_ids(session, delay):
+
+def extract_pagination_urls(html, current_url):
+    """Find pagination/search URLs that may contain additional listing IDs."""
+    soup = BeautifulSoup(html, "lxml")
+    urls = set()
+
+    for a in soup.find_all("a", href=True):
+        href = a.get("href", "").strip()
+        if not href:
+            continue
+
+        abs_url = urljoin(current_url, href)
+        low = abs_url.lower()
+
+        if "crautos.com/autosusados/" not in low:
+            continue
+
+        # Keep search/listing pages only, not every detail page.
+        if ("searchresults.cfm" in low or "index.cfm" in low) and (
+            "p=" in low or "page" in low or "pag" in low or "start" in low
+        ):
+            urls.add(abs_url)
+
+    return urls
+
+
+def collect_ids(session, delay, max_pages=200):
+    """Collect CRAutos listing IDs using several discovery strategies.
+
+    More robust than only POSTing searchresults.cfm?p=N:
+    - The index page may already contain a batch of listings.
+    - CRAutos may expose pagination as links rather than honoring ?p=N.
+    - Some ColdFusion pages return the same first page when the wrong pagination
+      parameter is used, so we stop when pages are repeated.
+    """
     payload = discover_form_defaults(session)
     print(f"Payload de busqueda: {payload}")
 
     all_ids = set()
+    seen_page_signatures = set()
+    visited_urls = set()
+    queued_urls = []
 
-    # Fallback 1: index page
-    r0 = fetch(session, "GET", INDEX_URL)
-    if r0:
-        index_ids = extract_ids(r0.text)
-        all_ids |= index_ids
-        print(f"  index.cfm: {len(index_ids)} ids encontrados")
+    def handle_response(resp, label):
+        nonlocal all_ids, queued_urls
 
-    page = 1
-    empty_streak = 0
+        if not resp:
+            return set()
 
-    while True:
-        r = fetch(session, "POST", SEARCH_URL, params={"p": page}, data=payload)
-        if not r:
-            break
+        html = resp.text or ""
+        signature = hash(html[:5000])
+        if signature in seen_page_signatures:
+            print(f"  {label}: pagina repetida; saltando")
+            return set()
 
-        ids = extract_ids(r.text)
+        seen_page_signatures.add(signature)
+
+        ids = extract_ids(html)
         new = ids - all_ids
         all_ids |= ids
 
-        print(f"  pagina {page}: {len(ids)} ids ({len(new)} nuevos, total {len(all_ids)})")
+        print(f"  {label}: {len(ids)} ids ({len(new)} nuevos, total {len(all_ids)})")
 
-        if not new:
-            empty_streak += 1
-            if empty_streak >= 2:
-                break
-        else:
+        for u in extract_pagination_urls(html, resp.url):
+            if u not in visited_urls:
+                queued_urls.append(u)
+
+        return new
+
+    # 1) Index page.
+    r0 = fetch(session, "GET", INDEX_URL)
+    if r0:
+        visited_urls.add(r0.url)
+        handle_response(r0, "index.cfm")
+
+    # 2) First search POST.
+    r1 = fetch(session, "POST", SEARCH_URL, data=payload)
+    if r1:
+        visited_urls.add(r1.url)
+        handle_response(r1, "search POST inicial")
+
+    # 3) Try common pagination parameter names with both POST and GET.
+    page_params = ["p", "page", "Page", "PageNum", "pagina", "offset"]
+    empty_streak = 0
+
+    for page in range(1, max_pages + 1):
+        page_added_anything = False
+
+        for param in page_params:
+            params = {param: page}
+
+            r = fetch(session, "POST", SEARCH_URL, params=params, data=payload)
+            if r:
+                visited_urls.add(r.url)
+                new = handle_response(r, f"POST {param}={page}")
+                if new:
+                    page_added_anything = True
+
+            r = fetch(session, "GET", SEARCH_URL, params={**payload, **params})
+            if r:
+                visited_urls.add(r.url)
+                new = handle_response(r, f"GET {param}={page}")
+                if new:
+                    page_added_anything = True
+
+            time.sleep(delay + random.uniform(0, 0.25))
+
+        if page_added_anything:
             empty_streak = 0
+        else:
+            empty_streak += 1
 
-        page += 1
-        time.sleep(delay + random.uniform(0, 0.5))
+        # Follow pagination URLs discovered in the HTML.
+        while queued_urls and len(visited_urls) < max_pages * 4:
+            u = queued_urls.pop(0)
+            if u in visited_urls:
+                continue
+            visited_urls.add(u)
+            rr = fetch(session, "GET", u)
+            if rr:
+                new = handle_response(rr, f"link {len(visited_urls)}")
+                if new:
+                    page_added_anything = True
+            time.sleep(delay + random.uniform(0, 0.25))
+
+        if page > 2 and empty_streak >= 2:
+            break
 
     return all_ids
 
@@ -362,7 +461,7 @@ def export_csv(conn, path="crautos.csv"):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default="crautos.db")
+    ap.add_argument("--db", default="/tmp/crautos.db")
     ap.add_argument("--delay", type=float, default=1.0,
                     help="segundos entre requests (default 1.0)")
     ap.add_argument("--limit", type=int, default=0, help="max detalles a scrapear")
@@ -382,7 +481,7 @@ def main():
     print("== Fase 1: recolectando IDs del listado ==")
     ids = collect_ids(session, args.delay)
     print(f"Total IDs encontrados: {len(ids)}")
-    with open("crautos_ids.txt", "w") as f:
+    with open("/tmp/crautos_ids.txt", "w") as f:
         f.write("\n".join(sorted(ids)))
 
     if args.ids_only:
