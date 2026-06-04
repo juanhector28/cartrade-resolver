@@ -18,6 +18,7 @@ Es resumible: si lo cortas, al relanzar salta los IDs ya scrapeados.
 """
 
 import argparse
+import os
 import csv
 import random
 import re
@@ -40,6 +41,9 @@ HEADERS = {
                   "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
     "Accept-Language": "es-CR,es;q=0.9",
 }
+
+# Debug suave para Render Logs. Cambia a "0" si no quieres ruido.
+DEBUG_DISCOVERY = os.environ.get("CRAUTOS_DEBUG", "1") == "1"
 
 MESES = {
     "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
@@ -251,19 +255,32 @@ def collect_ids(session, delay, max_pages=200):
 
         html = resp.text or ""
         signature = hash(html[:5000])
+
+        ids = extract_ids(html)
+        pagination_urls = extract_pagination_urls(html, resp.url)
+
+        if DEBUG_DISCOVERY:
+            soup = BeautifulSoup(html, "lxml")
+            page_title = soup.title.get_text(" ", strip=True) if soup.title else "NO_TITLE"
+            sample = re.sub(r"\s+", " ", html[:900]).strip()
+            print(f"  DEBUG {label} URL_FINAL={resp.url}")
+            print(f"  DEBUG {label} TITLE={page_title}")
+            print(f"  DEBUG {label} HTML_SAMPLE={sample}")
+            print(f"  DEBUG {label} IDS_SAMPLE={sorted(list(ids))[:12]}")
+            print(f"  DEBUG {label} PAGINATION_LINKS={sorted(list(pagination_urls))[:8]}")
+
         if signature in seen_page_signatures:
-            print(f"  {label}: pagina repetida; saltando")
+            print(f"  {label}: pagina repetida; ids={len(ids)}; saltando")
             return set()
 
         seen_page_signatures.add(signature)
 
-        ids = extract_ids(html)
         new = ids - all_ids
         all_ids |= ids
 
         print(f"  {label}: {len(ids)} ids ({len(new)} nuevos, total {len(all_ids)})")
 
-        for u in extract_pagination_urls(html, resp.url):
+        for u in pagination_urls:
             if u not in visited_urls:
                 queued_urls.append(u)
 
