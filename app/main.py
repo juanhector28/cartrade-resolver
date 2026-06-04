@@ -1219,9 +1219,11 @@ def crautos_status():
         raise HTTPException(status_code=500, detail="Supabase not connected.")
 
     def count(**filt):
+        # count exacto sin head (compatible con esta version del cliente)
         q = (supabase.table("scraped_listings")
-             .select("id", count="exact", head=True)
-             .eq("source", "crautos"))
+             .select("id", count="exact")
+             .eq("source", "crautos")
+             .limit(1))
         for k, v in filt.items():
             q = q.eq(k, v)
         return q.execute().count
