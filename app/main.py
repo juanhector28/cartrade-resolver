@@ -19,7 +19,7 @@ import httpx
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 from selectolax.parser import HTMLParser
@@ -1042,3 +1042,195 @@ def diag_crautos():
                                 "por JavaScript -> usar Playwright.")
 
     return out
+
+
+
+# ════════════════════════════════════════════════════════════════════
+# INGESTA CRAUTOS EN DOS FASES (background, sin timeouts)
+#   POST /inventory/crautos/discover  -> barre paginas, encola IDs (status=discovered)
+#   POST /inventory/crautos/scrape    -> toma un lote discovered, baja detalle, status=scraped
+#   GET  /inventory/crautos/status    -> conteos por estado + progreso de los jobs
+# La cola es la misma tabla scraped_listings, usando la columna status.
+# ════════════════════════════════════════════════════════════════════
+
+CRAUTOS_JOBS = {
+    "discover": {"running": False, "found": 0, "started": None, "finished": None, "error": None},
+    "scrape": {"running": False, "done": 0, "errors": 0, "started": None, "finished": None, "error": None},
+}
+
+
+def _now_iso():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _crautos_record_from_detail(detail: dict, status: str) -> dict:
+    """Mapea el dict de parse_detail a las columnas de scraped_listings.
+    Mismo mapeo que /inventory-run/crautos + campos extra que crautos trae."""
+    photos = []
+    if detail.get("fotos"):
+        photos = [p for p in detail["fotos"].split("|") if p]
+
+    title = " ".join(str(x) for x in
+                     [detail.get("marca"), detail.get("modelo"), detail.get("anio")] if x)
+    make_v = detail.get("marca")
+    model_v = detail.get("modelo")
+    price_v = detail.get("precio_usd")
+    year_v = detail.get("anio")
+    km_v = detail.get("kilometraje")
+    loc_v = detail.get("provincia")
+    fuel_v = normalize_fuel(detail.get("combustible"))
+    trans_v = normalize_transmission(detail.get("transmision"))
+    primary = photos[0] if photos else None
+    body_v = classify_body_type(model_v, title)
+    qual = compute_quality_score(len(photos), price_v, year_v, km_v,
+                                 make_v, model_v, loc_v, fuel_v, trans_v)
+    now = _now_iso()
+
+    return {
+        "source": "crautos",
+        "country": "cr",
+        "url": detail.get("url"),
+        "make": make_v,
+        "model": model_v,
+        "fuel_type": fuel_v,
+        "transmission": trans_v,
+        "title": title,
+        "price_usd": price_v,
+        "year": year_v,
+        "km": km_v,
+        "location": loc_v,
+        "photos": photos,
+        "photo_count": len(photos),
+        "primary_photo": primary,
+        "body_type": body_v,
+        "quality_score": qual,
+        "currency": detail.get("moneda_original"),
+        "monthly_est": detail.get("cuota_usd_mes"),
+        "seller_phone": detail.get("vendedor_tel") or detail.get("vendedor_wa"),
+        "scraped_at": now,
+        "updated_at": now,
+        "last_seen_at": now,
+        "raw_payload": detail,
+        "status": status,
+    }
+
+
+def _run_crautos_discover(delay: float, max_pages: int):
+    job = CRAUTOS_JOBS["discover"]
+    job.update(running=True, found=0, started=_now_iso(), finished=None, error=None)
+    try:
+        from .scrapers.crautos import crautos_scraper as crautos
+        session = crautos.make_session()
+        ids = crautos.collect_ids(session, delay, max_pages=max_pages)
+        rows = [{"source": "crautos", "country": "cr",
+                 "url": f"{crautos.DETAIL_URL}?c={cid}", "status": "discovered"}
+                for cid in ids]
+        # upsert por lotes, ignorando duplicados (no pisa filas ya scrapeadas)
+        for i in range(0, len(rows), 500):
+            supabase.table("scraped_listings").upsert(
+                rows[i:i + 500], on_conflict="url", ignore_duplicates=True
+            ).execute()
+        job["found"] = len(rows)
+    except Exception as e:
+        job["error"] = str(e)
+        log.exception("crautos discover failed")
+    finally:
+        job["running"] = False
+        job["finished"] = _now_iso()
+
+
+def _run_crautos_scrape(batch: int, delay: float):
+    import time as _t
+    job = CRAUTOS_JOBS["scrape"]
+    job.update(running=True, done=0, errors=0, started=_now_iso(), finished=None, error=None)
+    try:
+        from .scrapers.crautos import crautos_scraper as crautos
+        session = crautos.make_session()
+        res = (supabase.table("scraped_listings")
+               .select("url")
+               .eq("source", "crautos")
+               .eq("status", "discovered")
+               .limit(batch)
+               .execute())
+        urls = [r["url"] for r in (res.data or [])]
+        for url in urls:
+            m = re.search(r"c=(\d+)", url or "")
+            if not m:
+                job["errors"] += 1
+                continue
+            cid = m.group(1)
+            r = crautos.fetch(session, "GET", crautos.DETAIL_URL, params={"c": cid})
+            if not r:
+                job["errors"] += 1
+                continue
+            try:
+                detail = crautos.parse_detail(r.text, cid)
+                rec = _crautos_record_from_detail(detail, "scraped")
+                supabase.table("scraped_listings").upsert(rec, on_conflict="url").execute()
+                job["done"] += 1
+            except Exception:
+                job["errors"] += 1
+                log.exception("crautos scrape detail failed")
+            _t.sleep(delay)
+    except Exception as e:
+        job["error"] = str(e)
+        log.exception("crautos scrape failed")
+    finally:
+        job["running"] = False
+        job["finished"] = _now_iso()
+
+
+class CrautosDiscoverReq(BaseModel):
+    delay: float = 1.0
+    max_pages: int = 900
+
+
+class CrautosScrapeReq(BaseModel):
+    batch: int = 200
+    delay: float = 1.0
+
+
+@app.post("/inventory/crautos/discover")
+def crautos_discover(body: CrautosDiscoverReq, background_tasks: BackgroundTasks):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not connected.")
+    if CRAUTOS_JOBS["discover"]["running"]:
+        return {"status": "already_running", **CRAUTOS_JOBS["discover"]}
+    background_tasks.add_task(_run_crautos_discover, body.delay, body.max_pages)
+    return {"status": "started", "phase": "discover",
+            "hint": "Corre en background ~10-13 min. Revisa GET /inventory/crautos/status"}
+
+
+@app.post("/inventory/crautos/scrape")
+def crautos_scrape(body: CrautosScrapeReq, background_tasks: BackgroundTasks):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not connected.")
+    if CRAUTOS_JOBS["scrape"]["running"]:
+        return {"status": "already_running", **CRAUTOS_JOBS["scrape"]}
+    background_tasks.add_task(_run_crautos_scrape, body.batch, body.delay)
+    return {"status": "started", "phase": "scrape", "batch": body.batch,
+            "hint": "Corre en background. Llamalo de nuevo para el siguiente lote. "
+                    "Revisa GET /inventory/crautos/status"}
+
+
+@app.get("/inventory/crautos/status")
+def crautos_status():
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not connected.")
+
+    def count(**filt):
+        q = (supabase.table("scraped_listings")
+             .select("id", count="exact", head=True)
+             .eq("source", "crautos"))
+        for k, v in filt.items():
+            q = q.eq(k, v)
+        return q.execute().count
+
+    return {
+        "discovered_pendientes": count(status="discovered"),
+        "scraped": count(status="scraped"),
+        "staging": count(status="staging"),
+        "total_crautos": count(),
+        "jobs": CRAUTOS_JOBS,
+    }
