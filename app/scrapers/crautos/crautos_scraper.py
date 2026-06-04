@@ -206,146 +206,91 @@ def extract_ids(html):
     return ids
 
 
-def extract_pagination_urls(html, current_url):
-    """Find pagination/search URLs that may contain additional listing IDs."""
-    soup = BeautifulSoup(html, "lxml")
-    urls = set()
+def find_next_url(html, current_url):
+    """URL absoluta de la pagina siguiente, o None si es la ultima.
 
-    for a in soup.find_all("a", href=True):
-        href = a.get("href", "").strip()
-        if not href:
-            continue
-
-        abs_url = urljoin(current_url, href)
-        low = abs_url.lower()
-
-        if "crautos.com/autosusados/" not in low:
-            continue
-
-        # Keep search/listing pages only, not every detail page.
-        if ("searchresults.cfm" in low or "index.cfm" in low) and (
-            "p=" in low or "page" in low or "pag" in low or "start" in low
-        ):
-            urls.add(abs_url)
-
-    return urls
-
-
-def collect_ids(session, delay, max_pages=200):
-    """Collect CRAutos listing IDs using several discovery strategies.
-
-    More robust than only POSTing searchresults.cfm?p=N:
-    - The index page may already contain a batch of listings.
-    - CRAutos may expose pagination as links rather than honoring ?p=N.
-    - Some ColdFusion pages return the same first page when the wrong pagination
-      parameter is used, so we stop when pages are repeated.
+    El 'siguiente' en crautos es el <a> que envuelve el icono
+    .fa-angle-right; su href trae el token c correcto para la sesion.
+    (Paginar con ?p=N no funciona: el server ignora el p y usa un token
+    de sesion rotativo ?c=NNNNN, por eso se LEE el enlace, no se adivina.)
     """
+    soup = BeautifulSoup(html or "", "lxml")
+
+    arrow = soup.find(class_="fa-angle-right")
+    if arrow:
+        a = arrow.find_parent("a", href=True)
+        if a and a.get("href"):
+            return urljoin(current_url, a["href"])
+
+    # respaldo: un <a> a searchresults.cfm?c=... distinto al actual
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        low = href.lower()
+        if "searchresults.cfm" in low and "c=" in low:
+            cand = urljoin(current_url, href)
+            if cand != current_url:
+                return cand
+
+    return None
+
+
+def collect_ids(session, delay, max_pages=300):
+    """Recorre todo el inventario de crautos siguiendo el enlace de
+    'siguiente' dentro de una sola sesion (cookies persistentes)."""
     payload = discover_form_defaults(session)
     print(f"Payload de busqueda: {payload}")
 
     all_ids = set()
-    seen_page_signatures = set()
-    visited_urls = set()
-    queued_urls = []
+    seen_sigs = set()
 
-    def handle_response(resp, label):
-        nonlocal all_ids, queued_urls
+    # 1) nacer la cookie de sesion
+    fetch(session, "GET", INDEX_URL)
 
-        if not resp:
-            return set()
+    # 2) iniciar la busqueda sin filtros = inventario completo.
+    #    POST del form; si el form fuera GET, cambiar a method GET y params=payload.
+    r = fetch(session, "POST", SEARCH_URL, data=payload)
+    if not r:
+        print("No se pudo iniciar la busqueda en searchresults.cfm")
+        return all_ids
 
-        html = resp.text or ""
-        signature = hash(html[:5000])
+    url = str(r.url)
+
+    # 3) seguir la flecha de pagina en pagina
+    for page_no in range(1, max_pages + 1):
+        html = r.text or ""
+
+        # corte por pagina repetida (ColdFusion a veces re-sirve la ultima)
+        sig = hash(html[:5000])
+        if sig in seen_sigs:
+            print(f"  pag {page_no}: repetida, corto")
+            break
+        seen_sigs.add(sig)
 
         ids = extract_ids(html)
-        pagination_urls = extract_pagination_urls(html, resp.url)
-
-        if DEBUG_DISCOVERY:
-            soup = BeautifulSoup(html, "lxml")
-            page_title = soup.title.get_text(" ", strip=True) if soup.title else "NO_TITLE"
-            sample = re.sub(r"\s+", " ", html[:900]).strip()
-            print(f"  DEBUG {label} URL_FINAL={resp.url}")
-            print(f"  DEBUG {label} TITLE={page_title}")
-            print(f"  DEBUG {label} HTML_SAMPLE={sample}")
-            print(f"  DEBUG {label} IDS_SAMPLE={sorted(list(ids))[:12]}")
-            print(f"  DEBUG {label} PAGINATION_LINKS={sorted(list(pagination_urls))[:8]}")
-
-        if signature in seen_page_signatures:
-            print(f"  {label}: pagina repetida; ids={len(ids)}; saltando")
-            return set()
-
-        seen_page_signatures.add(signature)
-
         new = ids - all_ids
         all_ids |= ids
+        print(f"  pag {page_no} ({url}): {len(ids)} ids "
+              f"({len(new)} nuevos, total {len(all_ids)})")
 
-        print(f"  {label}: {len(ids)} ids ({len(new)} nuevos, total {len(all_ids)})")
+        if DEBUG_DISCOVERY and page_no == 1 and not ids:
+            soup = BeautifulSoup(html, "lxml")
+            title = soup.title.get_text(" ", strip=True) if soup.title else "NO_TITLE"
+            print(f"  DEBUG pag1 vacia. TITLE={title}")
+            print(f"  DEBUG sample={re.sub(r'\\s+', ' ', html[:600]).strip()}")
 
-        for u in pagination_urls:
-            if u not in visited_urls:
-                queued_urls.append(u)
-
-        return new
-
-    # 1) Index page.
-    r0 = fetch(session, "GET", INDEX_URL)
-    if r0:
-        visited_urls.add(r0.url)
-        handle_response(r0, "index.cfm")
-
-    # 2) First search POST.
-    r1 = fetch(session, "POST", SEARCH_URL, data=payload)
-    if r1:
-        visited_urls.add(r1.url)
-        handle_response(r1, "search POST inicial")
-
-    # 3) Try common pagination parameter names with both POST and GET.
-    page_params = ["p", "page", "Page", "PageNum", "pagina", "offset"]
-    empty_streak = 0
-
-    for page in range(1, max_pages + 1):
-        page_added_anything = False
-
-        for param in page_params:
-            params = {param: page}
-
-            r = fetch(session, "POST", SEARCH_URL, params=params, data=payload)
-            if r:
-                visited_urls.add(r.url)
-                new = handle_response(r, f"POST {param}={page}")
-                if new:
-                    page_added_anything = True
-
-            r = fetch(session, "GET", SEARCH_URL, params={**payload, **params})
-            if r:
-                visited_urls.add(r.url)
-                new = handle_response(r, f"GET {param}={page}")
-                if new:
-                    page_added_anything = True
-
-            time.sleep(delay + random.uniform(0, 0.25))
-
-        if page_added_anything:
-            empty_streak = 0
-        else:
-            empty_streak += 1
-
-        # Follow pagination URLs discovered in the HTML.
-        while queued_urls and len(visited_urls) < max_pages * 4:
-            u = queued_urls.pop(0)
-            if u in visited_urls:
-                continue
-            visited_urls.add(u)
-            rr = fetch(session, "GET", u)
-            if rr:
-                new = handle_response(rr, f"link {len(visited_urls)}")
-                if new:
-                    page_added_anything = True
-            time.sleep(delay + random.uniform(0, 0.25))
-
-        if page > 2 and empty_streak >= 2:
+        next_url = find_next_url(html, url)
+        if not next_url or next_url == url:
+            print("  sin enlace siguiente, fin del inventario")
             break
 
+        time.sleep(delay + random.uniform(0, 0.25))
+        r = fetch(session, "GET", next_url)
+        if not r:
+            print("  fallo al traer la pagina siguiente, corto")
+            break
+        url = str(r.url)
+
+    print(f"Total IDs descubiertos: {len(all_ids)}")
     return all_ids
 
 
