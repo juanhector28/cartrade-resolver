@@ -950,14 +950,13 @@ async def stats():
 
 
 # ════════════════════════════════════════════════════════════════════
-# DIAGNOSTICO TEMPORAL de paginacion crautos. Borrar cuando terminemos.
-# GET /diag/crautos  -> devuelve el reporte en JSON. No toca Supabase.
+# DIAGNOSTICO TEMPORAL v2 de paginacion crautos. Borrar al terminar.
+# GET /diag/crautos  -> prueba si el campo 'l' del form pagina.
 # ════════════════════════════════════════════════════════════════════
 
 @app.get("/diag/crautos")
 def diag_crautos():
     import re as _re
-    from urllib.parse import urljoin as _urljoin
 
     BASE = "https://crautos.com/autosusados/"
     INDEX_URL = BASE + "index.cfm"
@@ -974,51 +973,10 @@ def diag_crautos():
     def ids_in(html):
         return sorted(set(ID_RE.findall(html or "")))
 
-    def inspect(html, final_url):
-        tree = HTMLParser(html or "")
-        title_node = tree.css_first("title")
-        ids = ids_in(html)
-        arrow = tree.css_first(".fa-angle-right")
-        arrow_is_link = False
-        arrow_href = None
-        arrow_container = None
-        if arrow is not None:
-            node = arrow
-            for _ in range(5):
-                if node is None:
-                    break
-                if node.tag == "a" and node.attributes.get("href"):
-                    arrow_is_link = True
-                    arrow_href = node.attributes["href"]
-                    break
-                node = node.parent
-            if not arrow_is_link and arrow.parent is not None:
-                arrow_container = arrow.parent.tag
-        sr_links = []
-        for a in tree.css("a[href]"):
-            href = a.attributes.get("href", "")
-            if "searchresults.cfm" in href.lower():
-                sr_links.append({"text": (a.text() or "").strip()[:20], "href": href})
-        return {
-            "final_url": str(final_url),
-            "title": title_node.text() if title_node else "NO_TITLE",
-            "car_count": len(ids),
-            "ids_sample": ids[:3],
-            "arrow_present": arrow is not None,
-            "arrow_is_link": arrow_is_link,
-            "arrow_href": arrow_href,
-            "arrow_container_tag": arrow_container,
-            "searchresults_links": sr_links[:8],
-            "form_count": len(tree.css("form")),
-        }, ids
-
     out = {}
     with httpx.Client(follow_redirects=True, timeout=30, headers=H) as client:
+        # cookie de sesion + leer el form
         r0 = client.get(INDEX_URL)
-        out["step1_index"] = {"status": r0.status_code, "cookies": dict(client.cookies)}
-        info0, _ = inspect(r0.text, r0.url)
-        out["index_page"] = info0
-
         tree = HTMLParser(r0.text)
         target = None
         for f in tree.css("form"):
@@ -1027,11 +985,9 @@ def diag_crautos():
                 break
         if target is None:
             target = tree.css_first("form")
+
         payload = {}
-        form_meta = {}
         if target is not None:
-            form_meta = {"action": target.attributes.get("action"),
-                         "method": target.attributes.get("method")}
             for sel in target.css("select"):
                 n = sel.attributes.get("name")
                 if n:
@@ -1042,31 +998,47 @@ def diag_crautos():
                 ty = (inp.attributes.get("type") or "text").lower()
                 if n and ty not in ("submit", "button", "image"):
                     payload[n] = inp.attributes.get("value", "")
-        out["step2_form"] = {"meta": form_meta, "field_count": len(payload), "payload": payload}
+        # coercion: None -> "" (como manda el navegador) y precio desde 0
+        payload = {k: ("" if v is None else v) for k, v in payload.items()}
+        payload["pricefrom"] = "0"
+        out["payload"] = payload
 
-        r1 = client.post(SEARCH_URL, data=payload)
-        out["step3_post_status"] = r1.status_code
-        info1, ids1 = inspect(r1.text, r1.url)
-        out["results_page1"] = info1
+        def post_with(field, value):
+            p = dict(payload)
+            p[field] = str(value)
+            rr = client.post(SEARCH_URL, data=p)
+            return ids_in(rr.text)
 
-        next_href = None
-        if info1["arrow_is_link"] and info1["arrow_href"]:
-            next_href = _urljoin(str(r1.url), info1["arrow_href"])
-        if next_href:
-            r2 = client.get(next_href)
-            info2, ids2 = inspect(r2.text, r2.url)
-            out["results_page2"] = info2
-            nuevos = sorted(set(ids2) - set(ids1))
-            out["page2_new_ids"] = len(nuevos)
-            if nuevos:
-                out["veredicto"] = ("PAGINACION POR ENLACE FUNCIONA. El parche sirve; "
-                                    "revisar que el deploy haya tomado el cambio.")
-            else:
-                out["veredicto"] = ("Pag 2 no trae autos nuevos -> la paginacion "
-                                    "probablemente necesita JavaScript -> usar Playwright.")
+        # PRUEBA 1: el campo 'l' como numero de pagina
+        l1 = post_with("l", 1)
+        l2 = post_with("l", 2)
+        l3 = post_with("l", 3)
+        out["test_l"] = {
+            "l1_count": len(l1), "l1_sample": l1[:3],
+            "l2_count": len(l2), "l2_sample": l2[:3],
+            "l3_count": len(l3), "l3_sample": l3[:3],
+            "l2_nuevos_vs_l1": len(set(l2) - set(l1)),
+            "l3_nuevos_vs_l2": len(set(l3) - set(l2)),
+        }
+
+        # PRUEBA 2: por si fuera 'p' via POST
+        p1 = post_with("p", 1)
+        p2 = post_with("p", 2)
+        out["test_p"] = {
+            "p1_count": len(p1), "p2_count": len(p2),
+            "p2_nuevos_vs_p1": len(set(p2) - set(p1)),
+        }
+
+        # veredicto
+        l_works = (set(l2) - set(l1)) and (set(l3) - set(l2))
+        p_works = bool(set(p2) - set(p1))
+        if l_works:
+            out["veredicto"] = ("EL CAMPO 'l' PAGINA. httpx funciona re-POSTeando "
+                                "el form con l=1,2,3... hasta que no haya autos nuevos.")
+        elif p_works:
+            out["veredicto"] = "El campo 'p' (via POST) pagina. Usar p++ en el POST."
         else:
-            out["veredicto"] = ("La flecha de siguiente NO es un enlace simple "
-                                "(boton con JavaScript) -> httpx no puede paginar -> "
-                                "usar la version Playwright.")
+            out["veredicto"] = ("Ni 'l' ni 'p' paginan via POST -> la paginacion es "
+                                "por JavaScript -> usar Playwright.")
 
     return out
