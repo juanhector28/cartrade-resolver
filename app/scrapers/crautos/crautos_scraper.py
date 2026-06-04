@@ -434,22 +434,9 @@ def main():
 
     print("== Fase 1: recolectando IDs del listado ==")
 
-    try:
-        import asyncio
-        from .crautos_discover_httpx import discover_crautos
-
-        discovered = asyncio.run(
-            discover_crautos(
-                limit=args.limit if args.limit > 0 else None,
-                delay=args.delay
-            )
-        )
-
-        ids = {cid for cid, url in discovered}
-
-    except ImportError:
-        # Fallback para correr el archivo standalone fuera del paquete app.
-        ids = collect_ids(session, args.delay)
+    # Paginacion por el campo 'p' del form (verificado). collect_ids hace
+    # el barrido completo en una sola sesion.
+    ids = collect_ids(session, args.delay)
 
     print(f"Total IDs encontrados: {len(ids)}")
 
