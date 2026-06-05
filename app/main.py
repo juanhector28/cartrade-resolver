@@ -1352,12 +1352,40 @@ def carly_chat(body: CarlyChatRequest):
     pool = _carly_inventory(profile, country=body.country)
     top = rank_cars(pool, profile, top_n=body.top_n)
     cards = [_carly_card(t) for t in top]
+    relaxed_note = None
+
+    if not cards:
+        # Auto-relax: nunca dejar a la persona en un callejon sin salida.
+        # 1) presupuesto +25%; 2) si aun nada, soltar el tipo de carro exigido.
+        try:
+            import copy as _copy
+            p2 = _copy.deepcopy(profile)
+            if getattr(p2, "max_monthly", None):
+                p2.max_monthly = p2.max_monthly * 1.25
+            if getattr(p2, "max_price", None):
+                p2.max_price = p2.max_price * 1.25
+            pool2 = _carly_inventory(p2, country=body.country)
+            top = rank_cars(pool2, p2, top_n=body.top_n)
+            if top:
+                relaxed_note = "el presupuesto (~25% mas)"
+            elif getattr(p2, "require_body", None):
+                p2.require_body = []
+                pool2 = _carly_inventory(p2, country=body.country)
+                top = rank_cars(pool2, p2, top_n=body.top_n)
+                if top:
+                    relaxed_note = "el tipo de carro"
+            if top:
+                cards = [_carly_card(t) for t in top]
+                pool = pool2
+        except Exception:
+            pass
 
     if not cards:
         return {"phase": "recommendation",
-                "reply": ("No encontre opciones que calcen con eso ahora mismo. "
-                          "Si subimos un poco el presupuesto o flexibilizamos algo, "
-                          "te muestro alternativas."),
+                "reply": ("No encontre opciones que calcen exacto, incluso "
+                          "flexibilizando un poco. Dime que prefieres mover: "
+                          "presupuesto, tipo de carro o año. Con uno solo que "
+                          "sueltes te muestro opciones reales."),
                 "profile": data, "pool_size": len(pool),
                 "recommendations": [], "favorite": None}
 
@@ -1372,6 +1400,11 @@ def carly_chat(body: CarlyChatRequest):
            if c.get("value_delta_pct") is not None else "")
         for c in cards
     )
+    if relaxed_note:
+        resumen += ("\n(NOTA INTERNA: no habia resultados con los criterios exactos; "
+                    "estas opciones salieron al flexibilizar " + relaxed_note + ". "
+                    "Presentalas con honestidad como alternativas cercanas, sin fingir "
+                    "que cumplen el criterio original.)")
     fav_caveat = fav.get("caveat", "")
     closing_prompt = (
         "Acabas de recibir estas recomendaciones reales para la persona "
