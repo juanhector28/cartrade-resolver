@@ -1356,21 +1356,43 @@ def carly_chat(body: CarlyChatRequest):
 
     if not cards:
         # Auto-relax: nunca dejar a la persona en un callejon sin salida.
+        # Si exigieron una MARCA, la marca se mantiene y el presupuesto cede
+        # (+25% -> +60% -> sin tope) antes de considerar abrir la marca.
         try:
             import copy as _copy
-            p2 = _copy.deepcopy(profile)
-            if getattr(p2, "max_monthly", None):
-                p2.max_monthly = p2.max_monthly * 1.25
-            if getattr(p2, "max_price", None):
-                p2.max_price = p2.max_price * 1.25
-            pool2 = _carly_inventory(p2, country=body.country)
-            top = rank_cars(pool2, p2, top_n=body.top_n)
+            req_brands = list(getattr(profile, "require_brands", None) or [])
+
+            def _try(mult=None, uncapped=False, drop_body=False):
+                p2 = _copy.deepcopy(profile)
+                if uncapped:
+                    p2.max_monthly = None
+                    p2.max_price = None
+                elif mult:
+                    if getattr(p2, "max_monthly", None):
+                        p2.max_monthly = p2.max_monthly * mult
+                    if getattr(p2, "max_price", None):
+                        p2.max_price = p2.max_price * mult
+                if drop_body:
+                    p2.require_body = []
+                pl = _carly_inventory(p2, country=body.country)
+                return rank_cars(pl, p2, top_n=body.top_n), pl
+
+            top, pool2 = _try(mult=1.25)
             if top:
                 relaxed_note = "el presupuesto (~25% mas)"
-            elif getattr(p2, "require_body", None):
-                p2.require_body = []
-                pool2 = _carly_inventory(p2, country=body.country)
-                top = rank_cars(pool2, p2, top_n=body.top_n)
+            elif req_brands:
+                top, pool2 = _try(mult=1.6)
+                if top:
+                    relaxed_note = ("el presupuesto, para conseguirte "
+                                    + "/".join(req_brands))
+                else:
+                    top, pool2 = _try(uncapped=True)
+                    if top:
+                        relaxed_note = ("el presupuesto por completo: estas son "
+                                        "las unidades " + "/".join(req_brands)
+                                        + " que existen ahora mismo")
+            if not top and getattr(profile, "require_body", None):
+                top, pool2 = _try(mult=1.25, drop_body=True)
                 if top:
                     relaxed_note = "el tipo de carro"
             if top:
