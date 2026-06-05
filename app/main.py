@@ -1347,132 +1347,138 @@ def carly_chat(body: CarlyChatRequest):
     if not data:
         return {"phase": "conversation", "reply": visible}
 
-    # 3) hay perfil -> ranking sobre inventario real
-    profile = profile_from_extraction(data)
-    pool = _carly_inventory(profile, country=body.country)
-    top = rank_cars(pool, profile, top_n=body.top_n)
-    cards = [_carly_card(t) for t in top]
-    relaxed_note = None
-
-    if not cards:
-        # Auto-relax: nunca dejar a la persona en un callejon sin salida.
-        # Si exigieron una MARCA, la marca se mantiene y el presupuesto cede
-        # (+25% -> +60% -> sin tope) antes de considerar abrir la marca.
-        try:
-            import copy as _copy
-            req_brands = list(getattr(profile, "require_brands", None) or [])
-
-            def _try(mult=None, uncapped=False, drop_body=False):
-                p2 = _copy.deepcopy(profile)
-                if uncapped:
-                    p2.max_monthly = None
-                    p2.max_price = None
-                elif mult:
-                    if getattr(p2, "max_monthly", None):
-                        p2.max_monthly = p2.max_monthly * mult
-                    if getattr(p2, "max_price", None):
-                        p2.max_price = p2.max_price * mult
-                if drop_body:
-                    p2.require_body = []
-                pl = _carly_inventory(p2, country=body.country)
-                return rank_cars(pl, p2, top_n=body.top_n), pl
-
-            top, pool2 = _try(mult=1.25)
-            if top:
-                relaxed_note = "el presupuesto (~25% mas)"
-            elif req_brands:
-                top, pool2 = _try(mult=1.6)
-                if top:
-                    relaxed_note = ("el presupuesto, para conseguirte "
-                                    + "/".join(req_brands))
-                else:
-                    top, pool2 = _try(uncapped=True)
-                    if top:
-                        relaxed_note = ("el presupuesto por completo: estas son "
-                                        "las unidades " + "/".join(req_brands)
-                                        + " que existen ahora mismo")
-            if not top and getattr(profile, "require_body", None):
-                top, pool2 = _try(mult=1.25, drop_body=True)
-                if top:
-                    relaxed_note = "el tipo de carro"
-            if top:
-                cards = [_carly_card(t) for t in top]
-                pool = pool2
-        except Exception:
-            pass
-
-    if not cards:
-        return {"phase": "recommendation",
-                "reply": ("No encontre opciones que calcen exacto, incluso "
-                          "flexibilizando un poco. Dime que prefieres mover: "
-                          "presupuesto, tipo de carro o año. Con uno solo que "
-                          "sueltes te muestro opciones reales."),
-                "profile": data, "pool_size": len(pool),
-                "recommendations": [], "favorite": None}
-
-    # 4) Carly explica los autos REALES (segunda pasada): el primer mensaje
-    #    lo escribio antes de ver resultados. Ahora habla de lo que de verdad
-    #    salio, mencionando el fairness y la contra honesta del favorito.
-    fav = cards[0]
-    resumen = "\n".join(
-        f"- {c['make']} {c['model']} {c['year']}, ${c['monthly_est']}/mes, "
-        f"mejor para {c['best_for']}"
-        + (f", {abs(c['value_delta_pct']):.0f}% {c['value_label']}"
-           if c.get("value_delta_pct") is not None else "")
-        for c in cards
-    )
-    if relaxed_note:
-        resumen += ("\n(NOTA INTERNA: no habia resultados con los criterios exactos; "
-                    "estas opciones salieron al flexibilizar " + relaxed_note + ". "
-                    "Presentalas con honestidad como alternativas cercanas, sin fingir "
-                    "que cumplen el criterio original.)")
-    fav_caveat = fav.get("caveat", "")
-    closing_prompt = (
-        "Acabas de recibir estas recomendaciones reales para la persona "
-        f"(ya rankeadas):\n{resumen}\n\n"
-        f"Tu favorita es la {fav['make']} {fav['model']} {fav['year']}. "
-        f"Algo honesto que debe saber: {fav_caveat}\n\n"
-        "Escribe tu VEREDICTO con voz de experta compradora, no de asistente. "
-        "En este orden:\n"
-        "1) Tu decision en primera persona: 'Yo compraria la X' con los 2-3 "
-        "motivos concretos sacados de los datos de arriba (mensualidad, año, "
-        "km, precio vs mercado).\n"
-        "2) Lo que te haria dudar: el dato honesto, directo y sin suavizar.\n"
-        "3) Tu lectura final en UNA frase, como amiga que sabe de carros: si "
-        "su prioridad es X, la favorita gana; si en realidad le pesa mas Y, "
-        "cual otra elegirias. Como AFIRMACION, no como pregunta.\n"
-        "4) Cierra SIEMPRE con el siguiente paso concreto dentro de CarTrade, "
-        "como invitacion directa (no pregunta). Ejemplo: 'Toca Ver detalles "
-        "en la favorita y desde ahi inicias la compra verificada: inspeccion, "
-        "papeles, custodia y financiamiento van por nuestra cuenta.' Adapta "
-        "la frase con naturalidad, pero el CTA siempre apunta a una accion "
-        "en CarTrade (ver detalles, comparar lado a lado, o iniciar la "
-        "compra verificada). Nunca termines sin proponer ese paso.\n"
-        "Maximo 7 frases en total, sin titulos ni encabezados. "
-        "Se firme con lo que los datos muestran y explicita que el estado "
-        "mecanico real lo confirma la inspeccion. NO inventes porcentajes de "
-        "confianza ni datos que no esten arriba. NO hagas preguntas. NO "
-        "repitas la tabla (la persona ya la ve). NO emitas bloque PROFILE."
-    )
     try:
-        resp2 = _anthropic.messages.create(
-            model=CARLY_MODEL, max_tokens=400, system=CARLY_SYSTEM_PROMPT,
-            messages=msgs + [
-                {"role": "assistant", "content": visible or "Tengo tus opciones."},
-                {"role": "user", "content": closing_prompt},
-            ],
-        )
-        closing = "".join(b.text for b in resp2.content
-                          if getattr(b, "type", "") == "text").strip()
-        closing = re.sub(r"<PROFILE>.*?</PROFILE>", "", closing, flags=re.S).strip()
-    except Exception:
-        closing = visible  # si la segunda pasada falla, usamos la primera
+        # 3) hay perfil -> ranking sobre inventario real
+        profile = profile_from_extraction(data)
+        pool = _carly_inventory(profile, country=body.country)
+        top = rank_cars(pool, profile, top_n=body.top_n)
+        cards = [_carly_card(t) for t in top]
+        relaxed_note = None
 
-    return {
-        "phase": "recommendation",
-        "reply": closing or visible,
-        "profile": data,
-        "pool_size": len(pool),
-        "recommendations": cards,
-        "favorite": fav,
-    }
+        if not cards:
+            # Auto-relax: nunca dejar a la persona en un callejon sin salida.
+            # Si exigieron una MARCA, la marca se mantiene y el presupuesto cede
+            # (+25% -> +60% -> sin tope) antes de considerar abrir la marca.
+            try:
+                import copy as _copy
+                req_brands = list(getattr(profile, "require_brands", None) or [])
+
+                def _try(mult=None, uncapped=False, drop_body=False):
+                    p2 = _copy.deepcopy(profile)
+                    if uncapped:
+                        p2.max_monthly = None
+                        p2.max_price = None
+                    elif mult:
+                        if getattr(p2, "max_monthly", None):
+                            p2.max_monthly = p2.max_monthly * mult
+                        if getattr(p2, "max_price", None):
+                            p2.max_price = p2.max_price * mult
+                    if drop_body:
+                        p2.require_body = []
+                    pl = _carly_inventory(p2, country=body.country)
+                    return rank_cars(pl, p2, top_n=body.top_n), pl
+
+                top, pool2 = _try(mult=1.25)
+                if top:
+                    relaxed_note = "el presupuesto (~25% mas)"
+                elif req_brands:
+                    top, pool2 = _try(mult=1.6)
+                    if top:
+                        relaxed_note = ("el presupuesto, para conseguirte "
+                                        + "/".join(req_brands))
+                    else:
+                        top, pool2 = _try(uncapped=True)
+                        if top:
+                            relaxed_note = ("el presupuesto por completo: estas son "
+                                            "las unidades " + "/".join(req_brands)
+                                            + " que existen ahora mismo")
+                if not top and getattr(profile, "require_body", None):
+                    top, pool2 = _try(mult=1.25, drop_body=True)
+                    if top:
+                        relaxed_note = "el tipo de carro"
+                if top:
+                    cards = [_carly_card(t) for t in top]
+                    pool = pool2
+            except Exception:
+                pass
+
+        if not cards:
+            return {"phase": "recommendation",
+                    "reply": ("No encontre opciones que calcen exacto, incluso "
+                              "flexibilizando un poco. Dime que prefieres mover: "
+                              "presupuesto, tipo de carro o año. Con uno solo que "
+                              "sueltes te muestro opciones reales."),
+                    "profile": data, "pool_size": len(pool),
+                    "recommendations": [], "favorite": None}
+
+        # 4) Carly explica los autos REALES (segunda pasada): el primer mensaje
+        #    lo escribio antes de ver resultados. Ahora habla de lo que de verdad
+        #    salio, mencionando el fairness y la contra honesta del favorito.
+        fav = cards[0]
+        resumen = "\n".join(
+            f"- {c['make']} {c['model']} {c['year']}, ${c['monthly_est']}/mes, "
+            f"mejor para {c['best_for']}"
+            + (f", {abs(c['value_delta_pct']):.0f}% {c['value_label']}"
+               if c.get("value_delta_pct") is not None else "")
+            for c in cards
+        )
+        if relaxed_note:
+            resumen += ("\n(NOTA INTERNA: no habia resultados con los criterios exactos; "
+                        "estas opciones salieron al flexibilizar " + relaxed_note + ". "
+                        "Presentalas con honestidad como alternativas cercanas, sin fingir "
+                        "que cumplen el criterio original.)")
+        fav_caveat = fav.get("caveat", "")
+        closing_prompt = (
+            "Acabas de recibir estas recomendaciones reales para la persona "
+            f"(ya rankeadas):\n{resumen}\n\n"
+            f"Tu favorita es la {fav['make']} {fav['model']} {fav['year']}. "
+            f"Algo honesto que debe saber: {fav_caveat}\n\n"
+            "Escribe tu VEREDICTO con voz de experta compradora, no de asistente. "
+            "En este orden:\n"
+            "1) Tu decision en primera persona: 'Yo compraria la X' con los 2-3 "
+            "motivos concretos sacados de los datos de arriba (mensualidad, año, "
+            "km, precio vs mercado).\n"
+            "2) Lo que te haria dudar: el dato honesto, directo y sin suavizar.\n"
+            "3) Tu lectura final en UNA frase, como amiga que sabe de carros: si "
+            "su prioridad es X, la favorita gana; si en realidad le pesa mas Y, "
+            "cual otra elegirias. Como AFIRMACION, no como pregunta.\n"
+            "4) Cierra SIEMPRE con el siguiente paso concreto dentro de CarTrade, "
+            "como invitacion directa (no pregunta). Ejemplo: 'Toca Ver detalles "
+            "en la favorita y desde ahi inicias la compra verificada: inspeccion, "
+            "papeles, custodia y financiamiento van por nuestra cuenta.' Adapta "
+            "la frase con naturalidad, pero el CTA siempre apunta a una accion "
+            "en CarTrade (ver detalles, comparar lado a lado, o iniciar la "
+            "compra verificada). Nunca termines sin proponer ese paso.\n"
+            "Maximo 7 frases en total, sin titulos ni encabezados. "
+            "Se firme con lo que los datos muestran y explicita que el estado "
+            "mecanico real lo confirma la inspeccion. NO inventes porcentajes de "
+            "confianza ni datos que no esten arriba. NO hagas preguntas. NO "
+            "repitas la tabla (la persona ya la ve). NO emitas bloque PROFILE."
+        )
+        try:
+            resp2 = _anthropic.messages.create(
+                model=CARLY_MODEL, max_tokens=400, system=CARLY_SYSTEM_PROMPT,
+                messages=msgs + [
+                    {"role": "assistant", "content": visible or "Tengo tus opciones."},
+                    {"role": "user", "content": closing_prompt},
+                ],
+            )
+            closing = "".join(b.text for b in resp2.content
+                              if getattr(b, "type", "") == "text").strip()
+            closing = re.sub(r"<PROFILE>.*?</PROFILE>", "", closing, flags=re.S).strip()
+        except Exception:
+            closing = visible  # si la segunda pasada falla, usamos la primera
+
+        return {
+            "phase": "recommendation",
+            "reply": closing or visible,
+            "profile": data,
+            "pool_size": len(pool),
+            "recommendations": cards,
+            "favorite": fav,
+        }
+    except Exception as _diag_e:
+        import traceback as _tb
+        print(_tb.format_exc())
+        return {"phase": "conversation",
+                "reply": "[DIAG] " + type(_diag_e).__name__ + ": " + str(_diag_e)[:300]}
