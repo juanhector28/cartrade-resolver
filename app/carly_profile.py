@@ -270,6 +270,14 @@ def extract_profile_json(llm_text: str):
     if not m:
         return None
     try:
-        return json.loads(m.group(1))
+        raw = m.group(1)
+        try:
+            return json.loads(raw)
+        except Exception:
+            try:
+                cleaned = re.sub(r",\s*([}\]])", r"\1", raw)  # comas colgantes
+                return json.loads(cleaned)
+            except Exception:
+                return None
     except json.JSONDecodeError:
         return None
