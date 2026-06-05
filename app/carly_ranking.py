@@ -70,12 +70,16 @@ def _norm(s):
     return s
 
 _BODY_CANON = {
-    "hatch":"hatchback","hatchback":"hatchback","hb":"hatchback",
+    "hatch":"hatchback","hatchback":"hatchback","hb":"hatchback","compacto":"hatchback",
     "sedan":"sedan","saloon":"sedan",
-    "suv":"suv","sport utility":"suv","todo terreno":"suv","4x4":"suv",
+    # LATAM: "camioneta" = SUV (Ford EcoSport, Tucson...), NUNCA pickup
+    "suv":"suv","sport utility":"suv","todo terreno":"suv","todoterreno":"suv","4x4":"suv",
+    "camioneta":"suv","jeepeta":"suv","yipeta":"suv",
     "crossover":"crossover","cuv":"crossover",
-    "pickup":"pickup","pick-up":"pickup","pick up":"pickup","camioneta":"pickup",
-    "minivan":"minivan","van":"minivan","minibus":"minivan",
+    "pickup":"pickup","pick-up":"pickup","pick up":"pickup","picap":"pickup",
+    "troca":"pickup","palangana":"pickup","doble cabina":"pickup",
+    "minivan":"minivan","van":"minivan","minibus":"minivan","microbus":"minivan",
+    "busito":"minivan","buseta":"minivan",
     "wagon":"wagon","station wagon":"wagon","familiar":"wagon",
     "coupe":"coupe","convertible":"convertible","cabrio":"convertible",
 }
