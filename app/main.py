@@ -1449,6 +1449,8 @@ def carly_chat(body: CarlyChatRequest):
             "la frase con naturalidad, pero el CTA siempre apunta a una accion "
             "en CarTrade (ver detalles, comparar lado a lado, o iniciar la "
             "compra verificada). Nunca termines sin proponer ese paso.\n"
+            f"Incluye en alguna parte UNA frase de procedencia con el numero real: "
+            f"'de los {len(pool)} que cumplen tus criterios, estas son mis mejores apuestas'. "
             "Maximo 7 frases en total, sin titulos ni encabezados. "
             "Se firme con lo que los datos muestran y explicita que el estado "
             "mecanico real lo confirma la inspeccion. NO inventes porcentajes de "
