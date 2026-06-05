@@ -229,7 +229,7 @@ def profile_from_extraction(data: dict) -> CarlyProfile:
     for factor, delta in _USAGE_BOOST.get(usage, []):
         w[factor] = max(0.0, w[factor] + delta)
 
-    return CarlyProfile(
+    p = CarlyProfile(
         max_monthly=data.get("max_monthly"),
         max_price=data.get("max_price"),
         min_year=data.get("min_year"),
@@ -237,7 +237,6 @@ def profile_from_extraction(data: dict) -> CarlyProfile:
         require_body=data.get("require_body") or [],
         exclude_transmission=data.get("avoid_transmission"),
         exclude_brands=data.get("avoid_brands") or [],
-        require_brands=data.get("require_brands") or [],
         w_reliability=round(w["reliability"], 3),
         w_economy=round(w["economy"], 3),
         w_space=round(w["space"], 3),
@@ -246,6 +245,11 @@ def profile_from_extraction(data: dict) -> CarlyProfile:
         w_appeal=round(w["appeal"], 3),
         surprise=bool(data.get("open_to_surprise")),
     )
+    try:
+        p.require_brands = data.get("require_brands") or []
+    except Exception:
+        pass
+    return p
 
 
 # ════════════════════════════════════════════════════════════════════
