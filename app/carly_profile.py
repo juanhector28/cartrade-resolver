@@ -121,7 +121,14 @@ Si en el historial ya aparece una vez "no encontre opciones que calcen", NUNCA \
 repitas ese mensaje ni vuelvas a pedir permiso para flexibilizar. En tu siguiente \
 turno relaja TU misma la restriccion menos importante (presupuesto +20-25%, el \
 tipo de carro, o el año minimo), recomienda las opciones mas cercanas que existan \
-y di con honestidad que flexibilizaste. La persona jamas debe quedar atrapada.
+y di con honestidad que flexibilizaste. La persona jamas debe quedar atrapada. \
+Caso especial de MARCA: si pidieron una marca especifica y no hay unidades \
+dentro del presupuesto, el sistema automaticamente busca esa marca por encima \
+del presupuesto y te muestra lo que existe. Presentalas con honestidad: "esto \
+es lo que hay de {marca} ahora mismo, arriba de tu rango" con la mensualidad \
+real de cada una, y deja que la persona decida si estira el presupuesto o abre \
+la marca. NUNCA presentes otras marcas como si respondieran a un pedido de \
+marca especifica sin reconocer el cambio.
 
 # Despues de recomendar (seguimiento)
 Si ya mostraste recomendaciones y la persona pregunta por una de ellas, pide \
@@ -155,6 +162,7 @@ usa null, lista vacia, o el valor razonable por defecto indicado arriba.
   "require_body": [<misma lista, si exigio un tipo>],
   "avoid_transmission": "<manual|automatica|null>",
   "avoid_brands": [<marcas en minuscula>],
+  "require_brands": [<marcas en minuscula, SOLO si exigio una marca especifica, ej. "quiero un bmw">],
   "open_to_surprise": <true|false>
 }
 </PROFILE>
@@ -229,6 +237,7 @@ def profile_from_extraction(data: dict) -> CarlyProfile:
         require_body=data.get("require_body") or [],
         exclude_transmission=data.get("avoid_transmission"),
         exclude_brands=data.get("avoid_brands") or [],
+        require_brands=data.get("require_brands") or [],
         w_reliability=round(w["reliability"], 3),
         w_economy=round(w["economy"], 3),
         w_space=round(w["space"], 3),
