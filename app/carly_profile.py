@@ -11,7 +11,7 @@ Arquitectura (importante):
   conversacion --LLM--> JSON (categorias) --tu codigo--> CarlyProfile --engine--> top
 """
 
-from carly_ranking import CarlyProfile
+from .carly_ranking import CarlyProfile
 
 
 # ════════════════════════════════════════════════════════════════════
