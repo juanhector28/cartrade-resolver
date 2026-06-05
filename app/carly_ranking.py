@@ -1,298 +1,306 @@
 """
-carly_ranking.py  —  Ranking engine V1 de Carly
+carly_ranking.py  —  Ranking engine V2 de Carly (optimizado)
 
-Filosofia:
-  1) FILTRAR duro (restricciones absolutas: mensualidad, exclusiones).
-  2) PUNTUAR suave (score 0-100 por carro, suma ponderada de factores).
-  Los PESOS de los factores los define la conversacion. La misma base
-  de carros se rankea distinto para cada persona. Eso es el moat.
-
-  Sin ML. Reglas. Deterministico, debuggeable, no alucina.
-  El LLM hace dos cosas FUERA de aqui: traduce la conversacion a un
-  CarlyProfile (los pesos + filtros), y explica el resultado. El ranking
-  en si es esta funcion pura.
-
-Enchufa con las columnas que ya tenes en scraped_listings:
-  make, model, year, km, price_usd, monthly_est, body_type,
-  photo_count, fuel_type, transmission.
+Cambios vs V1:
+  (11) Normalizacion robusta de datos sucios (body_type "hatch", trans
+       "Automática" con tilde/mayuscula) ANTES de cualquier match.
+  (1)  Factor "modernidad" (premia años recientes).
+  (2)  economy_score recalibrado para que discrimine.
+  (3)  Penalizacion de km alto mas fuerte (en confiabilidad efectiva).
+  (4)  Diversidad en el top (no clones del mismo make+body).
+  (7)  Fairness visible: cuanto bajo/sobre mercado, numero y texto.
+  (8)  "Lo que debes saber": contra honesta por auto.
+  (9)  Inspeccion: que revisar segun año/km, sin alarmar.
+Filosofia intacta: filtrar duro, puntuar suave, pesos por conversacion.
 """
 
 from dataclasses import dataclass, field
 from typing import Optional
 
+CURRENT_YEAR = 2026
 
-# ════════════════════════════════════════════════════════════════════
-# 1) TABLA DE FIABILIDAD  (la armas a mano para los modelos comunes)
-#    Escala 0-100. Esto es conocimiento publico y estable: un Corolla
-#    es mas confiable que casi todo. No necesitas datos sofisticados.
-#    Empeza con 30-40 modelos; lo que no este en la tabla usa el
-#    default por marca, y lo que tampoco, un piso neutro.
-# ════════════════════════════════════════════════════════════════════
-
+# ──────────────────────────── TABLAS ───────────────────────────────
 RELIABILITY_BY_MODEL = {
-    # Calibrado a los 50 modelos mas comunes del inventario real (CR + SV).
-    # Incluye variantes de nombre tal como vienen en la base (crv vs cr-v, etc).
-    # Toyota
-    ("toyota", "rav4"): 93, ("toyota", "yaris"): 90, ("toyota", "corolla"): 95,
-    ("toyota", "corolla cross"): 92, ("toyota", "hilux"): 94, ("toyota", "fortuner"): 90,
-    ("toyota", "land cruiser"): 93, ("toyota", "prado"): 91, ("toyota", "4runner"): 92,
-    ("toyota", "echo"): 84, ("toyota", "tacoma"): 92,
-    # Hyundai
-    ("hyundai", "tucson"): 80, ("hyundai", "accent"): 81, ("hyundai", "santa fe"): 79,
-    ("hyundai", "elantra"): 80, ("hyundai", "grand i10"): 78, ("hyundai", "creta"): 80,
-    # Kia
-    ("kia", "sportage"): 79, ("kia", "rio"): 80, ("kia", "sorento"): 78,
-    ("kia", "picanto"): 79, ("kia", "seltos"): 79,
-    # Nissan
-    ("nissan", "qashqai"): 76, ("nissan", "kicks"): 79, ("nissan", "versa"): 77,
-    ("nissan", "frontier"): 82, ("nissan", "sentra"): 78, ("nissan", "xtrail"): 76,
-    ("nissan", "x-trail"): 76, ("nissan", "tiida"): 75,
-    # Honda (la base trae crv Y cr-v por separado: cubrir ambos)
-    ("honda", "crv"): 90, ("honda", "cr-v"): 90, ("honda", "civic"): 91,
-    ("honda", "pilot"): 84, ("honda", "fit"): 88, ("honda", "hr-v"): 87,
-    # Mitsubishi
-    ("mitsubishi", "montero sport"): 81, ("mitsubishi", "outlander"): 79,
-    ("mitsubishi", "l200"): 82, ("mitsubishi", "montero"): 81, ("mitsubishi", "asx"): 77,
-    # Suzuki
-    ("suzuki", "grand vitara"): 82, ("suzuki", "vitara"): 82, ("suzuki", "swift"): 83,
-    # Chevrolet / Isuzu / Ford / Jeep
-    ("chevrolet", "spark"): 72, ("isuzu", "dmax"): 83, ("ford", "explorer"): 69,
-    ("jeep", "wrangler"): 66,
-    # Premium europeos (confiabilidad mecanica realista, no aspiracional)
-    ("bmw", "x5"): 60, ("bmw", "x1"): 62, ("bmw", "x3"): 61,
-    ("audi", "q3"): 61, ("audi", "q5"): 60, ("land rover", "range rover"): 52,
+    ("toyota","rav4"):93,("toyota","yaris"):90,("toyota","corolla"):95,
+    ("toyota","corolla cross"):92,("toyota","hilux"):94,("toyota","fortuner"):90,
+    ("toyota","land cruiser"):93,("toyota","prado"):91,("toyota","4runner"):92,
+    ("toyota","echo"):84,("toyota","tacoma"):92,
+    ("hyundai","tucson"):80,("hyundai","accent"):81,("hyundai","santa fe"):79,
+    ("hyundai","elantra"):80,("hyundai","grand i10"):78,("hyundai","creta"):80,
+    ("kia","sportage"):79,("kia","rio"):80,("kia","sorento"):78,
+    ("kia","picanto"):79,("kia","seltos"):79,
+    ("nissan","qashqai"):76,("nissan","kicks"):79,("nissan","versa"):77,
+    ("nissan","frontier"):82,("nissan","sentra"):78,("nissan","xtrail"):76,
+    ("nissan","x-trail"):76,("nissan","tiida"):75,
+    ("honda","crv"):90,("honda","cr-v"):90,("honda","civic"):91,
+    ("honda","pilot"):84,("honda","fit"):88,("honda","hr-v"):87,("honda","hrv"):87,
+    ("mitsubishi","montero sport"):81,("mitsubishi","outlander"):79,
+    ("mitsubishi","l200"):82,("mitsubishi","montero"):81,("mitsubishi","asx"):77,
+    ("suzuki","grand vitara"):82,("suzuki","vitara"):82,("suzuki","swift"):83,
+    ("chevrolet","spark"):72,("isuzu","dmax"):83,("ford","explorer"):69,
+    ("jeep","wrangler"):66,
+    ("bmw","x5"):60,("bmw","x1"):62,("bmw","x3"):61,
+    ("audi","q3"):61,("audi","q5"):60,("land rover","range rover"):52,
 }
-
 RELIABILITY_BY_BRAND = {
-    "toyota": 90, "honda": 88, "mazda": 83, "suzuki": 81, "subaru": 82,
-    "lexus": 92, "mitsubishi": 79, "kia": 78, "hyundai": 79, "nissan": 76,
-    "ford": 70, "chevrolet": 69, "volkswagen": 68, "jeep": 64, "renault": 63,
-    "peugeot": 62, "fiat": 58, "land rover": 55, "bmw": 62, "mercedes-benz": 63,
-    "audi": 61,
+    "toyota":90,"honda":88,"mazda":83,"suzuki":81,"subaru":82,"lexus":92,
+    "mitsubishi":79,"kia":78,"hyundai":79,"nissan":76,"ford":70,"chevrolet":69,
+    "volkswagen":68,"jeep":64,"renault":63,"peugeot":62,"fiat":58,
+    "land rover":55,"bmw":62,"mercedes-benz":63,"audi":61,
 }
-RELIABILITY_FLOOR = 65  # marca desconocida: ni premio ni castigo fuerte
-
-
-# Retencion de valor (reventa). Quien aguanta precio en CA/CR.
+RELIABILITY_FLOOR = 65
 RESALE_BY_BRAND = {
-    "toyota": 95, "honda": 88, "lexus": 90, "subaru": 80, "mazda": 78,
-    "suzuki": 76, "mitsubishi": 75, "nissan": 70, "hyundai": 68, "kia": 67,
-    "ford": 60, "chevrolet": 58, "volkswagen": 60, "bmw": 55, "mercedes-benz": 57,
+    "toyota":95,"honda":88,"lexus":90,"subaru":80,"mazda":78,"suzuki":76,
+    "mitsubishi":75,"nissan":70,"hyundai":68,"kia":67,"ford":60,"chevrolet":58,
+    "volkswagen":60,"bmw":55,"mercedes-benz":57,
 }
 RESALE_FLOOR = 60
-
-# Espacio por carroceria (body_type). 0-100.
-SPACE_BY_BODY = {
-    "suv": 88, "pickup": 90, "minivan": 95, "wagon": 85, "crossover": 82,
-    "sedan": 65, "hatchback": 55, "coupe": 35, "convertible": 25,
-}
+SPACE_BY_BODY = {"suv":88,"pickup":90,"minivan":95,"wagon":85,"crossover":82,
+    "sedan":65,"hatchback":55,"coupe":35,"convertible":25}
 SPACE_FLOOR = 60
-
-# Deseabilidad / "verse bien" por carroceria (proxy honesto).
-APPEAL_BY_BODY = {
-    "suv": 82, "crossover": 80, "pickup": 78, "coupe": 85, "convertible": 88,
-    "sedan": 65, "hatchback": 62, "minivan": 45, "wagon": 55,
-}
+APPEAL_BY_BODY = {"suv":82,"crossover":80,"pickup":78,"coupe":85,"convertible":88,
+    "sedan":65,"hatchback":62,"minivan":45,"wagon":55}
 APPEAL_FLOOR = 60
 
+# ─────────────────── (11) NORMALIZACION ─────────────────────────────
+def _norm(s):
+    s = (s or "").strip().lower()
+    for a,b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        s = s.replace(a,b)
+    return s
 
-# ════════════════════════════════════════════════════════════════════
-# 2) PERFIL DEL COMPRADOR  (lo produce el LLM desde la conversacion)
-#    Pesos: cuanto importa cada factor (0-1, no tienen que sumar 1).
-#    Filtros: restricciones duras.
-# ════════════════════════════════════════════════════════════════════
+_BODY_CANON = {
+    "hatch":"hatchback","hatchback":"hatchback","hb":"hatchback",
+    "sedan":"sedan","saloon":"sedan",
+    "suv":"suv","sport utility":"suv","todo terreno":"suv","4x4":"suv",
+    "crossover":"crossover","cuv":"crossover",
+    "pickup":"pickup","pick-up":"pickup","pick up":"pickup","camioneta":"pickup",
+    "minivan":"minivan","van":"minivan","minibus":"minivan",
+    "wagon":"wagon","station wagon":"wagon","familiar":"wagon",
+    "coupe":"coupe","convertible":"convertible","cabrio":"convertible",
+}
+def canon_body(b):
+    b = _norm(b); return _BODY_CANON.get(b, b)
+def canon_transmission(t):
+    t = _norm(t)
+    if t.startswith("auto") or "cvt" in t: return "automatica"
+    if t.startswith("man"): return "manual"
+    return t
+def canon_fuel(f):
+    f = _norm(f)
+    if f in ("hibrido","hybrid"): return "hibrido"
+    if f in ("electrico","electric","ev"): return "electrico"
+    if f == "diesel": return "diesel"
+    if f in ("gasolina","gas","regular","super"): return "gasolina"
+    return f
+def canon_model(m):
+    return _norm(m)
 
+# ──────────────────────────── PERFIL ───────────────────────────────
 @dataclass
 class CarlyProfile:
-    # filtros duros
-    max_monthly: Optional[float] = None     # mensualidad tope (usa monthly_est)
-    max_price: Optional[float] = None        # precio tope alternativo
+    max_monthly: Optional[float] = None
+    max_price: Optional[float] = None
     min_year: Optional[int] = None
-    exclude_body: list = field(default_factory=list)        # ej ["coupe"]
-    exclude_transmission: Optional[str] = None              # ej "manual"
+    exclude_body: list = field(default_factory=list)
+    exclude_transmission: Optional[str] = None
     exclude_brands: list = field(default_factory=list)
-    require_body: list = field(default_factory=list)        # ej ["suv","pickup"]
+    require_body: list = field(default_factory=list)
+    w_reliability: float = 0.45
+    w_economy: float = 0.30
+    w_space: float = 0.30
+    w_value: float = 0.50
+    w_resale: float = 0.30
+    w_appeal: float = 0.20
+    w_modernity: float = 0.35
+    surprise: bool = False
 
-    # pesos (0-1). Default: equilibrado.
-    w_reliability: float = 0.5
-    w_economy: float = 0.3
-    w_space: float = 0.3
-    w_value: float = 0.5
-    w_resale: float = 0.3
-    w_appeal: float = 0.2
-
-    surprise: bool = False   # prompt 5: permitir una opcion lateral
-
-
-# ════════════════════════════════════════════════════════════════════
-# 3) HELPERS de normalizacion
-# ════════════════════════════════════════════════════════════════════
-
-def _norm(s):
-    return (s or "").strip().lower()
-
-
-def reliability_score(make, model):
-    key = (_norm(make), _norm(model))
-    if key in RELIABILITY_BY_MODEL:
-        return RELIABILITY_BY_MODEL[key]
+# ──────────────────────────── FACTORES ─────────────────────────────
+def reliability_base(make, model):
+    key = (_norm(make), canon_model(model))
+    if key in RELIABILITY_BY_MODEL: return RELIABILITY_BY_MODEL[key]
     return RELIABILITY_BY_BRAND.get(_norm(make), RELIABILITY_FLOOR)
 
+def reliability_score(make, model, km):
+    base = reliability_base(make, model)
+    if km is not None:
+        if km < 50000: base += 3
+        elif km < 90000: base += 0
+        elif km < 130000: base -= 6
+        elif km < 180000: base -= 14
+        else: base -= 22
+    return max(0.0, min(100.0, base))
 
-def resale_score(make):
-    return RESALE_BY_BRAND.get(_norm(make), RESALE_FLOOR)
+def resale_score(make): return RESALE_BY_BRAND.get(_norm(make), RESALE_FLOOR)
+def space_score(bt): return SPACE_BY_BODY.get(canon_body(bt), SPACE_FLOOR)
 
+def appeal_score(bt, year):
+    base = APPEAL_BY_BODY.get(canon_body(bt), APPEAL_FLOOR)
+    if year:
+        age = CURRENT_YEAR - year
+        if age <= 3: base += 8
+        elif age >= 12: base -= 8
+    return max(0.0, min(100.0, base))
 
-def space_score(body_type):
-    return SPACE_BY_BODY.get(_norm(body_type), SPACE_FLOOR)
-
-
-def appeal_from_body(body_type):
-    return APPEAL_BY_BODY.get(_norm(body_type), APPEAL_FLOOR)
-
+def modernity_score(year):
+    if not year: return 55.0
+    age = CURRENT_YEAR - year
+    if age <= 2: return 100.0
+    if age <= 4: return 90.0
+    if age <= 6: return 78.0
+    if age <= 8: return 64.0
+    if age <= 10: return 50.0
+    if age <= 13: return 35.0
+    return 20.0
 
 def economy_score(km, year, fuel_type):
-    """Proxy de economia: km bajo + carro no muy viejo + no consumidores
-    obvios. 0-100. Sin datos de consumo real, esto es una aproximacion
-    honesta que se puede refinar luego."""
-    s = 60.0
+    f = canon_fuel(fuel_type)
+    if f == "electrico": s = 95.0
+    elif f == "hibrido": s = 88.0
+    elif f == "diesel": s = 70.0
+    else: s = 58.0
     if km is not None:
-        if km < 40000: s += 20
-        elif km < 80000: s += 10
-        elif km < 130000: s += 0
-        elif km < 180000: s -= 12
-        else: s -= 22
-    if year is not None:
-        age = 2026 - year
-        if age <= 3: s += 8
-        elif age <= 7: s += 3
-        elif age >= 14: s -= 10
-    f = _norm(fuel_type)
-    if f in ("hibrido", "hybrid", "electrico", "electric"): s += 12
-    if f in ("diesel",): s += 4
+        if km < 40000: s += 12
+        elif km < 80000: s += 6
+        elif km < 130000: s -= 2
+        elif km < 180000: s -= 10
+        else: s -= 18
+    if year:
+        age = CURRENT_YEAR - year
+        if age <= 4: s += 6
+        elif age >= 13: s -= 8
     return max(0.0, min(100.0, s))
 
-
-def value_score(car, comps):
-    """Que tan bien esta de precio vs comparables del MISMO make/model.
-    Esto SOLO lo podes hacer porque tenes el corpus. Es el factor mas
-    diferenciador: 'esta barato/caro vs el mercado real'.
-    comps = lista de price_usd de carros del mismo modelo (incluido este).
-    Devuelve 0-100: mas alto = mejor precio (mas barato vs mercado)."""
-    price = car.get("price_usd")
+def value_score(price, comps):
     valid = [p for p in comps if p and p > 0]
     if not price or len(valid) < 3:
-        return 60.0  # sin comparables suficientes: neutro
-    avg = sum(valid) / len(valid)
-    if avg <= 0:
-        return 60.0
-    ratio = price / avg          # <1 = mas barato que el promedio
-    # mapear ratio a score: 0.80 del promedio -> ~90 ; 1.20 -> ~30
-    s = 60.0 + (1.0 - ratio) * 150.0
-    return max(0.0, min(100.0, s))
+        return 60.0, None, "precio de referencia"
+    avg = sum(valid)/len(valid)
+    if avg <= 0: return 60.0, None, "precio de referencia"
+    ratio = price/avg
+    delta_pct = round((ratio-1.0)*100, 1)
+    s = max(0.0, min(100.0, 60.0 + (1.0-ratio)*150.0))
+    if delta_pct <= -8: label = "bajo el mercado"
+    elif delta_pct >= 8: label = "sobre el mercado"
+    else: label = "en precio de mercado"
+    return s, delta_pct, label
 
-
-# ════════════════════════════════════════════════════════════════════
-# 4) FILTRO DURO
-# ════════════════════════════════════════════════════════════════════
-
-def passes_filters(car, profile: CarlyProfile):
+# ──────────────────────────── FILTRO ───────────────────────────────
+def passes_filters(car, p: CarlyProfile):
     m = car.get("monthly_est")
-    if profile.max_monthly is not None and m is not None and m > profile.max_monthly:
-        return False
-    p = car.get("price_usd")
-    if profile.max_price is not None and p is not None and p > profile.max_price:
-        return False
+    if p.max_monthly is not None and m is not None and m > p.max_monthly: return False
+    pr = car.get("price_usd")
+    if p.max_price is not None and pr is not None and pr > p.max_price: return False
     y = car.get("year")
-    if profile.min_year is not None and y is not None and y < profile.min_year:
+    if p.min_year is not None and y is not None and y < p.min_year: return False
+    bt = canon_body(car.get("body_type"))
+    req = [canon_body(b) for b in p.require_body]
+    if req and bt not in req: return False
+    if bt in [canon_body(b) for b in p.exclude_body]: return False
+    if p.exclude_transmission and \
+       canon_transmission(car.get("transmission")) == canon_transmission(p.exclude_transmission):
         return False
-    bt = _norm(car.get("body_type"))
-    if profile.require_body and bt not in [_norm(b) for b in profile.require_body]:
-        return False
-    if bt in [_norm(b) for b in profile.exclude_body]:
-        return False
-    if profile.exclude_transmission and _norm(car.get("transmission")) == _norm(profile.exclude_transmission):
-        return False
-    if _norm(car.get("make")) in [_norm(b) for b in profile.exclude_brands]:
-        return False
+    if _norm(car.get("make")) in [_norm(b) for b in p.exclude_brands]: return False
     return True
 
-
-# ════════════════════════════════════════════════════════════════════
-# 5) SCORING + RANKING
-# ════════════════════════════════════════════════════════════════════
-
-def score_car(car, profile: CarlyProfile, comps_by_model):
+# ──────────────────────────── SCORING ──────────────────────────────
+def score_car(car, p: CarlyProfile, comps_by_model):
     make, model = car.get("make"), car.get("model")
-    comps = comps_by_model.get((_norm(make), _norm(model)), [])
-
+    km, year = car.get("km"), car.get("year")
+    comps = comps_by_model.get((_norm(make), canon_model(model)), [])
+    v_score, v_delta, v_label = value_score(car.get("price_usd"), comps)
     factors = {
-        "reliability": reliability_score(make, model),
-        "economy": economy_score(car.get("km"), car.get("year"), car.get("fuel_type")),
+        "reliability": reliability_score(make, model, km),
+        "economy": economy_score(km, year, car.get("fuel_type")),
         "space": space_score(car.get("body_type")),
-        "value": value_score(car, comps),
+        "value": v_score,
         "resale": resale_score(make),
-        "appeal": appeal_from_body(car.get("body_type")),
+        "appeal": appeal_score(car.get("body_type"), year),
+        "modernity": modernity_score(year),
     }
     weights = {
-        "reliability": profile.w_reliability,
-        "economy": profile.w_economy,
-        "space": profile.w_space,
-        "value": profile.w_value,
-        "resale": profile.w_resale,
-        "appeal": profile.w_appeal,
+        "reliability": p.w_reliability, "economy": p.w_economy, "space": p.w_space,
+        "value": p.w_value, "resale": p.w_resale, "appeal": p.w_appeal,
+        "modernity": p.w_modernity,
     }
     wsum = sum(weights.values()) or 1.0
-    total = sum(factors[k] * weights[k] for k in factors) / wsum
-    return round(total, 1), factors
+    total = sum(factors[k]*weights[k] for k in factors)/wsum
+    return round(total,1), factors, {"value_delta_pct": v_delta, "value_label": v_label}
 
+# ──────────────── (8) CONTRA + (9) INSPECCION ──────────────────────
+def honest_caveat(car, factors):
+    km = car.get("km")
+    if factors["modernity"] < 50:
+        return "No es de los mas nuevos, pero bien cuidado puede dar muchos kilometros tranquilos."
+    if km and km > 130000:
+        return "Tiene bastante kilometraje; vale una buena revision mecanica antes de cerrar."
+    if factors["appeal"] < 55:
+        return "No es el mas vistoso, pero gana en sentido practico."
+    if factors["economy"] < 60:
+        return "El consumo no es su fuerte; tenelo en cuenta si haces muchos kilometros."
+    if factors["resale"] < 62:
+        return "Su reventa es algo mas baja que un Toyota o Honda; importa si lo cambias pronto."
+    return "Opcion equilibrada, sin peros importantes para lo que buscas."
+
+def inspection_focus(car):
+    year, km = car.get("year"), car.get("km")
+    age = CURRENT_YEAR - year if year else 0
+    pts = []
+    if km and km > 120000: pts += ["transmision","suspension"]
+    if age >= 8: pts += ["historial de mantenimiento","fugas de aceite"]
+    if canon_fuel(car.get("fuel_type")) == "hibrido" and age >= 6:
+        pts += ["estado de la bateria hibrida"]
+    if not pts: pts = ["estado general y documentos al dia"]
+    seen = []
+    for x in pts:
+        if x not in seen: seen.append(x)
+    return seen[:3]
+
+# ──────────────────── RANKING + (4) DIVERSIDAD ─────────────────────
+def best_for_label(factors):
+    ejes = {"reliability":"Tranquilidad","economy":"Ahorro","space":"Familia",
+            "value":"Mejor precio","resale":"Inversion","appeal":"Estilo",
+            "modernity":"Lo mas nuevo"}
+    return ejes.get(max(factors, key=factors.get), "Balance")
 
 def rank_cars(cars, profile: CarlyProfile, top_n=5):
-    """cars: lista de dicts (filas de Supabase). Devuelve los top_n con
-    su score y el desglose de factores, listos para que el LLM explique."""
-    # comparables por modelo, para value_score (precio vs mercado real)
     comps_by_model = {}
     for c in cars:
-        key = (_norm(c.get("make")), _norm(c.get("model")))
+        key = (_norm(c.get("make")), canon_model(c.get("model")))
         comps_by_model.setdefault(key, []).append(c.get("price_usd"))
 
     survivors = [c for c in cars if passes_filters(c, profile)]
     scored = []
     for c in survivors:
-        total, factors = score_car(c, profile, comps_by_model)
-        scored.append({"car": c, "score": total, "factors": factors})
+        total, factors, meta = score_car(c, profile, comps_by_model)
+        scored.append({
+            "car": c, "score": total, "factors": factors,
+            "value_delta_pct": meta["value_delta_pct"], "value_label": meta["value_label"],
+            "best_for": best_for_label(factors),
+            "caveat": honest_caveat(c, factors),
+            "inspect": inspection_focus(c),
+        })
     scored.sort(key=lambda x: x["score"], reverse=True)
 
-    top = scored[:top_n]
+    # (4) diversidad: evita clones make+body
+    top, seen = [], set()
+    for e in scored:
+        c = e["car"]; combo = (_norm(c.get("make")), canon_body(c.get("body_type")))
+        if combo in seen: continue
+        top.append(e); seen.add(combo)
+        if len(top) >= top_n: break
+    if len(top) < top_n:
+        for e in scored:
+            if e not in top:
+                top.append(e)
+                if len(top) >= top_n: break
 
-    # "permission to surprise": si lo permitio, intercambia el ultimo
-    # del top por la mejor opcion de una carroceria que NO aparece en el
-    # top, para meter una alternativa lateral con buen score.
-    if profile.surprise and len(scored) > top_n:
-        bodies_in_top = {_norm(x["car"].get("body_type")) for x in top}
-        for cand in scored[top_n:]:
-            if _norm(cand["car"].get("body_type")) not in bodies_in_top:
-                top[-1] = {**cand, "surprise": True}
-                break
+    # (prompt 5) sorpresa
+    if profile.surprise and len(scored) > len(top):
+        bodies = {canon_body(x["car"].get("body_type")) for x in top}
+        for cand in scored:
+            if cand in top: continue
+            if canon_body(cand["car"].get("body_type")) not in bodies:
+                top[-1] = {**cand, "surprise": True}; break
 
     return top
-
-
-# ════════════════════════════════════════════════════════════════════
-# 6) ETIQUETA "MEJOR PARA"  (el eje en que cada opcion gana)
-#    Da las 3-5 opciones diferenciadas por filosofia, no clones.
-# ════════════════════════════════════════════════════════════════════
-
-def best_for_label(factors):
-    """En que eje brilla este carro vs los demas factores. Para la
-    columna 'Mejor para' del comparativo."""
-    ejes = {
-        "reliability": "Tranquilidad",
-        "economy": "Ahorro",
-        "space": "Familia",
-        "value": "Mejor precio",
-        "resale": "Inversion",
-        "appeal": "Estilo",
-    }
-    top_factor = max(factors, key=factors.get)
-    return ejes.get(top_factor, "Balance")
