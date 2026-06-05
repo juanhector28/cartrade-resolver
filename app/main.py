@@ -1245,3 +1245,115 @@ def crautos_status():
         "total_crautos": count(),
         "jobs": CRAUTOS_JOBS,
     }
+
+
+
+# ════════════════════════════════════════════════════════════════════
+# CARLY CONVERSACIONAL  (LLM + ranking sobre inventario real)
+#   POST /carly/chat  -> recibe el historial, conversa, y cuando hay
+#   perfil corre el ranking y devuelve las recomendaciones.
+# Requiere: anthropic en requirements.txt y ANTHROPIC_API_KEY en el entorno.
+# ════════════════════════════════════════════════════════════════════
+
+from .carly_ranking import rank_cars, best_for_label
+from .carly_profile import (
+    CARLY_SYSTEM_PROMPT, extract_profile_json, profile_from_extraction,
+)
+
+try:
+    from anthropic import Anthropic
+    _anthropic = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"]) \
+        if os.environ.get("ANTHROPIC_API_KEY") else None
+except Exception:
+    _anthropic = None
+
+CARLY_MODEL = "claude-sonnet-4-6"
+
+
+class CarlyChatMessage(BaseModel):
+    role: str          # "user" | "assistant"
+    content: str
+
+
+class CarlyChatRequest(BaseModel):
+    messages: List[CarlyChatMessage]   # historial completo de la conversacion
+    country: Optional[str] = None      # "cr" | "sv" para acotar inventario
+    top_n: int = 4
+
+
+def _carly_inventory(profile, country=None, pool=600):
+    """Trae un pool amplio de candidatos de Supabase aplicando solo los
+    filtros DUROS baratos en SQL (pais, mensualidad, año). El ranking fino
+    lo hace rank_cars en memoria sobre ese pool."""
+    q = supabase.table("scraped_listings").select(CARLY_COLS).eq("status", "staging")
+    if country:
+        q = q.eq("country", country)
+    if profile.max_monthly:
+        q = q.lte("monthly_est", profile.max_monthly)
+    if profile.max_price:
+        q = q.lte("price_usd", profile.max_price)
+    if profile.min_year:
+        q = q.gte("year", profile.min_year)
+    q = q.not_.is_("price_usd", "null").order("quality_score", desc=True)
+    return q.limit(pool).execute().data or []
+
+
+def _carly_card(entry):
+    c = entry["car"]
+    return {
+        "make": c.get("make"), "model": c.get("model"), "year": c.get("year"),
+        "price_usd": c.get("price_usd"), "monthly_est": c.get("monthly_est"),
+        "km": c.get("km"), "body_type": c.get("body_type"),
+        "transmission": c.get("transmission"), "location": c.get("location"),
+        "primary_photo": c.get("primary_photo"), "url": c.get("url"),
+        "score": entry["score"],
+        "best_for": best_for_label(entry["factors"]),
+        "factors": entry["factors"],
+        "surprise": entry.get("surprise", False),
+    }
+
+
+@app.post("/carly/chat")
+def carly_chat(body: CarlyChatRequest):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not connected.")
+    if not _anthropic:
+        raise HTTPException(status_code=500,
+                            detail="ANTHROPIC_API_KEY no configurada en el entorno.")
+
+    msgs = [{"role": m.role, "content": m.content} for m in body.messages]
+
+    # 1) Carly responde (conversa o emite el <PROFILE>)
+    try:
+        resp = _anthropic.messages.create(
+            model=CARLY_MODEL,
+            max_tokens=1024,
+            system=CARLY_SYSTEM_PROMPT,
+            messages=msgs,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LLM error: {e!s}")
+
+    reply = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+
+    # 2) ¿hay perfil? si no, seguimos conversando
+    data = extract_profile_json(reply)
+    visible = re.sub(r"<PROFILE>.*?</PROFILE>", "", reply, flags=re.S).strip()
+
+    if not data:
+        return {"phase": "conversation", "reply": visible}
+
+    # 3) hay perfil -> ranking sobre inventario real
+    profile = profile_from_extraction(data)
+    pool = _carly_inventory(profile, country=body.country)
+    top = rank_cars(pool, profile, top_n=body.top_n)
+    cards = [_carly_card(t) for t in top]
+
+    return {
+        "phase": "recommendation",
+        "reply": visible,
+        "profile": data,
+        "pool_size": len(pool),
+        "recommendations": cards,
+        "favorite": cards[0] if cards else None,
+    }
