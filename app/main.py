@@ -1307,8 +1307,12 @@ def _carly_card(entry):
         "transmission": c.get("transmission"), "location": c.get("location"),
         "primary_photo": c.get("primary_photo"), "url": c.get("url"),
         "score": entry["score"],
-        "best_for": best_for_label(entry["factors"]),
+        "best_for": entry.get("best_for"),
         "factors": entry["factors"],
+        "value_delta_pct": entry.get("value_delta_pct"),   # (7) fairness numerico
+        "value_label": entry.get("value_label"),            # (7) fairness texto
+        "caveat": entry.get("caveat"),                      # (8) contra honesta
+        "inspect": entry.get("inspect"),                    # (9) que revisar
         "surprise": entry.get("surprise", False),
     }
 
@@ -1349,11 +1353,55 @@ def carly_chat(body: CarlyChatRequest):
     top = rank_cars(pool, profile, top_n=body.top_n)
     cards = [_carly_card(t) for t in top]
 
+    if not cards:
+        return {"phase": "recommendation",
+                "reply": ("No encontre opciones que calcen con eso ahora mismo. "
+                          "Si subimos un poco el presupuesto o flexibilizamos algo, "
+                          "te muestro alternativas."),
+                "profile": data, "pool_size": len(pool),
+                "recommendations": [], "favorite": None}
+
+    # 4) Carly explica los autos REALES (segunda pasada): el primer mensaje
+    #    lo escribio antes de ver resultados. Ahora habla de lo que de verdad
+    #    salio, mencionando el fairness y la contra honesta del favorito.
+    fav = cards[0]
+    resumen = "\n".join(
+        f"- {c['make']} {c['model']} {c['year']}, ${c['monthly_est']}/mes, "
+        f"mejor para {c['best_for']}"
+        + (f", {abs(c['value_delta_pct']):.0f}% {c['value_label']}"
+           if c.get("value_delta_pct") is not None else "")
+        for c in cards
+    )
+    fav_caveat = fav.get("caveat", "")
+    closing_prompt = (
+        "Acabas de recibir estas recomendaciones reales para la persona "
+        f"(ya rankeadas):\n{resumen}\n\n"
+        f"Tu favorita es la {fav['make']} {fav['model']} {fav['year']}. "
+        f"Algo honesto que debe saber: {fav_caveat}\n\n"
+        "Escribe un cierre BREVE (2-4 frases) con tu voz: presenta el conjunto, "
+        "di por que la favorita tiene sentido para lo que pidio, e incluye con "
+        "naturalidad ese dato honesto. NO hagas preguntas. NO repitas toda la "
+        "tabla (la persona ya la ve). NO emitas ningun bloque PROFILE."
+    )
+    try:
+        resp2 = _anthropic.messages.create(
+            model=CARLY_MODEL, max_tokens=400, system=CARLY_SYSTEM_PROMPT,
+            messages=msgs + [
+                {"role": "assistant", "content": visible or "Tengo tus opciones."},
+                {"role": "user", "content": closing_prompt},
+            ],
+        )
+        closing = "".join(b.text for b in resp2.content
+                          if getattr(b, "type", "") == "text").strip()
+        closing = re.sub(r"<PROFILE>.*?</PROFILE>", "", closing, flags=re.S).strip()
+    except Exception:
+        closing = visible  # si la segunda pasada falla, usamos la primera
+
     return {
         "phase": "recommendation",
-        "reply": visible,
+        "reply": closing or visible,
         "profile": data,
         "pool_size": len(pool),
         "recommendations": cards,
-        "favorite": cards[0] if cards else None,
+        "favorite": fav,
     }
