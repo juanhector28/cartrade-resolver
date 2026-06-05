@@ -30,24 +30,37 @@ from typing import Optional
 # ════════════════════════════════════════════════════════════════════
 
 RELIABILITY_BY_MODEL = {
-    ("toyota", "corolla"): 95, ("toyota", "corolla cross"): 92,
-    ("toyota", "rav4"): 93, ("toyota", "hilux"): 94, ("toyota", "yaris"): 90,
-    ("toyota", "prado"): 91, ("toyota", "fortuner"): 90, ("toyota", "tacoma"): 92,
-    ("honda", "civic"): 91, ("honda", "cr-v"): 90, ("honda", "fit"): 88,
-    ("honda", "hr-v"): 87, ("honda", "accord"): 89,
-    ("mazda", "mazda3"): 85, ("mazda", "cx-5"): 84, ("mazda", "cx-3"): 83,
-    ("nissan", "sentra"): 78, ("nissan", "frontier"): 82, ("nissan", "kicks"): 79,
-    ("nissan", "x-trail"): 76, ("nissan", "versa"): 77,
-    ("hyundai", "tucson"): 80, ("hyundai", "elantra"): 80, ("hyundai", "accent"): 81,
-    ("hyundai", "santa fe"): 79, ("hyundai", "creta"): 80,
+    # Calibrado a los 50 modelos mas comunes del inventario real (CR + SV).
+    # Incluye variantes de nombre tal como vienen en la base (crv vs cr-v, etc).
+    # Toyota
+    ("toyota", "rav4"): 93, ("toyota", "yaris"): 90, ("toyota", "corolla"): 95,
+    ("toyota", "corolla cross"): 92, ("toyota", "hilux"): 94, ("toyota", "fortuner"): 90,
+    ("toyota", "land cruiser"): 93, ("toyota", "prado"): 91, ("toyota", "4runner"): 92,
+    ("toyota", "echo"): 84, ("toyota", "tacoma"): 92,
+    # Hyundai
+    ("hyundai", "tucson"): 80, ("hyundai", "accent"): 81, ("hyundai", "santa fe"): 79,
+    ("hyundai", "elantra"): 80, ("hyundai", "grand i10"): 78, ("hyundai", "creta"): 80,
+    # Kia
     ("kia", "sportage"): 79, ("kia", "rio"): 80, ("kia", "sorento"): 78,
     ("kia", "picanto"): 79, ("kia", "seltos"): 79,
-    ("suzuki", "swift"): 83, ("suzuki", "vitara"): 82, ("suzuki", "jimny"): 80,
-    ("mitsubishi", "montero"): 81, ("mitsubishi", "l200"): 82,
-    ("subaru", "forester"): 84, ("subaru", "outback"): 83,
-    ("volkswagen", "jetta"): 70, ("volkswagen", "tiguan"): 68,
-    ("ford", "ranger"): 78, ("ford", "escape"): 70, ("ford", "explorer"): 69,
-    ("chevrolet", "spark"): 72, ("chevrolet", "tracker"): 71,
+    # Nissan
+    ("nissan", "qashqai"): 76, ("nissan", "kicks"): 79, ("nissan", "versa"): 77,
+    ("nissan", "frontier"): 82, ("nissan", "sentra"): 78, ("nissan", "xtrail"): 76,
+    ("nissan", "x-trail"): 76, ("nissan", "tiida"): 75,
+    # Honda (la base trae crv Y cr-v por separado: cubrir ambos)
+    ("honda", "crv"): 90, ("honda", "cr-v"): 90, ("honda", "civic"): 91,
+    ("honda", "pilot"): 84, ("honda", "fit"): 88, ("honda", "hr-v"): 87,
+    # Mitsubishi
+    ("mitsubishi", "montero sport"): 81, ("mitsubishi", "outlander"): 79,
+    ("mitsubishi", "l200"): 82, ("mitsubishi", "montero"): 81, ("mitsubishi", "asx"): 77,
+    # Suzuki
+    ("suzuki", "grand vitara"): 82, ("suzuki", "vitara"): 82, ("suzuki", "swift"): 83,
+    # Chevrolet / Isuzu / Ford / Jeep
+    ("chevrolet", "spark"): 72, ("isuzu", "dmax"): 83, ("ford", "explorer"): 69,
+    ("jeep", "wrangler"): 66,
+    # Premium europeos (confiabilidad mecanica realista, no aspiracional)
+    ("bmw", "x5"): 60, ("bmw", "x1"): 62, ("bmw", "x3"): 61,
+    ("audi", "q3"): 61, ("audi", "q5"): 60, ("land rover", "range rover"): 52,
 }
 
 RELIABILITY_BY_BRAND = {
