@@ -1356,7 +1356,6 @@ def carly_chat(body: CarlyChatRequest):
 
     if not cards:
         # Auto-relax: nunca dejar a la persona en un callejon sin salida.
-        # 1) presupuesto +25%; 2) si aun nada, soltar el tipo de carro exigido.
         try:
             import copy as _copy
             p2 = _copy.deepcopy(profile)
@@ -1411,10 +1410,19 @@ def carly_chat(body: CarlyChatRequest):
         f"(ya rankeadas):\n{resumen}\n\n"
         f"Tu favorita es la {fav['make']} {fav['model']} {fav['year']}. "
         f"Algo honesto que debe saber: {fav_caveat}\n\n"
-        "Escribe un cierre BREVE (2-4 frases) con tu voz: presenta el conjunto, "
-        "di por que la favorita tiene sentido para lo que pidio, e incluye con "
-        "naturalidad ese dato honesto. NO hagas preguntas. NO repitas toda la "
-        "tabla (la persona ya la ve). NO emitas ningun bloque PROFILE."
+        "Escribe tu VEREDICTO con voz de experta compradora, no de asistente. "
+        "En este orden, sin encabezados, maximo 6 frases:\n"
+        "1) Tu decision en primera persona: 'Yo compraria la X' con los 2-3 "
+        "motivos concretos sacados de los datos de arriba (mensualidad, año, "
+        "km, precio vs mercado).\n"
+        "2) Lo que te haria dudar: el dato honesto, directo y sin suavizar.\n"
+        "3) Tu lectura final en UNA frase, como amiga que sabe de carros: si "
+        "su prioridad es X, la favorita gana; si en realidad le pesa mas Y, "
+        "cual otra elegirias. Como AFIRMACION, no como pregunta.\n"
+        "Se firme con lo que los datos muestran y explicita que el estado "
+        "mecanico real lo confirma la inspeccion. NO inventes porcentajes de "
+        "confianza ni datos que no esten arriba. NO hagas preguntas. NO "
+        "repitas la tabla (la persona ya la ve). NO emitas bloque PROFILE."
     )
     try:
         resp2 = _anthropic.messages.create(
