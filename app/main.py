@@ -1331,7 +1331,7 @@ def carly_chat(body: CarlyChatRequest):
     try:
         resp = _anthropic.messages.create(
             model=CARLY_MODEL,
-            max_tokens=1024,
+            max_tokens=2048,
             system=CARLY_SYSTEM_PROMPT,
             messages=msgs,
         )
@@ -1342,7 +1342,8 @@ def carly_chat(body: CarlyChatRequest):
 
     # 2) ¿hay perfil? si no, seguimos conversando
     data = extract_profile_json(reply)
-    visible = re.sub(r"<PROFILE>.*?</PROFILE>", "", reply, flags=re.S).strip()
+    visible = re.sub(r"<PROFILE>.*?</PROFILE>", "", reply, flags=re.S)
+    visible = re.sub(r"<PROFILE>.*$", "", visible, flags=re.S).strip()
 
     if not data:
         return {"phase": "conversation", "reply": visible}
