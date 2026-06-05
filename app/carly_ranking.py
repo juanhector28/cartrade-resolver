@@ -109,6 +109,7 @@ class CarlyProfile:
     exclude_body: list = field(default_factory=list)
     exclude_transmission: Optional[str] = None
     exclude_brands: list = field(default_factory=list)
+    require_brands: list = field(default_factory=list)
     require_body: list = field(default_factory=list)
     w_reliability: float = 0.45
     w_economy: float = 0.30
@@ -205,6 +206,7 @@ def passes_filters(car, p: CarlyProfile):
        canon_transmission(car.get("transmission")) == canon_transmission(p.exclude_transmission):
         return False
     if _norm(car.get("make")) in [_norm(b) for b in p.exclude_brands]: return False
+    if p.require_brands and _norm(car.get("make")) not in [_norm(b) for b in p.require_brands]: return False
     return True
 
 # ──────────────────────────── SCORING ──────────────────────────────
