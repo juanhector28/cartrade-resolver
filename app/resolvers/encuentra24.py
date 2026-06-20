@@ -19,6 +19,81 @@ from .. import parsers
 
 log = logging.getLogger("resolver.encuentra24")
 
+# Approximate FX — local units per 1 USD. These move slowly for these
+# currencies; update here (or wire a live rate later) if precision matters.
+# Used only to fill price_usd for cross-country comparison in Carly.
+FX_PER_USD = {
+    "USD": 1.0,
+    "GTQ": 7.7,     # Guatemala · quetzal
+    "HNL": 25.0,    # Honduras · lempira
+    "NIO": 37.0,    # Nicaragua · córdoba
+    "CRC": 515.0,   # Costa Rica · colón
+    "DOP": 60.0,    # (por si aparece) Rep. Dominicana · peso
+}
+
+# Currency markers in priority order. Multi-char markers (RD$, C$, US$)
+# MUST come before bare "$" so they win the match.
+_MONEY_PATTERNS = [
+    ("CRC", re.compile(r"₡\s*([\d.,]+)")),
+    ("DOP", re.compile(r"RD\$\s*([\d.,]+)")),
+    ("NIO", re.compile(r"C\$\s*([\d.,]+)")),
+    ("USD", re.compile(r"(?:US\$|USD)\s*([\d.,]+)", re.IGNORECASE)),
+    ("GTQ", re.compile(r"\b(?:Q|Qtz\.?|GTQ)\s*([\d.,]+)")),
+    ("HNL", re.compile(r"\b(?:Lps?\.?|HNL)\s*([\d.,]+)")),
+    ("USD", re.compile(r"\$\s*([\d.,]+)")),  # plain $ -> assume USD, last
+]
+
+# Loose sanity bounds per currency to reject junk matches.
+_MONEY_BOUNDS = {
+    "USD": (500, 200_000),
+    "GTQ": (4_000, 2_000_000),
+    "HNL": (12_000, 8_000_000),
+    "NIO": (18_000, 12_000_000),
+    "CRC": (250_000, 300_000_000),
+    "DOP": (30_000, 30_000_000),
+}
+
+
+def _amount_to_int(raw: str) -> int | None:
+    raw = raw.strip()
+    raw = re.sub(r"[.,]\d{2}$", "", raw)        # drop trailing decimals (.00 / ,00)
+    raw = raw.replace(",", "").replace(".", "")  # strip thousands separators
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def parse_money(text: str) -> tuple[int | None, str | None]:
+    """Detect the first plausible price + its currency in `text`.
+    Returns (amount_in_local_units, currency_code) or (None, None)."""
+    for currency, pat in _MONEY_PATTERNS:
+        m = pat.search(text)
+        if not m:
+            continue
+        amt = _amount_to_int(m.group(1))
+        if amt is None:
+            continue
+        lo, hi = _MONEY_BOUNDS.get(currency, (1, 10**12))
+        if lo <= amt <= hi:
+            return amt, currency
+    return None, None
+
+
+def _set_price(listing: "Listing", amount: int, currency: str, confidence: str) -> None:
+    """Store local price + currency, and fill price_usd (converted if needed)."""
+    listing.currency = Field(value=currency, confidence=confidence)
+    listing.price_local = Field(value=amount, confidence=confidence)
+    if currency == "USD":
+        listing.price_usd = Field(value=amount, confidence=confidence)
+    else:
+        rate = FX_PER_USD.get(currency)
+        if rate:
+            usd = round(amount / rate)
+            # converted prices are estimates -> never "high"
+            conf = "medium" if confidence == "high" else confidence
+            listing.price_usd = Field(value=usd, confidence=conf)
+
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -133,61 +208,35 @@ async def resolve(url: str) -> Listing:
     if rel_marker:
         headline_section = headline_section[:rel_marker.start()]
 
-    # Look for the first $ X,XXX pattern in headline section
+    # Currency-aware extraction. parse_money recognizes ₡ Q L C$ RD$ $ and
+    # returns (amount, currency); _set_price stores price_local + currency and
+    # fills price_usd (converting non-USD via FX_PER_USD).
+    # 1. Body headline (most current)
     if headline_section:
-        m = re.search(r"\$\s*([0-9][\d,\.]{2,10})", headline_section)
-        if m:
-            raw = m.group(1)
-            raw = re.sub(r"\.\d{1,2}$", "", raw)
-            raw = raw.replace(",", "").replace(".", "")
-            try:
-                price = int(raw)
-                if 500 <= price <= 200_000:
-                    listing.price_usd = Field(value=price, confidence="high")
-                    log.info("price extracted from body headline: $%d", price)
-            except ValueError:
-                pass
+        amount, currency = parse_money(headline_section)
+        if amount is not None:
+            _set_price(listing, amount, currency, "high")
+            log.info("price from body headline: %d %s", amount, currency)
 
     # 2. og:title fallback
     if listing.price_usd is None and og_title:
-        m = re.search(r"\$\s*([0-9][\d,\.]{2,12})", og_title)
-        if m:
-            raw = m.group(1)
-            raw = re.sub(r"\.\d{1,2}$", "", raw)
-            raw = raw.replace(",", "").replace(".", "")
-            try:
-                price = int(raw)
-                if 500 <= price <= 200_000:
-                    listing.price_usd = Field(value=price, confidence="high")
-                    log.info("price extracted from og:title: $%d", price)
-            except ValueError:
-                pass
+        amount, currency = parse_money(og_title)
+        if amount is not None:
+            _set_price(listing, amount, currency, "high")
+            log.info("price from og:title: %d %s", amount, currency)
 
-    # 3. og:description fallback — "Precio $X,XXX.XX" pattern (often stale)
+    # 3. og:description fallback (may be stale)
     if listing.price_usd is None and og_desc:
-        m = re.search(r"Precio\s*\$\s*([0-9][\d,\.]{2,12})", og_desc, re.IGNORECASE)
-        if m:
-            raw = m.group(1)
-            raw = re.sub(r"\.\d{1,2}$", "", raw)
-            raw = raw.replace(",", "").replace(".", "")
-            try:
-                price = int(raw)
-                if 500 <= price <= 200_000:
-                    # Mark as medium confidence since description may be stale
-                    listing.price_usd = Field(value=price, confidence="medium")
-                    log.info("price extracted from og:desc 'Precio' (may be stale): $%d", price)
-            except ValueError:
-                pass
-        # Final fallback to generic dollar match in og_desc
-        if listing.price_usd is None:
-            listing.price_usd = parsers.to_field(parsers.extract_price_usd(og_desc))
+        amount, currency = parse_money(og_desc)
+        if amount is not None:
+            _set_price(listing, amount, currency, "medium")
+            log.info("price from og:desc (may be stale): %d %s", amount, currency)
 
-    # Final fallback: body text (less reliable due to nearby listings)
-    if listing.price_usd is None:
-        listing.price_usd = parsers.to_field(parsers.extract_price_usd(body_text))
-        if listing.price_usd:
-            # Downgrade confidence — body text is less reliable
-            listing.price_usd.confidence = "medium"
+    # 4. Last resort: whole body (nearby listings make it less reliable)
+    if listing.price_usd is None and body_text:
+        amount, currency = parse_money(body_text)
+        if amount is not None:
+            _set_price(listing, amount, currency, "medium")
 
     # Make/model: from title (Encuentra24 puts these in title and as "Marca/Modelo" labels)
     listing.make = parsers.to_field(parsers.extract_make(og_title))
