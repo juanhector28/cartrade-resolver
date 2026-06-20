@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, HttpUrl
 from selectolax.parser import HTMLParser
 from supabase import create_client
@@ -1093,6 +1093,153 @@ async def resolve_link(body: ResolveRequest, request: Request):
         cache.put(url, payload)
 
     return payload
+
+
+# ── WhatsApp door (Carly on WhatsApp) ────────────────────────────────────
+# One number, two jobs: if a seller sends a car (link), Carly saves it; if a
+# buyer asks for a car (text), Carly searches inventory. Needs three env vars
+# in Render: WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN.
+_URL_RE = re.compile(r"https?://\S+")
+
+
+async def _wa_send(to: str, body: str) -> None:
+    token = os.environ.get("WHATSAPP_TOKEN")
+    pnid = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
+    ver = os.environ.get("WHATSAPP_API_VERSION", "v22.0")
+    if not token or not pnid:
+        log.warning("WA send skipped: missing WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID")
+        return
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as cli:
+            r = await cli.post(
+                f"https://graph.facebook.com/{ver}/{pnid}/messages",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"messaging_product": "whatsapp", "to": to,
+                      "type": "text", "text": {"body": body[:4000]}},
+            )
+            if r.status_code >= 400:
+                log.warning("WA send error %s: %s", r.status_code, r.text[:300])
+    except Exception:
+        log.exception("WA send failed")
+
+
+async def _ingest_link(url: str, country: Optional[str] = None) -> dict:
+    """Resolve a pasted link and save it to inventory. Returns a small summary."""
+    if not platforms.is_allowed(url):
+        return {"ok": False, "saved": False}
+    platform = platforms.detect(url)
+    try:
+        if platform == "encuentra24":
+            listing = await encuentra24.resolve(url)
+        elif platform == "olx":
+            listing = await olx.resolve(url)
+        elif platform == "facebook":
+            listing = await facebook.resolve(url)
+        elif platform == "mercadolibre":
+            listing = await mercadolibre.resolve(url)
+        else:
+            listing = await fallback.resolve(url)
+    except Exception:
+        log.exception("WA ingest resolver error url=%s", url)
+        return {"ok": False, "saved": False}
+
+    payload = listing.to_dict()
+    has_essentials = listing.title is not None or len(listing.photos) > 0
+    saved = False
+    if has_essentials and supabase:
+        try:
+            c = (country or _infer_country(url) or "").lower().strip() or None
+            record = _build_db_record(payload, source=platform, country=c, url=url)
+            supabase.table("scraped_listings").upsert(record, on_conflict="url").execute()
+            saved = True
+        except Exception:
+            log.exception("WA ingest save error url=%s", url)
+    return {"ok": has_essentials, "saved": saved, "payload": payload}
+
+
+async def _handle_wa_text(sender: str, text: str) -> None:
+    text = (text or "").strip()
+    if not text:
+        return
+    m = _URL_RE.search(text)
+
+    # Seller sent a car (link) -> save it
+    if m:
+        url = m.group(0).rstrip(").,;")
+        res = await _ingest_link(url)
+        if res.get("saved"):
+            p = res["payload"]
+            title = field_value(p, "title") or "tu carro"
+            price = field_value(p, "price_usd")
+            price_s = f" — ${price:,}" if price else ""
+            await _wa_send(sender, f"\u2705 Listo, guard\u00e9 {title}{price_s}. \u00a1Gracias!")
+        else:
+            await _wa_send(sender, "No pude leer ese link (Facebook a veces lo bloquea). "
+                                   "M\u00e1ndame una foto del carro con marca, a\u00f1o y precio y lo public\u00e9.")
+        return
+
+    # Buyer asked for a car (text) -> search inventory
+    try:
+        result = await carly_search(CarlySearchRequest(q=text, limit=3))
+        items = result.get("results", [])
+    except Exception:
+        items = []
+    if not items:
+        await _wa_send(sender, "No encontr\u00e9 nada con eso. Prueba algo como: "
+                               "\"SUV autom\u00e1tico bajo $15mil\".")
+        return
+    parts = ["Esto encontr\u00e9:"]
+    for c in items:
+        name = " ".join(str(x) for x in (c.get("make"), c.get("model"), c.get("year")) if x)
+        price = c.get("price_usd")
+        price_s = f"${price:,}" if price else "precio a confirmar"
+        loc = c.get("location")
+        tail = f" \u00b7 {loc}" if loc else ""
+        parts.append(f"\u2022 {name} — {price_s}{tail}\n{c.get('url')}")
+    await _wa_send(sender, "\n\n".join(parts))
+
+
+@app.get("/whatsapp/webhook")
+async def wa_verify(request: Request):
+    """Meta calls this once to verify the webhook (handshake)."""
+    p = request.query_params
+    expected = os.environ.get("WHATSAPP_VERIFY_TOKEN")
+    if p.get("hub.mode") == "subscribe" and expected and p.get("hub.verify_token") == expected:
+        return PlainTextResponse(p.get("hub.challenge") or "")
+    raise HTTPException(status_code=403, detail="verification failed")
+
+
+@app.post("/whatsapp/webhook")
+async def wa_incoming(request: Request):
+    """Incoming WhatsApp messages. Returns 200 immediately and works in background."""
+    try:
+        data = await request.json()
+    except Exception:
+        return {"status": "ignored"}
+    try:
+        for entry in data.get("entry", []):
+            for change in entry.get("changes", []):
+                for msg in change.get("value", {}).get("messages", []):
+                    sender = msg.get("from")
+                    if not sender:
+                        continue
+                    if msg.get("type") == "text":
+                        asyncio.create_task(_handle_wa_text(sender, (msg.get("text") or {}).get("body", "")))
+                    elif msg.get("type") == "image":
+                        cap = (msg.get("image") or {}).get("caption", "")
+                        if cap.strip():
+                            asyncio.create_task(_handle_wa_text(sender, cap))
+                        else:
+                            asyncio.create_task(_wa_send(
+                                sender,
+                                "Recib\u00ed tu foto \U0001F4F8. Escr\u00edbeme marca, a\u00f1o y precio "
+                                "(ej: \"Toyota Hilux 2015 $18,000\") y lo public\u00e9."))
+                    else:
+                        asyncio.create_task(_wa_send(
+                            sender, "M\u00e1ndame el link del carro, o una foto con marca, a\u00f1o y precio."))
+    except Exception:
+        log.exception("WA incoming parse error")
+    return {"status": "ok"}
 
 
 @app.post("/carly/search")
