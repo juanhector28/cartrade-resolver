@@ -768,6 +768,7 @@ async def inventory_run(body: InventoryRunRequest):
                     "transmission": transmission_value,
                     "title": title_value,
                     "price_usd": price_value,
+                    "currency": field_value(payload, "currency"),
                     "year": year_value,
                     "km": km_value,
                     "location": location_value,
