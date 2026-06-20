@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, HttpUrl
 from selectolax.parser import HTMLParser
 from supabase import create_client
@@ -451,6 +452,8 @@ app.add_middleware(
 
 class ResolveRequest(BaseModel):
     url: HttpUrl
+    save: bool = False
+    country: Optional[str] = None
 
 
 class InventoryRunRequest(BaseModel):
@@ -886,6 +889,134 @@ def _client_ip(req: Request) -> str:
     return req.client.host if req.client else "unknown"
 
 
+_E24_COUNTRY_SLUG = {
+    "el-salvador": "sv", "panama": "pa", "guatemala": "gt",
+    "costa-rica": "cr", "honduras": "hn", "nicaragua": "ni",
+}
+
+
+def _infer_country(url: str) -> Optional[str]:
+    """Best-effort country from the URL (works for Encuentra24 links)."""
+    low = url.lower()
+    for slug, code in _E24_COUNTRY_SLUG.items():
+        if f"/{slug}-" in low or f"/{slug}/" in low:
+            return code
+    return None
+
+
+def _build_db_record(payload: dict, source: str, country: Optional[str], url: str) -> dict:
+    """Turn a resolved listing payload into a scraped_listings row.
+    Same shape and enrichment used by the inventory crawler, so links
+    submitted by hand/WhatsApp/web land in inventory identically."""
+    title_value = field_value(payload, "title")
+    description_value = field_value(payload, "description")
+    text_for_inference = f"{title_value or ''} {description_value or ''}"
+
+    fuel_value = normalize_fuel(field_value(payload, "fuel")) or infer_fuel_from_text(text_for_inference)
+    transmission_value = normalize_transmission(field_value(payload, "transmission")) or infer_transmission_from_text(text_for_inference)
+
+    cleaned_photos = clean_photos(payload.get("photos", []), url)
+    photo = cleaned_photos[0] if cleaned_photos else None
+
+    make_value = field_value(payload, "make")
+    model_value = field_value(payload, "model")
+    price_value = field_value(payload, "price_usd")
+    year_value = field_value(payload, "year")
+    km_value = field_value(payload, "km")
+    location_value = field_value(payload, "location")
+
+    body_type_value = classify_body_type(model_value, title_value)
+    quality_value = compute_quality_score(
+        len(cleaned_photos), price_value, year_value, km_value,
+        make_value, model_value, location_value, fuel_value, transmission_value,
+    )
+
+    return {
+        "source": source,
+        "country": country,
+        "url": url,
+        "make": make_value,
+        "model": model_value,
+        "fuel_type": fuel_value,
+        "transmission": transmission_value,
+        "title": title_value,
+        "price_usd": price_value,
+        "currency": field_value(payload, "currency"),
+        "year": year_value,
+        "km": km_value,
+        "location": location_value,
+        "photos": cleaned_photos,
+        "photo_count": len(cleaned_photos),
+        "primary_photo": photo,
+        "body_type": body_type_value,
+        "quality_score": quality_value,
+        "raw_payload": payload,
+        "status": "staging",
+    }
+
+
+_PUBLICAR_HTML = """<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Publica tu carro</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 540px;
+         margin: 0 auto; padding: 24px; line-height: 1.5; }
+  h1 { font-size: 22px; font-weight: 600; }
+  p.sub { color: #666; margin-top: -8px; }
+  input { width: 100%; padding: 14px; font-size: 16px; border: 1px solid #ccc;
+          border-radius: 10px; box-sizing: border-box; margin: 12px 0; }
+  button { width: 100%; padding: 14px; font-size: 16px; font-weight: 600;
+           border: 0; border-radius: 10px; background: #111; color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; }
+  #out { margin-top: 20px; }
+  .card { border: 1px solid #ddd; border-radius: 12px; overflow: hidden; }
+  .card img { width: 100%; display: block; }
+  .card .body { padding: 14px; }
+  .ok { color: #0a7d2c; font-weight: 600; }
+  .err { color: #b00; }
+</style></head><body>
+<h1>Publica tu carro</h1>
+<p class="sub">Pega el link de tu carro (Facebook, Encuentra24, etc.) y lo publicamos.</p>
+<input id="url" type="url" placeholder="https://..." autocomplete="off">
+<button id="go" onclick="publicar()">Publicar</button>
+<div id="out"></div>
+<script>
+async function publicar() {
+  const url = document.getElementById('url').value.trim();
+  const out = document.getElementById('out');
+  const btn = document.getElementById('go');
+  if (!url) { out.innerHTML = '<p class="err">Pega un link primero.</p>'; return; }
+  btn.disabled = true; out.innerHTML = 'Procesando...';
+  try {
+    const r = await fetch('/resolve-link', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url: url, save: true })
+    });
+    const d = await r.json();
+    if (d.saved) {
+      const t = (d.title && d.title.value) || 'Tu carro';
+      const p = (d.price_usd && d.price_usd.value) ? ('$' + d.price_usd.value.toLocaleString()) : '';
+      const img = (d.photos && d.photos[0]) || '';
+      out.innerHTML = '<p class="ok">\u2705 Publicado</p><div class="card">' +
+        (img ? '<img src="' + img + '">' : '') +
+        '<div class="body"><strong>' + t + '</strong><br>' + p + '</div></div>';
+    } else {
+      out.innerHTML = '<p class="err">No se pudo guardar: ' + (d.save_error || d.detail || 'intenta otro link') + '</p>';
+    }
+  } catch (e) {
+    out.innerHTML = '<p class="err">Error de conexi\u00f3n. Intenta de nuevo.</p>';
+  } finally { btn.disabled = false; }
+}
+</script></body></html>"""
+
+
+@app.get("/publicar", response_class=HTMLResponse)
+async def publicar_page():
+    return _PUBLICAR_HTML
+
+
 @app.post("/resolve-link")
 async def resolve_link(body: ResolveRequest, request: Request):
     url = str(body.url)
@@ -899,7 +1030,7 @@ async def resolve_link(body: ResolveRequest, request: Request):
         raise HTTPException(status_code=400, detail="URL is not from a supported listing platform.")
 
     cached = cache.get(url)
-    if cached:
+    if cached and not body.save:
         cached["cached"] = True
         return cached
 
@@ -936,6 +1067,27 @@ async def resolve_link(body: ResolveRequest, request: Request):
             payload["in_inventory"] = bool(existing)
         except Exception:
             payload["in_inventory"] = None
+
+    # --- added: optionally SAVE this link into inventory (the shared "door")
+    # Used by WhatsApp / web form / app so a pasted link becomes a stored car.
+    if body.save:
+        if not supabase:
+            payload["saved"] = False
+            payload["save_error"] = "supabase not connected"
+        elif not has_essentials:
+            payload["saved"] = False
+            payload["save_error"] = "listing had no usable data (no title/photo)"
+        else:
+            try:
+                country = (body.country or _infer_country(url) or "").lower().strip() or None
+                record = _build_db_record(payload, source=platform, country=country, url=url)
+                supabase.table("scraped_listings").upsert(record, on_conflict="url").execute()
+                payload["saved"] = True
+                payload["saved_country"] = country
+            except Exception as e:
+                payload["saved"] = False
+                payload["save_error"] = str(e)[:200]
+                log.exception("resolve-link save error url=%s", url)
 
     if has_essentials:
         cache.put(url, payload)
