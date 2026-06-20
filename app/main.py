@@ -742,6 +742,76 @@ async def inventory_status():
     return INVENTORY_JOB_STATUS
 
 
+# ── Rotating runner: ONE country per call ────────────────────────────────
+# Each cron hit scrapes a single country (the one least-recently updated, or
+# any country with no data yet) and rotates. Short calls that actually finish,
+# instead of one long call Render kills halfway. Over a few hits, all 6 fill.
+async def _pick_next_country() -> str:
+    """The stalest CA country: never-scraped first, else oldest updated_at."""
+    if not supabase:
+        return CA_COUNTRIES[0]
+    oldest_country = CA_COUNTRIES[0]
+    oldest_ts = None
+    for c in CA_COUNTRIES:
+        try:
+            rows = (supabase.table("scraped_listings")
+                    .select("updated_at")
+                    .eq("source", "encuentra24").eq("country", c)
+                    .order("updated_at", desc=True).limit(1).execute().data)
+        except Exception:
+            rows = []
+        if not rows:
+            return c  # never scraped -> highest priority
+        ts = rows[0].get("updated_at") or ""
+        if oldest_ts is None or ts < oldest_ts:
+            oldest_ts = ts
+            oldest_country = c
+    return oldest_country
+
+
+async def _run_one(country: str, pages: int):
+    INVENTORY_JOB_STATUS.update(
+        running=True, started_at=_now_iso(), finished_at=None,
+        current_country=country, pages=pages, results={}, last_error=None,
+    )
+    try:
+        summary = await _ingest_country(country, pages)
+        INVENTORY_JOB_STATUS["results"][country] = {
+            "discovered": summary.get("discovered_count"),
+            "saved": summary.get("saved_count"),
+            "errors": summary.get("error_count"),
+        }
+    except Exception as e:
+        INVENTORY_JOB_STATUS["last_error"] = f"{country}: {e!s}"
+        log.exception("run-one failed for %s", country)
+    finally:
+        INVENTORY_JOB_STATUS["current_country"] = None
+        INVENTORY_JOB_STATUS["finished_at"] = _now_iso()
+        INVENTORY_JOB_STATUS["running"] = False
+
+
+@app.get("/inventory-run-next")
+async def inventory_run_next(pages: int = 30, token: str | None = None):
+    """Scrape ONE country (the stalest) in the background, then rotate.
+    Point the cron here instead of /inventory-run-all."""
+    expected = os.environ.get("CRON_TOKEN")
+    if expected and token != expected:
+        raise HTTPException(status_code=401, detail="invalid token")
+    if pages < 1 or pages > 200:
+        raise HTTPException(status_code=400, detail="pages must be 1-200")
+    if INVENTORY_JOB_STATUS["running"]:
+        return {"status": "already_running", "progress": INVENTORY_JOB_STATUS}
+
+    country = await _pick_next_country()
+    asyncio.create_task(_run_one(country, pages))
+    return {
+        "status": "started",
+        "country": country,
+        "pages": pages,
+        "check_progress_at": "/inventory-status",
+    }
+
+
 async def _ingest_country(country: str, pages: int) -> dict:
     country = (country or "").lower().strip()
 
