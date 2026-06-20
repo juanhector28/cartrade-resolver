@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 import re
 import time
+import random
+import asyncio
 import sqlite3
 import logging
 import httpx
@@ -663,7 +665,82 @@ def inventory_run_crautos(body: CrautosInventoryRunRequest):
 
 @app.post("/inventory-run")
 async def inventory_run(body: InventoryRunRequest):
-    country = body.country.lower().strip()
+    return await _ingest_country(body.country, body.pages)
+
+
+# ── Run-all trigger ──────────────────────────────────────────────────────
+# One GET kicks off every Central-American country in the background, so a
+# free cloud cron (e.g. cron-job.org) can keep the index fresh with nobody
+# running anything locally. The HTTP call returns immediately; the work
+# continues in the background. Check /inventory-status for progress.
+CA_COUNTRIES = ["sv", "pa", "gt", "cr", "hn", "ni"]
+
+INVENTORY_JOB_STATUS = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "current_country": None,
+    "pages": None,
+    "results": {},
+    "last_error": None,
+}
+
+
+async def _run_all_ca(pages: int):
+    INVENTORY_JOB_STATUS.update(
+        running=True, started_at=_now_iso(), finished_at=None,
+        current_country=None, pages=pages, results={}, last_error=None,
+    )
+    try:
+        for country in CA_COUNTRIES:
+            INVENTORY_JOB_STATUS["current_country"] = country
+            try:
+                summary = await _ingest_country(country, pages)
+                INVENTORY_JOB_STATUS["results"][country] = {
+                    "discovered": summary.get("discovered_count"),
+                    "saved": summary.get("saved_count"),
+                    "errors": summary.get("error_count"),
+                }
+            except Exception as e:
+                INVENTORY_JOB_STATUS["results"][country] = {"error": str(e)}
+                INVENTORY_JOB_STATUS["last_error"] = f"{country}: {e!s}"
+                log.exception("run-all failed for %s", country)
+            await asyncio.sleep(random.uniform(5, 12))
+    finally:
+        INVENTORY_JOB_STATUS["current_country"] = None
+        INVENTORY_JOB_STATUS["finished_at"] = _now_iso()
+        INVENTORY_JOB_STATUS["running"] = False
+
+
+@app.get("/inventory-run-all")
+async def inventory_run_all(pages: int = 40, token: str | None = None):
+    """Trigger a full Central-America ingestion in the background.
+    Open this URL (or point a cron at it) to refresh the whole index.
+    If the CRON_TOKEN env var is set, ?token= must match it."""
+    expected = os.environ.get("CRON_TOKEN")
+    if expected and token != expected:
+        raise HTTPException(status_code=401, detail="invalid token")
+    if pages < 1 or pages > 200:
+        raise HTTPException(status_code=400, detail="pages must be 1-200")
+    if INVENTORY_JOB_STATUS["running"]:
+        return {"status": "already_running", "progress": INVENTORY_JOB_STATUS}
+
+    asyncio.create_task(_run_all_ca(pages))
+    return {
+        "status": "started",
+        "countries": CA_COUNTRIES,
+        "pages": pages,
+        "check_progress_at": "/inventory-status",
+    }
+
+
+@app.get("/inventory-status")
+async def inventory_status():
+    return INVENTORY_JOB_STATUS
+
+
+async def _ingest_country(country: str, pages: int) -> dict:
+    country = (country or "").lower().strip()
 
     if country not in COUNTRY_SEARCH_URLS:
         raise HTTPException(
@@ -671,7 +748,7 @@ async def inventory_run(body: InventoryRunRequest):
             detail=f"Unsupported country. Use one of: {', '.join(COUNTRY_SEARCH_URLS.keys())}"
         )
 
-    if body.pages < 1 or body.pages > 200:
+    if pages < 1 or pages > 200:
         raise HTTPException(status_code=400, detail="Pages must be between 1 and 200.")
 
     search_url = COUNTRY_SEARCH_URLS[country]
@@ -683,7 +760,7 @@ async def inventory_run(body: InventoryRunRequest):
         follow_redirects=True,
         headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "es;q=0.9"},
     ) as cli:
-        for page in range(1, body.pages + 1):
+        for page in range(1, pages + 1):
             page_url = f"{search_url}?page={page}"
             r = await cli.get(page_url)
             r.raise_for_status()
@@ -792,7 +869,7 @@ async def inventory_run(body: InventoryRunRequest):
 
     return {
         "country": country,
-        "pages": body.pages,
+        "pages": pages,
         "discovered_count": len(discovered_urls),
         "resolved_count": len(discovered_urls),
         "saved_count": saved_count,
