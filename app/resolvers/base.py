@@ -32,6 +32,8 @@ class Listing:
     model: Optional[Field] = None
     year: Optional[Field] = None
     price_usd: Optional[Field] = None
+    price_local: Optional[Field] = None
+    currency: Optional[Field] = None
     km: Optional[Field] = None
     transmission: Optional[Field] = None
     fuel: Optional[Field] = None
@@ -52,8 +54,9 @@ class Listing:
             "errors": self.errors,
             "cached": self.cached,
         }
-        for k in ("title", "make", "model", "year", "price_usd", "km",
-                  "transmission", "fuel", "location", "description", "seller_name"):
+        for k in ("title", "make", "model", "year", "price_usd", "price_local",
+                  "currency", "km", "transmission", "fuel", "location",
+                  "description", "seller_name"):
             v = getattr(self, k)
             d[k] = v.to_dict() if v is not None else None
         return d
