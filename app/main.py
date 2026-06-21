@@ -1478,6 +1478,27 @@ def _character_for(car: dict) -> dict | None:
     return None
 
 
+def _character_brief_for_llm(car: dict) -> str:
+    """Resumen del carácter del modelo para inyectar al veredicto de Carly."""
+    ch = _character_for(car)
+    if not ch:
+        return ""
+    cd = ch["data"]; parts = []
+    gana = cd.get("gana_vs_pares_en") or []
+    if gana:
+        parts.append("destaca en " + ", ".join(gana[:2]))
+    alts = cd.get("better_if_user_prioritizes") or {}
+    if alts:
+        ta = "; ".join(
+            f"si priorizas {k.replace('_',' ')} → {', '.join(v) if isinstance(v, list) else v}"
+            for k, v in list(alts.items())[:3])
+        parts.append("trade-offs: " + ta)
+    if not parts:
+        return ""
+    tag = " (carácter heredado de plantilla)" if ch["source"] == "template" else ""
+    return "  · carácter: " + " | ".join(parts) + tag
+
+
 def _decision_rank(rows: list, top_n: int) -> list:
     """Re-rank candidates at query time by a layered score (works on existing
     inventory, no re-scoring needed). Layers (0-1, weighted):
@@ -2148,6 +2169,7 @@ def carly_chat(body: CarlyChatRequest):
             f"mejor para {c['best_for']}"
             + (f", {abs(c['value_delta_pct']):.0f}% {c['value_label']}"
                if c.get("value_delta_pct") is not None else "")
+            + _character_brief_for_llm(c)
             for c in cards
         )
         if relaxed_note:
@@ -2185,6 +2207,17 @@ def carly_chat(body: CarlyChatRequest):
             "confianza ni datos que no esten arriba. NO hagas preguntas. NO "
             "repitas la tabla (la persona ya la ve). NO emitas bloque PROFILE."
         )
+        # Cruce comprador × carácter: si la favorita no destaca en la prioridad
+        # declarada, usa el trade-off del carácter (sin trashear a nadie).
+        _prioridad = (data or {}).get("priority") if isinstance(data, dict) else None
+        if _prioridad:
+            closing_prompt += (
+                f"\n\nLa prioridad declarada de la persona es: {_prioridad}. "
+                "Si la favorita NO sobresale en esa prioridad, dilo con honestidad y "
+                "menciona la alternativa por trade-off que aparece en su 'carácter' "
+                "(la que sí cubre esa prioridad), enmarcandola como 'para eso, considera X'. "
+                "Nunca digas que un carro es malo: cada modelo gana para el comprador correcto."
+            )
         try:
             resp2 = _anthropic.messages.create(
                 model=CARLY_MODEL, max_tokens=400, system=system_prompt,
