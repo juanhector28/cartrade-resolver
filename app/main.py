@@ -1429,6 +1429,55 @@ async def wa_incoming(request: Request):
     return {"status": "ok"}
 
 
+def _norm_model(model) -> str:
+    """Misma normalización que scraped_listings.model_norm: mayúsculas, sin guiones/espacios."""
+    import re
+    return re.sub(r"[-\s]", "", str(model or "").upper()).strip()
+
+
+_TIER_BRANDS = {
+    "japones": {"toyota","honda","nissan","mazda","mitsubishi","subaru","suzuki","daihatsu","isuzu","lexus","scion"},
+    "coreano": {"kia","hyundai","genesis","ssangyong"},
+    "lujo": {"mercedes-benz","mercedes","bmw","audi","land rover","porsche","jaguar","infiniti","acura","volvo","cadillac","mini"},
+    "electrico": {"tesla","byd","mg"},
+}
+def _brand_tier(make) -> str:
+    m = (make or "").lower().strip()
+    for t, brands in _TIER_BRANDS.items():
+        if m in brands:
+            return t
+    return "popular"
+
+
+# Cache de fichas/plantillas (tablas chicas: 30 + 18). Se cargan una vez por proceso.
+_CHARACTER_CACHE = {"cards": None, "templates": None}
+def _load_character_tables():
+    if _CHARACTER_CACHE["cards"] is not None:
+        return
+    cards, tpls = {}, {}
+    try:
+        for r in (supabase.table("model_cards").select("make,model_norm,card").execute().data or []):
+            cards[(r["make"].lower(), r["model_norm"])] = r["card"]
+        for r in (supabase.table("segment_templates").select("body_type,tier,template").execute().data or []):
+            tpls[(r["body_type"], r["tier"])] = r["template"]
+    except Exception:
+        log.exception("no se pudieron cargar fichas/plantillas")
+    _CHARACTER_CACHE["cards"], _CHARACTER_CACHE["templates"] = cards, tpls
+
+
+def _character_for(car: dict) -> dict | None:
+    """Carácter de un carro: ficha individual primero; si no, plantilla de casillero; si no, None."""
+    _load_character_tables()
+    cards, tpls = _CHARACTER_CACHE["cards"] or {}, _CHARACTER_CACHE["templates"] or {}
+    key = ((car.get("make") or "").lower(), _norm_model(car.get("model")))
+    if key in cards:
+        return {"source": "card", "data": cards[key]}
+    tkey = (car.get("body_type"), _brand_tier(car.get("make")))
+    if tkey in tpls:
+        return {"source": "template", "data": tpls[tkey]}
+    return None
+
+
 def _decision_rank(rows: list, top_n: int) -> list:
     """Re-rank candidates at query time by a layered score (works on existing
     inventory, no re-scoring needed). Layers (0-1, weighted):
@@ -1521,10 +1570,31 @@ async def carly_search(body: CarlySearchRequest):
     results = []
     for i, item in enumerate(ranked):
         car = item["car"]
-        bits = [build_why(car, it)]
+        char = _character_for(car)                      # ficha o plantilla (o None)
+        bits = []
         if item["vs_market"] and item["vs_market"] >= 12 and not item["suspicious"]:
-            bits.insert(0, f"{item['vs_market']}% bajo similares")
+            bits.append(f"{item['vs_market']}% bajo similares")
+        # "gana en" desde la ficha/plantilla, si hay
+        if char and char["source"] == "card":
+            gana = char["data"].get("gana_vs_pares_en") or []
+            if gana:
+                bits.append("destaca en " + " y ".join(gana[:2]))
+        bits.append(build_why(car, it))
         why = " · ".join(b for b in bits if b)
+
+        character_out = None
+        if char:
+            cd = char["data"]
+            character_out = {
+                "source": char["source"],                # "card" = ficha fina, "template" = heredada
+                "one_line": cd.get("one_line"),
+                "gana_vs_pares_en": cd.get("gana_vs_pares_en"),
+                "persona_fit": cd.get("persona_fit"),
+                "better_if_user_prioritizes": cd.get("better_if_user_prioritizes"),
+                "user_facing": cd.get("user_facing"),
+                "review_status": cd.get("review_status", "unverified_ai_generated"),
+            }
+
         results.append({
             **{k: car.get(k) for k in (
                 "id", "country", "url", "make", "model", "year", "km", "price_usd",
@@ -1537,6 +1607,7 @@ async def carly_search(body: CarlySearchRequest):
             "price_flag": "verificar precio" if item["suspicious"] else None,
             "reserved": item["state"] == "reservado",
             "why": why,
+            "character": character_out,                  # NUEVO: carácter del modelo
         })
 
     return {"query": body.q, "intent": it.model_dump(),
@@ -1906,6 +1977,9 @@ class CarlyChatRequest(BaseModel):
     messages: List[CarlyChatMessage]   # historial completo de la conversacion
     country: Optional[str] = None      # "cr" | "sv" para acotar inventario
     top_n: int = 4
+    shown_cars: Optional[List[dict]] = None  # tarjetas que la persona YA tiene en
+    # pantalla (el frontend las reenvia en turnos de seguimiento) para que Carly
+    # pueda hablar de cualquiera sin contradecirse.
 
 
 def _carly_inventory(profile, country=None, pool=600):
@@ -1954,12 +2028,37 @@ def carly_chat(body: CarlyChatRequest):
 
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
 
+    # On-screen context: if the person already has recommendation cards visible
+    # (frontend echoes them back), tell Carly exactly which cars they are so she
+    # can discuss ANY of them without claiming she "didn't recommend it".
+    system_prompt = CARLY_SYSTEM_PROMPT
+    if body.shown_cars:
+        lines = []
+        for c in body.shown_cars[:12]:
+            vd = c.get("value_delta_pct")
+            vtxt = f", {abs(vd):.0f}% {c.get('value_label','')}" if isinstance(vd, (int, float)) else ""
+            lines.append(
+                f"- {c.get('make')} {c.get('model')} {c.get('year')}, "
+                f"${c.get('price_usd')} (${c.get('monthly_est')}/mes), "
+                f"{c.get('km')} km, {c.get('body_type')}, {c.get('location')}{vtxt}"
+            )
+        system_prompt = (
+            CARLY_SYSTEM_PROMPT
+            + "\n\n# CARROS QUE LA PERSONA TIENE EN PANTALLA AHORA MISMO\n"
+            "Estos son los autos que YA le mostraste y que ella esta viendo. "
+            "Puedes y DEBES hablar de cualquiera de ellos con sus datos; JAMAS "
+            "digas que no lo recomendaste o que no lo evaluaste: esta en tu lista.\n"
+            + "\n".join(lines)
+            + "\nSolo aclara 'ese no lo evalue' si preguntan por un modelo que NO "
+            "aparece en esta lista."
+        )
+
     # 1) Carly responde (conversa o emite el <PROFILE>)
     try:
         resp = _anthropic.messages.create(
             model=CARLY_MODEL,
             max_tokens=2048,
-            system=CARLY_SYSTEM_PROMPT,
+            system=system_prompt,
             messages=msgs,
         )
     except Exception as e:
@@ -1978,7 +2077,8 @@ def carly_chat(body: CarlyChatRequest):
     try:
         # 3) hay perfil -> ranking sobre inventario real
         profile = profile_from_extraction(data)
-        pool = _carly_inventory(profile, country=body.country)
+        country = body.country or (data.get("country") if isinstance(data, dict) else None)
+        pool = _carly_inventory(profile, country=country)
         top = rank_cars(pool, profile, top_n=body.top_n)
         cards = [_carly_card(t) for t in top]
         relaxed_note = None
@@ -2003,7 +2103,7 @@ def carly_chat(body: CarlyChatRequest):
                             p2.max_price = p2.max_price * mult
                     if drop_body:
                         p2.require_body = []
-                    pl = _carly_inventory(p2, country=body.country)
+                    pl = _carly_inventory(p2, country=country)
                     return rank_cars(pl, p2, top_n=body.top_n), pl
 
                 top, pool2 = _try(mult=1.25)
@@ -2087,7 +2187,7 @@ def carly_chat(body: CarlyChatRequest):
         )
         try:
             resp2 = _anthropic.messages.create(
-                model=CARLY_MODEL, max_tokens=400, system=CARLY_SYSTEM_PROMPT,
+                model=CARLY_MODEL, max_tokens=400, system=system_prompt,
                 messages=msgs + [
                     {"role": "assistant", "content": visible or "Tengo tus opciones."},
                     {"role": "user", "content": closing_prompt},
