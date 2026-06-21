@@ -39,6 +39,10 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY else None
 
+# Auto-save every NEW valid link consulted via /resolve-link (dedup by URL is automatic).
+# Set AUTO_SAVE_LINKS=0 to disable and revert to explicit save-only behavior.
+AUTO_SAVE_LINKS = os.environ.get("AUTO_SAVE_LINKS", "1") != "0"
+
 COUNTRY_SEARCH_URLS = {
     "sv": "https://www.encuentra24.com/el-salvador-es/autos-usados",
     "gt": "https://www.encuentra24.com/guatemala-es/autos-usados",
@@ -974,6 +978,34 @@ def _infer_country(url: str) -> Optional[str]:
     return None
 
 
+# Bad-link filter (REJECT, not quarantine). A pasted/resolved link only enters
+# inventory if it passes ALL gates: usable essentials + looks like a real car +
+# has usable data. Filters out junk seen in logs ("vendo bocina", motorcycles).
+_VALID_BODY = {"suv", "sedan", "pickup", "hatch", "hatchback", "van",
+               "coupe", "wagon", "convertible", "minivan", "crossover"}
+_BAD_MAKE = {"", "otros", "otro", "other", "varios", "n/a", "na", "none", "desconocido"}
+
+
+def _is_valid_car_listing(payload: dict) -> tuple[bool, str]:
+    """True if this resolved listing should enter inventory. Returns (ok, reason)."""
+    title = field_value(payload, "title")
+    photos = payload.get("photos", []) or []
+    if not title and not photos:
+        return False, "sin título ni foto"
+    make = (field_value(payload, "make") or "").strip()
+    model = field_value(payload, "model")
+    body = (classify_body_type(model, title) or "").lower()
+    price = field_value(payload, "price_usd")
+    year = field_value(payload, "year")
+    make_ok = make.lower() not in _BAD_MAKE
+    body_ok = body in _VALID_BODY
+    if not (make_ok or body_ok):
+        return False, "no parece un carro (marca/carrocería no reconocida)"
+    if not (price or (make_ok and year)):
+        return False, "sin datos usables (falta precio o marca+año)"
+    return True, "ok"
+
+
 def _build_db_record(payload: dict, source: str, country: Optional[str], url: str) -> dict:
     """Turn a resolved listing payload into a scraped_listings row.
     Same shape and enrichment used by the inventory crawler, so links
@@ -1138,15 +1170,17 @@ async def resolve_link(body: ResolveRequest, request: Request):
         except Exception:
             payload["in_inventory"] = None
 
-    # --- added: optionally SAVE this link into inventory (the shared "door")
-    # Used by WhatsApp / web form / app so a pasted link becomes a stored car.
-    if body.save:
+    # --- SAVE into inventory: by default for any NEW valid car (AUTO_SAVE_LINKS),
+    # or when explicitly requested (body.save). Bad links are REJECTED, not saved.
+    want_save = bool(body.save) or AUTO_SAVE_LINKS
+    if want_save:
+        valid, reason = _is_valid_car_listing(payload)
         if not supabase:
             payload["saved"] = False
             payload["save_error"] = "supabase not connected"
-        elif not has_essentials:
+        elif not valid:
             payload["saved"] = False
-            payload["save_error"] = "listing had no usable data (no title/photo)"
+            payload["rejected_reason"] = reason  # did not meet inventory bar
         else:
             try:
                 country = (body.country or _infer_country(url) or "").lower().strip() or None
