@@ -795,9 +795,11 @@ async def _run_one(country: str, pages: int):
 
 
 @app.get("/inventory-run-next")
-async def inventory_run_next(pages: int = 30, token: str | None = None):
-    """Scrape ONE country (the stalest) in the background, then rotate.
-    Point the cron here instead of /inventory-run-all."""
+async def inventory_run_next(pages: int = 30, token: str | None = None,
+                             country: str | None = None):
+    """Scrape ONE country in the background. By default picks the stalest and
+    rotates; pass ?country=ni to force a specific one (useful for first fill of
+    big countries with high pages, e.g. ?country=ni&pages=90)."""
     expected = os.environ.get("CRON_TOKEN")
     if expected and token != expected:
         raise HTTPException(status_code=401, detail="invalid token")
@@ -806,14 +808,86 @@ async def inventory_run_next(pages: int = 30, token: str | None = None):
     if INVENTORY_JOB_STATUS["running"]:
         return {"status": "already_running", "progress": INVENTORY_JOB_STATUS}
 
-    country = await _pick_next_country()
-    asyncio.create_task(_run_one(country, pages))
+    if country:
+        country = country.lower().strip()
+        if country not in COUNTRY_SEARCH_URLS:
+            raise HTTPException(status_code=400,
+                detail=f"Unsupported country. Use one of: {', '.join(COUNTRY_SEARCH_URLS.keys())}")
+        picked, mode = country, "forced"
+    else:
+        picked, mode = await _pick_next_country(), "auto (stalest)"
+
+    asyncio.create_task(_run_one(picked, pages))
     return {
         "status": "started",
-        "country": country,
+        "country": picked,
+        "selection": mode,
         "pages": pages,
         "check_progress_at": "/inventory-status",
     }
+
+
+@app.get("/inventory-sweep-inactive")
+async def inventory_sweep_inactive(days: int = 7, token: str | None = None):
+    """Mark as 'inactivo' the encuentra24 listings not seen in `days` days, and
+    reactivate any that reappeared. Scoped to encuentra24 (the regularly
+    re-scraped source) so crautos cars aren't wrongly retired. Never touches
+    'reservado'/'vendido' (manual states). Run by cron (e.g. daily) or by hand.
+
+    NOTE: needs last_seen_at populated, so it only acts after a listing has been
+    seen once and then missed for `days` — a deliberate warm-up, not a bug."""
+    expected = os.environ.get("CRON_TOKEN")
+    if expected and token != expected:
+        raise HTTPException(status_code=401, detail="invalid token")
+    if not supabase:
+        return {"error": "supabase not connected"}
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    retired = reactivated = 0
+    try:
+        r = (supabase.table("scraped_listings")
+             .update({"listing_state": "inactivo"})
+             .eq("source", "encuentra24")
+             .lt("last_seen_at", cutoff)
+             .or_("listing_state.is.null,listing_state.eq.activo")
+             .execute())
+        retired = len(r.data or [])
+    except Exception as e:
+        log.exception("sweep retire error")
+        return {"error": str(e)[:200]}
+    try:
+        r = (supabase.table("scraped_listings")
+             .update({"listing_state": "activo"})
+             .eq("source", "encuentra24")
+             .gte("last_seen_at", cutoff)
+             .eq("listing_state", "inactivo")
+             .execute())
+        reactivated = len(r.data or [])
+    except Exception:
+        log.exception("sweep reactivate error")
+    return {"days": days, "cutoff": cutoff, "retired": retired, "reactivated": reactivated}
+
+
+@app.post("/listing-state")
+async def listing_state(url: str, state: str, token: str | None = None):
+    """Manually set a car's state: activo / reservado / vendido.
+    The two CarTrade moments (reserved, sold) live here."""
+    expected = os.environ.get("CRON_TOKEN")
+    if expected and token != expected:
+        raise HTTPException(status_code=401, detail="invalid token")
+    state = (state or "").lower().strip()
+    if state not in {"activo", "reservado", "vendido"}:
+        raise HTTPException(status_code=400, detail="state must be activo|reservado|vendido")
+    if not supabase:
+        return {"error": "supabase not connected"}
+    try:
+        r = (supabase.table("scraped_listings")
+             .update({"listing_state": state})
+             .eq("url", url).execute())
+        return {"url": url, "state": state, "updated": len(r.data or [])}
+    except Exception as e:
+        log.exception("listing-state error")
+        return {"error": str(e)[:200]}
 
 
 async def _ingest_country(country: str, pages: int) -> dict:
@@ -932,6 +1006,8 @@ async def _ingest_country(country: str, pages: int) -> dict:
                     "body_type": body_type_value,              # added
                     "quality_score": quality_value,            # added
                     "raw_payload": payload,
+                    "updated_at": _now_iso(),                  # added: refresh on every re-scrape
+                    "last_seen_at": _now_iso(),                # added: drives inactive sweep
                     "status": "staging",
                 }
 
@@ -986,8 +1062,13 @@ _VALID_BODY = {"suv", "sedan", "pickup", "hatch", "hatchback", "van",
 _BAD_MAKE = {"", "otros", "otro", "other", "varios", "n/a", "na", "none", "desconocido"}
 
 
-def _is_valid_car_listing(payload: dict) -> tuple[bool, str]:
+def _is_valid_car_listing(payload: dict, url: str = "", platform: str = "") -> tuple[bool, str]:
     """True if this resolved listing should enter inventory. Returns (ok, reason)."""
+    # Category gate (Encuentra24): the link must be in the used-cars section.
+    # Catches real-estate / electronics / etc. pasted by mistake (e.g. a house in
+    # /bienes-raices-.../) before we even look at content.
+    if platform == "encuentra24" and "autos-usados" not in (url or "").lower():
+        return False, "el link no es de la sección de autos (categoría incorrecta)"
     title = field_value(payload, "title")
     photos = payload.get("photos", []) or []
     if not title and not photos:
@@ -1053,6 +1134,8 @@ def _build_db_record(payload: dict, source: str, country: Optional[str], url: st
         "body_type": body_type_value,
         "quality_score": quality_value,
         "raw_payload": payload,
+        "updated_at": _now_iso(),
+        "last_seen_at": _now_iso(),
         "status": "staging",
     }
 
@@ -1174,7 +1257,7 @@ async def resolve_link(body: ResolveRequest, request: Request):
     # or when explicitly requested (body.save). Bad links are REJECTED, not saved.
     want_save = bool(body.save) or AUTO_SAVE_LINKS
     if want_save:
-        valid, reason = _is_valid_car_listing(payload)
+        valid, reason = _is_valid_car_listing(payload, url=url, platform=platform)
         if not supabase:
             payload["saved"] = False
             payload["save_error"] = "supabase not connected"
@@ -1346,14 +1429,62 @@ async def wa_incoming(request: Request):
     return {"status": "ok"}
 
 
+def _decision_rank(rows: list, top_n: int) -> list:
+    """Re-rank candidates at query time by a layered score (works on existing
+    inventory, no re-scoring needed). Layers (0-1, weighted):
+      deal-vs-comparable-group (auto-off where sparse) + km gradient +
+      age-adjusted km + year. Outlier guard: prices >55% below the comparable
+      median are flagged suspicious (likely bad data), not surfaced as deals.
+      Hidden states (vendido/inactivo) are dropped. NOTE: text-signal layer
+      (dueño único / agencia) is deferred — needs description in the query."""
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for r in rows:
+        p = r.get("price_usd")
+        if p:
+            groups[(r.get("country"), (r.get("make") or "").lower(),
+                    (r.get("model") or "").lower())].append(p)
+    med = {k: sorted(v)[len(v) // 2] for k, v in groups.items() if len(v) >= 5}
+
+    scored = []
+    for r in rows:
+        st = (r.get("listing_state") or "activo").lower()
+        if st in ("vendido", "inactivo"):
+            continue
+        km = r.get("km"); year = r.get("year"); price = r.get("price_usd")
+        age = max(2026 - year, 0) if year else None
+        km_g = 1 - min((km or 0) / 250000, 1) if km is not None else 0.5
+        if km is not None and age:
+            kpy = km / max(age, 1); aadj = 1 - min(abs(kpy - 15000) / 40000, 1)
+        else:
+            aadj = 0.5
+        yr = min(max(((year or 2008) - 2008) / 17, 0), 1)
+        key = (r.get("country"), (r.get("make") or "").lower(), (r.get("model") or "").lower())
+        deal = 0.5; dconf = 0.0; vs = None; suspicious = False
+        if price and key in med and med[key] > 0:
+            disc = (med[key] - price) / med[key]; vs = round(disc * 100)
+            if disc > 0.55:                      # outlier guard: too good = bad data
+                suspicious = True; deal = 0.0; dconf = 1.0
+            else:
+                deal = min(max((disc + 0.3) / 0.6, 0), 1); dconf = 1.0
+        w_deal = 0.40 * dconf
+        w = w_deal + 0.25 + 0.20 + 0.15
+        score = (w_deal * deal + 0.25 * km_g + 0.20 * aadj + 0.15 * yr) / w
+        scored.append({"score": round(score * 100), "vs_market": vs,
+                       "suspicious": suspicious, "state": st, "car": r})
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored[:top_n]
+
+
 @app.post("/carly/search")
 async def carly_search(body: CarlySearchRequest):
-    """Carly: parse a Spanish query, match the live inventory, rank, and return top N."""
+    """Carly: parse a Spanish query, match the live inventory, re-rank by the
+    layered decision score, and return top N."""
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not connected.")
 
     it = parse_intent(body.q)
-    q = supabase.table("scraped_listings").select(CARLY_COLS)
+    q = supabase.table("scraped_listings").select(CARLY_COLS + ",listing_state")
 
     if body.addressable_only:
         q = q.eq("is_addressable", True)
@@ -1370,21 +1501,30 @@ async def carly_search(body: CarlySearchRequest):
     if it.price_min:
         q = q.gte("price_usd", it.price_min)
 
+    # Fetch a larger CANDIDATE POOL (prefiltered by completeness), then re-rank.
     if it.use == "primer":
-        q = q.order("price_usd", desc=False).order("quality_score", desc=True)
+        q = q.order("price_usd", desc=False)
     elif it.newest_first:
-        q = q.order("year", desc=True).order("quality_score", desc=True)
+        q = q.order("year", desc=True)
     else:
-        q = q.order("quality_score", desc=True).order("year", desc=True)
+        q = q.order("quality_score", desc=True)
 
     limit = max(1, min(body.limit, 12))
     try:
-        rows = q.limit(limit).execute().data or []
+        pool = q.limit(300).execute().data or []
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Supabase query failed: {e!s}")
 
+    total_matching = len(pool)            # for the transparency line ("de N, estos M")
+    ranked = _decision_rank(pool, limit)
+
     results = []
-    for i, car in enumerate(rows):
+    for i, item in enumerate(ranked):
+        car = item["car"]
+        bits = [build_why(car, it)]
+        if item["vs_market"] and item["vs_market"] >= 12 and not item["suspicious"]:
+            bits.insert(0, f"{item['vs_market']}% bajo similares")
+        why = " · ".join(b for b in bits if b)
         results.append({
             **{k: car.get(k) for k in (
                 "id", "country", "url", "make", "model", "year", "km", "price_usd",
@@ -1392,10 +1532,16 @@ async def carly_search(body: CarlySearchRequest):
                 "quality_score", "primary_photo",
             )},
             "tag": TAGS[i] if i < len(TAGS) else "Opción",
-            "why": build_why(car, it),
+            "match_score": item["score"],
+            "vs_market_pct": item["vs_market"],
+            "price_flag": "verificar precio" if item["suspicious"] else None,
+            "reserved": item["state"] == "reservado",
+            "why": why,
         })
 
-    return {"query": body.q, "intent": it.model_dump(), "count": len(results), "results": results}
+    return {"query": body.q, "intent": it.model_dump(),
+            "pool_matching": total_matching, "count": len(results),
+            "results": results}
 
 
 @app.get("/stats")
