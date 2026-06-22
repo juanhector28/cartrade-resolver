@@ -388,6 +388,34 @@ def similarity_score(ideal: dict, car_vec: dict, weights: dict | None = None) ->
     return round(max(0.0, min(100.0, (1.0 - dist) * 100.0)), 1)
 
 
+def import_status(car: dict) -> Optional[str]:
+    """Detecta autos de subasta/aduana (recuperación/salvamento importado de USA)
+    por señales en la descripcion. Devuelve 'subasta_aduana' o None.
+    Señales fuertes (casi sin falsos positivos) marcan solo; 'arranca y camina'
+    es de apoyo (puede ser carro viejo honesto), marca solo si acompaña a otra
+    señal o el precio es bajisimo para el año."""
+    desc = (car.get("description") or "").lower()
+    if not desc:
+        return None
+    fuerte = any(k in desc for k in (
+        "aduana", "en camino", "subasta", "liquidaci", "según subasta", "segun subasta"))
+    apoyo = any(k in desc for k in ("arranca y camina", "arranca y maneja"))
+    # "•Arranca" o "arranca y maneja" como viñeta destacada (patrón de recuperación
+    # cuando es viñeta seca, no frase). Distingue del Tiburón ("arranca bien" en
+    # medio de una frase) por estar al inicio de viñeta o seguido de otra viñeta.
+    vineta = ("•arranca" in desc.replace(" ", "") or "\u2022arranca" in desc
+              or bool(_re.search(r"[•\-\*]\s*arranca\b", desc)))
+    if fuerte:
+        return "subasta_aduana"
+    year, price = car.get("year"), car.get("price_usd")
+    reciente_barato = bool(year and price and (CURRENT_YEAR - year) <= 7 and price < 13000)
+    if apoyo and reciente_barato:
+        return "subasta_aduana"
+    if vineta and reciente_barato:
+        return "subasta_aduana"
+    return None
+
+
 def looks_like_junk(car: dict) -> bool:
     """Guard de basura de datos (en PARALELO al motor, no es parte de el).
     Atrapa registros claramente rotos: sin año, precio irrisorio. NO detecta
@@ -465,6 +493,9 @@ def score_car(car, p: CarlyProfile, comps_by_model):
 
 # ──────────────── (8) CONTRA + (9) INSPECCION ──────────────────────
 def honest_caveat(car, factors):
+    # Subasta/aduana manda sobre cualquier otro caveat: honestidad primero.
+    if import_status(car) == "subasta_aduana":
+        return "Viene importado de subasta/aduana (auto de recuperación); la inspección de daños es clave antes de cerrar."
     km = car.get("km")
     if factors["modernity"] < 50:
         return "No es de los mas nuevos, pero bien cuidado puede dar muchos kilometros tranquilos."
