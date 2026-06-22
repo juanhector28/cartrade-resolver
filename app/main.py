@@ -2093,7 +2093,13 @@ def carly_chat(body: CarlyChatRequest):
     try:
         # 3) hay perfil -> ranking sobre inventario real
         profile = profile_from_extraction(data)
-        country = body.country or (data.get("country") if isinstance(data, dict) else None)
+        # El pais que la persona dice EN EL CHAT manda sobre el default del
+        # frontend (body.country suele venir fijo en "cr"). Solo si el chat no
+        # capturo pais, caemos al de body.
+        chat_country = data.get("country") if isinstance(data, dict) else None
+        country = (chat_country or body.country or None)
+        if isinstance(country, str):
+            country = country.lower().strip() or None
         pool = _carly_inventory(profile, country=country)
         top = rank_cars(pool, profile, top_n=body.top_n)
         cards = [_carly_card(t) for t in top]
