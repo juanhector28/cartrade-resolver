@@ -186,6 +186,21 @@ fuerces una pregunta extra solo para esto: captúralo si surge natural en la \
 conversacion. Es CLAVE: aunque el inventario no tenga ese tipo etiquetado, el \
 sistema busca por inteligencia los modelos que SI corresponden al segmento.
 
+# El CARRO IDEAL (lo mas importante del matching)
+Antes de mirar el inventario, construye el "carro ideal" para esta persona como \
+ideal_vector: un valor 0..1 en cada dimension segun lo que de verdad busca, \
+interpretando TODA la conversacion (no solo palabras sueltas). Dimensiones: \
+deportividad (emocion/estilo deportivo), espacio (gente/carga), confiabilidad, \
+economia (gasto de combustible), lujo (premium/estatus), reventa (retencion de \
+valor), modernidad (que tan nuevo), aptitud_trabajo (carga pesada/off-road). \
+Ejemplo: "deportivo confiable con estilo, sin necesidad de espacio" -> \
+{deportividad:0.95, espacio:0.2, confiabilidad:0.8, economia:0.5, lujo:0.5, \
+reventa:0.7, modernidad:0.7, aptitud_trabajo:0.1}. En ideal_weights pon mas peso \
+(cerca de 1.0) a lo que la persona dijo que MAS le importa, y menos a lo \
+secundario. El sistema busca el carro real mas CERCANO a ese ideal — por eso \
+encuentra el deportivo correcto aunque el inventario lo tenga mal etiquetado. \
+Construye el ideal SIEMPRE que vayas a recomendar.
+
 # REGLA DE ORO: preguntar O recomendar, nunca las dos
 En cada turno haces UNA de dos cosas, jamas ambas:
  (A) PREGUNTAS: tu mensaje termina en una pregunta y NO emites bloque <PROFILE>.
@@ -250,6 +265,8 @@ usa null, lista vacia, o el valor razonable por defecto indicado arriba.
   "avoid_body": [<"coupe"|"sedan"|"hatchback"|"suv"|"pickup"|"minivan"...>],
   "require_body": [<misma lista, si exigio un tipo>],
   "intent_segment": "<deportivo|lujo|7_plazas|convertible|off_road|electrico|hibrido|null>",
+  "ideal_vector": { "deportividad":<0-1>, "espacio":<0-1>, "confiabilidad":<0-1>, "economia":<0-1>, "lujo":<0-1>, "reventa":<0-1>, "modernidad":<0-1>, "aptitud_trabajo":<0-1> },
+  "ideal_weights": { "<dimension>":<0-1>, ... },
   "avoid_transmission": "<manual|automatica|null>",
   "avoid_brands": [<marcas en minuscula>],
   "require_brands": [<marcas en minuscula, SOLO si exigio una marca especifica, ej. "quiero un bmw">],
@@ -297,6 +314,13 @@ _USAGE_BOOST = {
 }
 
 
+def _valid_ideal(raw):
+    """Sanea el ideal_vector del LLM via validate_ideal de carly_ranking."""
+    from .carly_ranking import validate_ideal
+    iv, _ = validate_ideal(raw if isinstance(raw, dict) else None)
+    return iv
+
+
 def profile_from_extraction(data: dict) -> CarlyProfile:
     """Convierte el JSON que emitio el LLM en un CarlyProfile con pesos
     deterministicos. data = lo que vino entre <PROFILE>...</PROFILE>."""
@@ -326,6 +350,8 @@ def profile_from_extraction(data: dict) -> CarlyProfile:
         exclude_body=data.get("avoid_body") or [],
         require_body=data.get("require_body") or [],
         intent_segment=(data.get("intent_segment") or None),
+        ideal_vector=_valid_ideal(data.get("ideal_vector")),
+        ideal_weights=(data.get("ideal_weights") if isinstance(data.get("ideal_weights"), dict) else None),
         exclude_transmission=data.get("avoid_transmission"),
         exclude_brands=data.get("avoid_brands") or [],
         w_reliability=round(w["reliability"], 3),
