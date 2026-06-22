@@ -507,6 +507,11 @@ def honest_caveat(car, factors):
         return "El consumo no es su fuerte; tenelo en cuenta si haces muchos kilometros."
     if factors["resale"] < 62:
         return "Su reventa es algo mas baja que un Toyota o Honda; importa si lo cambias pronto."
+    segs = car_segments(car)
+    if "deportivo" in segs or "convertible" in segs:
+        return "Es un deportivo de verdad: prioriza emocion y estilo sobre espacio y consumo."
+    if "lujo" in segs:
+        return "Premium de verdad; el mantenimiento y repuestos suelen costar mas que un japones."
     return "Opcion equilibrada, sin peros importantes para lo que buscas."
 
 def inspection_focus(car):
@@ -524,7 +529,19 @@ def inspection_focus(car):
     return seen[:3]
 
 # ──────────────────── RANKING + (4) DIVERSIDAD ─────────────────────
-def best_for_label(factors):
+def best_for_label(factors, car=None):
+    # Si el carro tiene un carácter de segmento claro, eso manda sobre el factor
+    # crudo (evita que un Mini o un MX-5 salgan "Familia").
+    if car is not None:
+        segs = car_segments(car)
+        if "deportivo" in segs or "convertible" in segs:
+            return "Manejo"
+        if "lujo" in segs:
+            return "Lujo"
+        if "off_road" in segs:
+            return "Aventura"
+        if "7_plazas" in segs:
+            return "Familia"
     ejes = {"reliability":"Tranquilidad","economy":"Ahorro","space":"Familia",
             "value":"Mejor precio","resale":"Inversion","appeal":"Estilo",
             "modernity":"Lo mas nuevo"}
@@ -540,13 +557,33 @@ def rank_cars(cars, profile: CarlyProfile, top_n=5):
     scored = []
     for c in survivors:
         total, factors, meta = score_car(c, profile, comps_by_model)
-        scored.append({
+        entry = {
             "car": c, "score": total, "factors": factors,
             "value_delta_pct": meta["value_delta_pct"], "value_label": meta["value_label"],
-            "best_for": best_for_label(factors),
+            "best_for": best_for_label(factors, c),
             "caveat": honest_caveat(c, factors),
             "inspect": inspection_focus(c),
-        })
+        }
+        # Umbral de cercania (estricto): si hay un ideal, solo entran los carros
+        # que de verdad se parecen al ideal. Asi una busqueda de "deportivo de
+        # lujo" no se ensucia con un Kia Rio de subasta solo por ser barato.
+        iv = getattr(profile, "ideal_vector", None)
+        if iv:
+            sim = similarity_score(iv, car_vector(c), getattr(profile, "ideal_weights", None))
+            entry["similarity"] = sim
+        scored.append(entry)
+
+    iv = getattr(profile, "ideal_vector", None)
+    if iv:
+        SIM_MIN = 62.0   # estricto: por debajo de esto, no calza de verdad
+        fits = [e for e in scored if e.get("similarity", 0) >= SIM_MIN]
+        # No dejar a la persona sin nada: si hay muy pocos sobre el umbral,
+        # garantiza al menos los 3 mas cercanos (Carly explicara que hay pocos).
+        if len(fits) < 3:
+            scored.sort(key=lambda x: x.get("similarity", 0), reverse=True)
+            fits = scored[:3]
+        scored = fits
+
     scored.sort(key=lambda x: x["score"], reverse=True)
 
     # (4) diversidad: evita clones make+body
