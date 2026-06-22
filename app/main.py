@@ -829,13 +829,14 @@ async def inventory_run_next(pages: int = 30, token: str | None = None,
 
 @app.get("/inventory-sweep-inactive")
 async def inventory_sweep_inactive(days: int = 7, token: str | None = None):
-    """Mark as 'inactivo' the encuentra24 listings not seen in `days` days, and
-    reactivate any that reappeared. Scoped to encuentra24 (the regularly
-    re-scraped source) so crautos cars aren't wrongly retired. Never touches
-    'reservado'/'vendido' (manual states). Run by cron (e.g. daily) or by hand.
+    """Mark stale encuentra24 listings as 'expired' (not seen in `days` days).
+    Scoped to encuentra24 (the regularly re-scraped source) so crautos cars
+    aren't wrongly retired. Only touches 'live' states; never re-opens closed.
 
-    NOTE: needs last_seen_at populated, so it only acts after a listing has been
-    seen once and then missed for `days` — a deliberate warm-up, not a bug."""
+    ⚠️ OJO: este endpoint se solapa con TU pipeline real
+    (indexed→enriched→contacted→opted_in→verified→closed→expired). Antes de
+    automatizarlo con cron, confirma que no choca con tu propia logica de
+    expiración. Necesita last_seen_at poblado (warm-up de `days`)."""
     expected = os.environ.get("CRON_TOKEN")
     if expected and token != expected:
         raise HTTPException(status_code=401, detail="invalid token")
@@ -843,41 +844,33 @@ async def inventory_sweep_inactive(days: int = 7, token: str | None = None):
         return {"error": "supabase not connected"}
     from datetime import datetime, timezone, timedelta
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    retired = reactivated = 0
+    retired = 0
     try:
         r = (supabase.table("scraped_listings")
-             .update({"listing_state": "inactivo"})
+             .update({"listing_state": "expired"})
              .eq("source", "encuentra24")
              .lt("last_seen_at", cutoff)
-             .or_("listing_state.is.null,listing_state.eq.activo")
+             .in_("listing_state", ["indexed", "enriched"])  # solo etapas tempranas/no contactadas
              .execute())
         retired = len(r.data or [])
     except Exception as e:
         log.exception("sweep retire error")
         return {"error": str(e)[:200]}
-    try:
-        r = (supabase.table("scraped_listings")
-             .update({"listing_state": "activo"})
-             .eq("source", "encuentra24")
-             .gte("last_seen_at", cutoff)
-             .eq("listing_state", "inactivo")
-             .execute())
-        reactivated = len(r.data or [])
-    except Exception:
-        log.exception("sweep reactivate error")
-    return {"days": days, "cutoff": cutoff, "retired": retired, "reactivated": reactivated}
+    return {"days": days, "cutoff": cutoff, "expired": retired,
+            "nota": "solo expira listings 'indexed'/'enriched' sin contacto; no toca contacted/verified/closed"}
 
 
 @app.post("/listing-state")
 async def listing_state(url: str, state: str, token: str | None = None):
-    """Manually set a car's state: activo / reservado / vendido.
-    The two CarTrade moments (reserved, sold) live here."""
+    """Mover un listing por TU pipeline real. Valores legales:
+    indexed, enriched, contacted, opted_in, verified, closed, expired."""
+    LEGAL = {"indexed", "enriched", "contacted", "opted_in", "verified", "closed", "expired"}
     expected = os.environ.get("CRON_TOKEN")
     if expected and token != expected:
         raise HTTPException(status_code=401, detail="invalid token")
     state = (state or "").lower().strip()
-    if state not in {"activo", "reservado", "vendido"}:
-        raise HTTPException(status_code=400, detail="state must be activo|reservado|vendido")
+    if state not in LEGAL:
+        raise HTTPException(status_code=400, detail=f"state must be one of: {', '.join(sorted(LEGAL))}")
     if not supabase:
         return {"error": "supabase not connected"}
     try:
@@ -1505,8 +1498,9 @@ def _decision_rank(rows: list, top_n: int) -> list:
       deal-vs-comparable-group (auto-off where sparse) + km gradient +
       age-adjusted km + year. Outlier guard: prices >55% below the comparable
       median are flagged suspicious (likely bad data), not surfaced as deals.
-      Hidden states (vendido/inactivo) are dropped. NOTE: text-signal layer
-      (dueño único / agencia) is deferred — needs description in the query."""
+      Hidden states (closed/expired) are dropped — everything else in the
+      lifecycle (indexed/enriched/contacted/opted_in/verified) is shown.
+      NOTE: text-signal layer (dueño único / agencia) is deferred."""
     from collections import defaultdict
     groups = defaultdict(list)
     for r in rows:
@@ -1516,10 +1510,11 @@ def _decision_rank(rows: list, top_n: int) -> list:
                     (r.get("model") or "").lower())].append(p)
     med = {k: sorted(v)[len(v) // 2] for k, v in groups.items() if len(v) >= 5}
 
+    HIDDEN_STATES = {"closed", "expired"}
     scored = []
     for r in rows:
-        st = (r.get("listing_state") or "activo").lower()
-        if st in ("vendido", "inactivo"):
+        st = (r.get("listing_state") or "indexed").lower()
+        if st in HIDDEN_STATES:
             continue
         km = r.get("km"); year = r.get("year"); price = r.get("price_usd")
         age = max(2026 - year, 0) if year else None
