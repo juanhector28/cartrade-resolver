@@ -2052,7 +2052,15 @@ def carly_chat(body: CarlyChatRequest):
         lines = []
         for c in body.shown_cars[:12]:
             vd = c.get("value_delta_pct")
-            vtxt = f", {abs(vd):.0f}% {c.get('value_label','')}" if isinstance(vd, (int, float)) else ""
+            vlabel = c.get("value_label", "")
+            # Si el precio esta cerca de la mediana o es a verificar, muestra solo
+            # la etiqueta sin "0%": evita el confuso "0% en precio de mercado".
+            if isinstance(vd, (int, float)) and abs(vd) >= 8 and vlabel not in ("precio a verificar",):
+                vtxt = f", {abs(vd):.0f}% {vlabel}"
+            elif vlabel:
+                vtxt = f", {vlabel}"
+            else:
+                vtxt = ""
             lines.append(
                 f"- {c.get('make')} {c.get('model')} {c.get('year')}, "
                 f"${c.get('price_usd')} (${c.get('monthly_est')}/mes), "
@@ -2165,11 +2173,15 @@ def carly_chat(body: CarlyChatRequest):
         #    lo escribio antes de ver resultados. Ahora habla de lo que de verdad
         #    salio, mencionando el fairness y la contra honesta del favorito.
         fav = cards[0]
+        def _vtxt(c):
+            vd = c.get("value_delta_pct"); vl = c.get("value_label", "")
+            if isinstance(vd, (int, float)) and abs(vd) >= 8 and vl != "precio a verificar":
+                return f", {abs(vd):.0f}% {vl}"
+            return f", {vl}" if vl else ""
         resumen = "\n".join(
             f"- {c['make']} {c['model']} {c['year']}, ${c['monthly_est']}/mes, "
             f"mejor para {c['best_for']}"
-            + (f", {abs(c['value_delta_pct']):.0f}% {c['value_label']}"
-               if c.get("value_delta_pct") is not None else "")
+            + _vtxt(c)
             + _character_brief_for_llm(c)
             for c in cards
         )
@@ -2189,7 +2201,10 @@ def carly_chat(body: CarlyChatRequest):
             "1) Tu decision en primera persona: 'Yo compraria la X' con los 2-3 "
             "motivos concretos sacados de los datos de arriba (mensualidad, año, "
             "km, precio vs mercado).\n"
-            "2) Lo que te haria dudar: el dato honesto, directo y sin suavizar.\n"
+            "2) El dato honesto a tener en cuenta, en tono PROPOSITIVO: no lo "
+            "enmarques como 'lo que me haria dudar' ni como alarma; dilo como un "
+            "trade-off util ('ten en cuenta que en gasolina rinde promedio; si eso "
+            "te pesa, hay rutas mas economicas') — honesto pero hacia adelante.\n"
             "3) Tu lectura final en UNA frase, como amiga que sabe de carros: si "
             "su prioridad es X, la favorita gana; si en realidad le pesa mas Y, "
             "cual otra elegirias. Como AFIRMACION, no como pregunta.\n"
@@ -2233,12 +2248,30 @@ def carly_chat(body: CarlyChatRequest):
         except Exception:
             closing = visible  # si la segunda pasada falla, usamos la primera
 
+        # Tarjetas de exploracion (sensacion de "plenitud" del buscador, formato
+        # swipe en el front): muchas mas que cumplen criterio, SIN el analisis
+        # fino. Las curadas (recommendations) siguen siendo el criterio de Carly;
+        # estas son el "y hay N mas, deslizalas". Excluye las ya curadas.
+        _curated_urls = {c.get("url") for c in cards}
+        explore = []
+        for r in pool:
+            if r.get("url") in _curated_urls:
+                continue
+            explore.append({k: r.get(k) for k in (
+                "id", "country", "url", "make", "model", "year", "km",
+                "price_usd", "monthly_est", "transmission", "location",
+                "body_type", "primary_photo")})
+            if len(explore) >= 30:
+                break
+
         return {
             "phase": "recommendation",
             "reply": closing or visible,
             "profile": data,
             "pool_size": len(pool),
-            "recommendations": cards,
+            "recommendations": cards,          # pocas, con criterio y "por que"
+            "explore": explore,                # muchas mas, para deslizar
+            "explore_count": len(explore),
             "favorite": fav,
         }
     except Exception as _diag_e:
