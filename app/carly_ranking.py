@@ -184,10 +184,19 @@ def value_score(price, comps):
     if avg <= 0: return 60.0, None, "precio de referencia"
     ratio = price/avg
     delta_pct = round((ratio-1.0)*100, 1)
+    # Outlier guard: precio absurdamente bajo (>60% bajo el promedio) casi
+    # siempre es dato basura (mal parseado), no una ganga. No lo premies como
+    # "bajisimo bajo mercado"; marcalo neutro para que no suba en el ranking.
+    if ratio < 0.40:
+        return 55.0, delta_pct, "precio a verificar"
     s = max(0.0, min(100.0, 60.0 + (1.0-ratio)*150.0))
-    if delta_pct <= -8: label = "bajo el mercado"
-    elif delta_pct >= 8: label = "sobre el mercado"
-    else: label = "en precio de mercado"
+    # Etiqueta clara: nada de "0% en precio de mercado" (confunde).
+    if -8 < delta_pct < 8:
+        label = "precio justo de mercado"   # cerca de la mediana
+    elif delta_pct <= -8:
+        label = "bajo el mercado"
+    else:
+        label = "sobre el mercado"
     return s, delta_pct, label
 
 # ──────────────────────────── FILTRO ───────────────────────────────
