@@ -16,8 +16,91 @@ Filosofia intacta: filtrar duro, puntuar suave, pesos por conversacion.
 
 from dataclasses import dataclass, field
 from typing import Optional
+import re as _re
 
 CURRENT_YEAR = 2026
+
+# ════════════════════════════════════════════════════════════════════
+# CAPA SEMÁNTICA (Fase 1) — qué ES un carro mas alla de su body_type.
+# Encuentra el MX-5 aunque este clasificado "sedan". NO escribe a la base.
+# Matching por palabra completa (con padding de espacios) para evitar
+# falsos positivos tipo "gr" -> "Grand Cherokee".
+# ════════════════════════════════════════════════════════════════════
+SEGMENT_MODELS = {
+    "deportivo": [
+        "mx-5", "mx 5", "miata", "brz", "gr86", "gr 86", "fr-s", "frs", "86",
+        "supra", "mustang", "camaro", "challenger", "corvette", "370z", "350z",
+        "civic si", "civic type r", "type r", "gti", "golf gti", "wrx", "sti",
+        "rx-8", "rx 8", "rx-7", "s2000", "mr2", "m3", "m4", "m2", "amg",
+        "cayman", "boxster", "911", "gr yaris", "gr corolla", "abarth",
+    ],
+    "lujo": [
+        "clase c", "clase e", "clase s", "c-class", "e-class", "serie 3",
+        "serie 5", "serie 7", "320i", "330i", "520i", "x3", "x5", "x6", "x7",
+        "q3", "q5", "q7", "q8", "a4", "a6", "a8", "glc", "gle", "gls",
+        "range rover", "cayenne", "macan", "panamera", "ls", "es", "rx", "gx",
+        "lx", "is", "continental", "ghibli", "levante", "xf", "xe", "f-pace",
+    ],
+    "7_plazas": [
+        "highlander", "santa fe", "sorento", "pilot", "cx-9", "cx 9",
+        "telluride", "palisade", "prado", "land cruiser", "fortuner", "montero",
+        "pajero", "sequoia", "tahoe", "suburban", "expedition", "durango",
+        "atlas", "kodiaq", "outlander", "tiguan allspace", "carnival", "sienna",
+        "odyssey", "pacifica", "qx60", "mdx",
+    ],
+    "convertible": [
+        "mx-5", "mx 5", "miata", "z4", "slk", "slc", "boxster", "cabrio",
+        "cabriolet", "convertible", "descapotable", "spider", "spyder", "911",
+    ],
+    "off_road": [
+        "wrangler", "4runner", "land cruiser", "prado", "montero", "pajero",
+        "fj cruiser", "defender", "bronco", "raptor", "trooper", "samurai",
+        "jimny", "troller", "g class", "clase g",
+    ],
+}
+
+
+def _norm_blob(s):
+    """' make model ' con espacios a los lados para match por palabra."""
+    return " " + _re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip() + " "
+
+
+def _model_matches(model, keywords):
+    blob = _norm_blob(model)
+    for kw in keywords:
+        k = _norm_blob(kw)
+        if k != "  " and k in blob:
+            return True
+    return False
+
+
+def car_segments(car: dict) -> list:
+    """Segmentos semanticos a los que pertenece un carro (lectura, no escritura).
+    Combina diccionario de modelos + señales de fuel/body."""
+    segs = []
+    model = car.get("model")
+    for seg, kws in SEGMENT_MODELS.items():
+        if _model_matches(model, kws):
+            segs.append(seg)
+    # electrico / hibrido por fuel_type, no por modelo
+    fuel = (car.get("fuel_type") or "").lower()
+    if any(k in fuel for k in ("electric", "eléctric", "electrico", "ev", "bev")):
+        segs.append("electrico")
+    if any(k in fuel for k in ("hibrid", "hybrid", "híbrid")):
+        segs.append("hibrido")
+    return list(dict.fromkeys(segs))  # dedup, preserva orden
+
+
+def segment_or_filter(segment: str) -> Optional[str]:
+    """Construye el filtro OR de PostgREST para traer modelos de un segmento
+    desde Supabase (para que el MX-5 entre al pool aunque sea baja calidad)."""
+    kws = SEGMENT_MODELS.get(segment)
+    if not kws:
+        return None
+    parts = [f"model.ilike.*{kw}*" for kw in kws]
+    return ",".join(parts)
+
+
 
 # ──────────────────────────── TABLAS ───────────────────────────────
 RELIABILITY_BY_MODEL = {
@@ -111,6 +194,7 @@ class CarlyProfile:
     exclude_brands: list = field(default_factory=list)
     require_brands: list = field(default_factory=list)
     require_body: list = field(default_factory=list)
+    intent_segment: Optional[str] = None   # deportivo|lujo|7_plazas|convertible|off_road|electrico|hibrido
     w_reliability: float = 0.45
     w_economy: float = 0.30
     w_space: float = 0.30
@@ -240,6 +324,15 @@ def score_car(car, p: CarlyProfile, comps_by_model):
     }
     wsum = sum(weights.values()) or 1.0
     total = sum(factors[k]*weights[k] for k in factors)/wsum
+    # Boost de segmento semantico: si la persona pidio "deportivo" y este carro
+    # ES deportivo (aunque su body_type diga "sedan"), subelo fuerte. Si pidio
+    # un segmento y este NO lo es, bajalo (no es lo que busca).
+    if getattr(p, "intent_segment", None):
+        segs = car_segments(car)
+        if p.intent_segment in segs:
+            total = min(100.0, total + 18.0)
+        else:
+            total = max(0.0, total - 12.0)
     return round(total,1), factors, {"value_delta_pct": v_delta, "value_label": v_label}
 
 # ──────────────── (8) CONTRA + (9) INSPECCION ──────────────────────
