@@ -219,6 +219,16 @@ En cada turno haces UNA de dos cosas, jamas ambas:
      ("si quieres, podemos afinar mas", como afirmacion, no como pregunta).
 Nunca recomiendes y preguntes en el mismo turno: confunde a la persona.
 
+# OBLIGATORIO al recomendar: el ideal_vector NUNCA puede faltar
+Siempre que emitas el bloque <PROFILE> (modo B), el campo "ideal_vector" es \
+OBLIGATORIO y debe tener los 8 valores (deportividad, espacio, confiabilidad, \
+economia, lujo, reventa, modernidad, aptitud_trabajo), cada uno entre 0 y 1, \
+interpretando lo que la persona busca. Sin ese vector el sistema NO puede \
+encontrar el carro correcto y mostrara cosas equivocadas. NUNCA lo dejes null, \
+vacio ni lo omitas. Aunque la persona haya dicho poco, infiere valores \
+razonables del contexto (ej. pidio "deportivo" -> deportividad alta). Esto NO es \
+opcional: un <PROFILE> sin ideal_vector valido es un error.
+
 # Cuando pasar a recomendar (umbral)
 Maximo 4 turnos de preguntas. Recomiendas en cuanto tengas lo ESENCIAL: pais \
 (tema 0) Y presupuesto (tema 2, sea precio total de contado O mensualidad) Y \
@@ -324,11 +334,28 @@ _USAGE_BOOST = {
 }
 
 
-def _valid_ideal(raw):
-    """Sanea el ideal_vector del LLM via validate_ideal de carly_ranking."""
+def _valid_ideal(raw, intent_segment=None):
+    """Sanea el ideal_vector del LLM via validate_ideal de carly_ranking.
+    Si el LLM lo omitio pero hay un intent_segment, deriva un ideal por defecto
+    desde el segmento (red de seguridad: el motor se activa igual)."""
     from .carly_ranking import validate_ideal
     iv, _ = validate_ideal(raw if isinstance(raw, dict) else None)
-    return iv
+    if iv:
+        return iv
+    # Fallback por segmento: el LLM no emitio vector, pero sabemos el segmento.
+    SEG_DEFAULT = {
+        "deportivo":   {"deportividad":0.95,"espacio":0.2,"confiabilidad":0.6,"economia":0.4,"lujo":0.4,"reventa":0.6,"modernidad":0.6,"aptitud_trabajo":0.1},
+        "lujo":        {"deportividad":0.5,"espacio":0.4,"confiabilidad":0.6,"economia":0.4,"lujo":0.95,"reventa":0.5,"modernidad":0.7,"aptitud_trabajo":0.1},
+        "convertible": {"deportividad":0.9,"espacio":0.15,"confiabilidad":0.6,"economia":0.4,"lujo":0.6,"reventa":0.6,"modernidad":0.6,"aptitud_trabajo":0.1},
+        "7_plazas":    {"deportividad":0.1,"espacio":0.95,"confiabilidad":0.8,"economia":0.5,"lujo":0.3,"reventa":0.6,"modernidad":0.6,"aptitud_trabajo":0.4},
+        "off_road":    {"deportividad":0.2,"espacio":0.6,"confiabilidad":0.8,"economia":0.3,"lujo":0.3,"reventa":0.7,"modernidad":0.5,"aptitud_trabajo":0.95},
+        "electrico":   {"deportividad":0.4,"espacio":0.5,"confiabilidad":0.7,"economia":0.95,"lujo":0.5,"reventa":0.5,"modernidad":0.8,"aptitud_trabajo":0.2},
+        "hibrido":     {"deportividad":0.3,"espacio":0.5,"confiabilidad":0.8,"economia":0.9,"lujo":0.4,"reventa":0.6,"modernidad":0.7,"aptitud_trabajo":0.2},
+    }
+    if intent_segment in SEG_DEFAULT:
+        iv2, _ = validate_ideal(SEG_DEFAULT[intent_segment])
+        return iv2
+    return None
 
 
 def profile_from_extraction(data: dict) -> CarlyProfile:
@@ -360,7 +387,7 @@ def profile_from_extraction(data: dict) -> CarlyProfile:
         exclude_body=data.get("avoid_body") or [],
         require_body=data.get("require_body") or [],
         intent_segment=(data.get("intent_segment") or None),
-        ideal_vector=_valid_ideal(data.get("ideal_vector")),
+        ideal_vector=_valid_ideal(data.get("ideal_vector"), data.get("intent_segment")),
         ideal_weights=(data.get("ideal_weights") if isinstance(data.get("ideal_weights"), dict) else None),
         exclude_transmission=data.get("avoid_transmission"),
         exclude_brands=data.get("avoid_brands") or [],
