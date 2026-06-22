@@ -340,7 +340,7 @@ def compute_quality_score(photo_count: int, price, year, km, make, model, locati
 # ============================================================================
 CARLY_COLS = (
     "id,country,url,make,model,year,km,price_usd,monthly_est,transmission,"
-    "fuel_type,location,body_type,quality_score,photo_count,primary_photo"
+    "fuel_type,location,body_type,quality_score,photo_count,primary_photo,description"
 )
 MAKES = [
     "toyota", "nissan", "honda", "hyundai", "kia", "mitsubishi", "ford", "chevrolet", "mazda",
@@ -1969,7 +1969,7 @@ def crautos_status():
 # Requiere: anthropic en requirements.txt y ANTHROPIC_API_KEY en el entorno.
 # ════════════════════════════════════════════════════════════════════
 
-from .carly_ranking import rank_cars, best_for_label
+from .carly_ranking import rank_cars, best_for_label, import_status as _import_status
 from .carly_profile import (
     CARLY_SYSTEM_PROMPT, extract_profile_json, profile_from_extraction,
 )
@@ -2054,6 +2054,7 @@ def _carly_card(entry):
         "caveat": entry.get("caveat"),                      # (8) contra honesta
         "inspect": entry.get("inspect"),                    # (9) que revisar
         "surprise": entry.get("surprise", False),
+        "import_status": _import_status(c),   # subasta_aduana o None
     }
 
 
@@ -2201,10 +2202,13 @@ def carly_chat(body: CarlyChatRequest):
             if isinstance(vd, (int, float)) and abs(vd) >= 8 and vl != "precio a verificar":
                 return f", {abs(vd):.0f}% {vl}"
             return f", {vl}" if vl else ""
+        def _imp(c):
+            return "  · ⚠ IMPORTADO DE SUBASTA/ADUANA (auto de recuperación; honestidad obligatoria: di que requiere inspección de daños, NO lo llames 'sin peros')" if c.get("import_status") == "subasta_aduana" else ""
         resumen = "\n".join(
             f"- {c['make']} {c['model']} {c['year']}, ${c['monthly_est']}/mes, "
             f"mejor para {c['best_for']}"
             + _vtxt(c)
+            + _imp(c)
             + _character_brief_for_llm(c)
             for c in cards
         )
