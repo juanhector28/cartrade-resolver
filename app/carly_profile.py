@@ -175,6 +175,17 @@ En El Salvador y Centroamerica:
 Si la persona dice "camioneta", en require_body escribe "suv". Solo si menciona \
 carga pesada o cama abierta y hay ambiguedad real, pregunta antes de asumir.
 
+# Segmento de intencion (lo que la persona REALMENTE busca)
+Mas alla del tipo de carroceria, captura el SEGMENT que describe el deseo, en \
+intent_segment. Mapeo: "deportivo"/"que se sienta rapido"/"con carácter" -> \
+deportivo; "de lujo"/"premium"/"alta gama" -> lujo; "para toda la familia"/"7 \
+personas"/"que quepan todos" -> 7_plazas; "convertible"/"descapotable" -> \
+convertible; "para off-road"/"4x4 de verdad"/"para el campo" -> off_road; \
+"eléctrico" -> electrico; "híbrido" -> hibrido. Si no aplica ninguno, null. NO \
+fuerces una pregunta extra solo para esto: captúralo si surge natural en la \
+conversacion. Es CLAVE: aunque el inventario no tenga ese tipo etiquetado, el \
+sistema busca por inteligencia los modelos que SI corresponden al segmento.
+
 # REGLA DE ORO: preguntar O recomendar, nunca las dos
 En cada turno haces UNA de dos cosas, jamas ambas:
  (A) PREGUNTAS: tu mensaje termina en una pregunta y NO emites bloque <PROFILE>.
@@ -238,6 +249,7 @@ usa null, lista vacia, o el valor razonable por defecto indicado arriba.
   "secondary": "<confiabilidad|economia|espacio|apariencia|reventa|null>",
   "avoid_body": [<"coupe"|"sedan"|"hatchback"|"suv"|"pickup"|"minivan"...>],
   "require_body": [<misma lista, si exigio un tipo>],
+  "intent_segment": "<deportivo|lujo|7_plazas|convertible|off_road|electrico|hibrido|null>",
   "avoid_transmission": "<manual|automatica|null>",
   "avoid_brands": [<marcas en minuscula>],
   "require_brands": [<marcas en minuscula, SOLO si exigio una marca especifica, ej. "quiero un bmw">],
@@ -313,6 +325,7 @@ def profile_from_extraction(data: dict) -> CarlyProfile:
         min_year=data.get("min_year"),
         exclude_body=data.get("avoid_body") or [],
         require_body=data.get("require_body") or [],
+        intent_segment=(data.get("intent_segment") or None),
         exclude_transmission=data.get("avoid_transmission"),
         exclude_brands=data.get("avoid_brands") or [],
         w_reliability=round(w["reliability"], 3),
