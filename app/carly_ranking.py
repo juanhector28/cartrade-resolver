@@ -195,6 +195,8 @@ class CarlyProfile:
     require_brands: list = field(default_factory=list)
     require_body: list = field(default_factory=list)
     intent_segment: Optional[str] = None   # deportivo|lujo|7_plazas|convertible|off_road|electrico|hibrido
+    ideal_vector: Optional[dict] = None     # carro ideal abstracto (vector 0..1 por dimension)
+    ideal_weights: Optional[dict] = None     # cuanto pesa cada dimension
     w_reliability: float = 0.45
     w_economy: float = 0.30
     w_space: float = 0.30
@@ -283,8 +285,125 @@ def value_score(price, comps):
         label = "sobre el mercado"
     return s, delta_pct, label
 
+# ════════════════════════════════════════════════════════════════════
+# MOTOR DE SIMILITUD (Fase A) — ideal abstracto -> cercania -> (luego) aprendizaje
+# El LLM construye el "carro ideal" como vector; cada carro real tiene el mismo
+# tipo de vector; medimos distancia ponderada. Mas cerca = mejor fit. Reusa los
+# scores que ya existen, asi que es debuggable y barato. NO escribe a la base aun.
+# ════════════════════════════════════════════════════════════════════
+VECTOR_DIMS = ["deportividad", "espacio", "confiabilidad", "economia",
+               "lujo", "reventa", "modernidad", "aptitud_trabajo"]
+
+_LUJO_BRANDS = {"mercedes-benz", "mercedes", "bmw", "audi", "land rover",
+                "porsche", "jaguar", "infiniti", "acura", "volvo", "cadillac",
+                "lexus", "mini", "maserati", "bentley", "genesis"}
+_BODY_ON_FRAME = {"hilux", "land cruiser", "prado", "fortuner", "4runner",
+                  "montero", "pajero", "wrangler", "tacoma", "ranger"}
+
+
+def car_vector(car: dict) -> dict:
+    """Vector de atributos 0..1 de un carro real, derivado de señales que ya
+    tenemos (segmentos, scores, fuel, año, marca, body). Esto es lo que se compara
+    contra el ideal. En Fase B este vector se cachea en Supabase."""
+    segs = car_segments(car)
+    make = (car.get("make") or "").lower().strip()
+    body = canon_body(car.get("body_type"))
+    model = car.get("model")
+    km, year = car.get("km"), car.get("year")
+
+    # deportividad: segmento manda; si no, muy baja (un SUV no es deportivo)
+    if "deportivo" in segs:
+        deportividad = 1.0
+    elif "convertible" in segs:
+        deportividad = 0.85
+    else:
+        deportividad = {"coupe": 0.6, "hatch": 0.35}.get(body, 0.15)
+
+    # espacio: por body + boost si es 7 plazas
+    espacio = (space_score(body) / 100.0)
+    if "7_plazas" in segs:
+        espacio = min(1.0, espacio + 0.2)
+
+    lujo = 1.0 if "lujo" in segs else (0.7 if make in _LUJO_BRANDS else 0.2)
+
+    trabajo = 0.2
+    if body == "pickup":
+        trabajo = 0.9
+    elif "off_road" in segs or _model_matches(model, _BODY_ON_FRAME):
+        trabajo = 0.8
+    elif body == "suv":
+        trabajo = 0.4
+
+    return {
+        "deportividad": round(deportividad, 3),
+        "espacio": round(espacio, 3),
+        "confiabilidad": round(reliability_score(make, model, km) / 100.0, 3),
+        "economia": round(economy_score(km, year, car.get("fuel_type")) / 100.0, 3),
+        "lujo": round(lujo, 3),
+        "reventa": round(resale_score(make) / 100.0, 3),
+        "modernidad": round(modernity_score(year) / 100.0, 3),
+        "aptitud_trabajo": round(trabajo, 3),
+    }
+
+
+def validate_ideal(ideal, weights=None):
+    """Sanea el ideal que emite el LLM: solo dims conocidas, valores 0..1, pesos
+    normalizados. Si viene inservible, devuelve (None, None) -> fallback al ranking."""
+    if not isinstance(ideal, dict):
+        return None, None
+    iv = {}
+    for d in VECTOR_DIMS:
+        v = ideal.get(d)
+        if isinstance(v, (int, float)):
+            iv[d] = max(0.0, min(1.0, float(v)))
+    if not iv:
+        return None, None
+    w = {}
+    if isinstance(weights, dict):
+        for d in iv:
+            wv = weights.get(d)
+            if isinstance(wv, (int, float)) and wv > 0:
+                w[d] = float(wv)
+    # peso por defecto 1.0 para dims sin peso explícito
+    for d in iv:
+        w.setdefault(d, 1.0)
+    return iv, w
+
+
+def similarity_score(ideal: dict, car_vec: dict, weights: dict | None = None) -> float:
+    """0..100. Distancia euclidiana ponderada ideal↔carro -> similitud.
+    Solo cuentan las dimensiones que el ideal especifico (las que importan)."""
+    if not ideal:
+        return 50.0
+    weights = weights or {d: 1.0 for d in ideal}
+    num = 0.0; wsum = 0.0
+    for d, target in ideal.items():
+        cv = car_vec.get(d, 0.5)
+        w = weights.get(d, 1.0)
+        num += w * (target - cv) ** 2
+        wsum += w
+    if wsum <= 0:
+        return 50.0
+    dist = (num / wsum) ** 0.5          # 0 (idéntico) .. 1 (opuesto)
+    return round(max(0.0, min(100.0, (1.0 - dist) * 100.0)), 1)
+
+
+def looks_like_junk(car: dict) -> bool:
+    """Guard de basura de datos (en PARALELO al motor, no es parte de el).
+    Atrapa registros claramente rotos: sin año, precio irrisorio. NO detecta
+    carros chocados (eso necesita señal de origen/imagen, fuera de alcance)."""
+    year = car.get("year")
+    price = car.get("price_usd")
+    if year in (None, 0):
+        return True                     # un listing real trae año (mata el Mustang null)
+    if price is not None and price < 2000:
+        return True                     # bajo $2k en CA = chatarra/partes/error
+    return False
+
+
 # ──────────────────────────── FILTRO ───────────────────────────────
 def passes_filters(car, p: CarlyProfile):
+    if looks_like_junk(car): return False   # basura de datos: sin año / precio irrisorio
     m = car.get("monthly_est")
     if p.max_monthly is not None and m is not None and m > p.max_monthly: return False
     pr = car.get("price_usd")
@@ -324,10 +443,19 @@ def score_car(car, p: CarlyProfile, comps_by_model):
     }
     wsum = sum(weights.values()) or 1.0
     total = sum(factors[k]*weights[k] for k in factors)/wsum
-    # Boost de segmento semantico: si la persona pidio "deportivo" y este carro
-    # ES deportivo (aunque su body_type diga "sedan"), subelo fuerte. Si pidio
-    # un segmento y este NO lo es, bajalo (no es lo que busca).
-    if getattr(p, "intent_segment", None):
+
+    # MOTOR DE SIMILITUD: si el LLM construyo un "carro ideal", la cercania a ese
+    # ideal MANDA (mezclada con el valor/precio para no premiar caro). Esto
+    # reemplaza el boost fijo: el MX-5 gana por estar cerca del ideal deportivo,
+    # no por un +18 arbitrario.
+    iv = getattr(p, "ideal_vector", None)
+    if iv:
+        cv = car_vector(car)
+        sim = similarity_score(iv, cv, getattr(p, "ideal_weights", None))
+        # 80% cercania al ideal + 20% qué tan buen trato es (fairness)
+        total = 0.8 * sim + 0.2 * factors.get("value", 60.0)
+    elif getattr(p, "intent_segment", None):
+        # Fallback: si hubo segmento pero el LLM no emitio vector, usa el boost.
         segs = car_segments(car)
         if p.intent_segment in segs:
             total = min(100.0, total + 18.0)
