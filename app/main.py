@@ -2001,18 +2001,41 @@ class CarlyChatRequest(BaseModel):
 def _carly_inventory(profile, country=None, pool=600):
     """Trae un pool amplio de candidatos de Supabase aplicando solo los
     filtros DUROS baratos en SQL (pais, mensualidad, año). El ranking fino
-    lo hace rank_cars en memoria sobre ese pool."""
-    q = supabase.table("scraped_listings").select(CARLY_COLS).eq("status", "staging")
-    if country:
-        q = q.eq("country", country)
-    if profile.max_monthly:
-        q = q.lte("monthly_est", profile.max_monthly)
-    if profile.max_price:
-        q = q.lte("price_usd", profile.max_price)
-    if profile.min_year:
-        q = q.gte("year", profile.min_year)
-    q = q.not_.is_("price_usd", "null").order("quality_score", desc=True)
-    return q.limit(pool).execute().data or []
+    lo hace rank_cars en memoria sobre ese pool.
+
+    Capa semantica (Fase 1): si la persona pidio un segmento (ej. deportivo),
+    ADEMAS del pool normal se traen los modelos que pertenecen a ese segmento
+    aunque su body_type/quality los dejaria fuera — asi el MX-5 'sedan' aparece."""
+    def _base_query():
+        q = supabase.table("scraped_listings").select(CARLY_COLS).eq("status", "staging")
+        if country:
+            q = q.eq("country", country)
+        if profile.max_monthly:
+            q = q.lte("monthly_est", profile.max_monthly)
+        if profile.max_price:
+            q = q.lte("price_usd", profile.max_price)
+        if profile.min_year:
+            q = q.gte("year", profile.min_year)
+        return q.not_.is_("price_usd", "null")
+
+    rows = (_base_query().order("quality_score", desc=True).limit(pool).execute().data or [])
+
+    seg = getattr(profile, "intent_segment", None)
+    if seg:
+        try:
+            from app.carly_ranking import segment_or_filter
+            or_f = segment_or_filter(seg)
+            if or_f:
+                seg_rows = (_base_query().or_(or_f)
+                            .order("year", desc=True).limit(120).execute().data or [])
+                seen = {r.get("url") or r.get("id") for r in rows}
+                for r in seg_rows:
+                    k = r.get("url") or r.get("id")
+                    if k not in seen:
+                        rows.append(r); seen.add(k)
+        except Exception:
+            log.exception("segment pull failed")
+    return rows
 
 
 def _carly_card(entry):
