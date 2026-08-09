@@ -23,6 +23,8 @@ CURRENT_YEAR = 2026
 # Comment 14: no mostrar % numerico si no confiamos en ESTE anuncio. Sube el umbral
 # para ocultar mas %, ponlo en 0 para mostrar siempre el numero (comportamiento viejo).
 SHOW_PCT_MIN_QUALITY = 70
+# Comment 4/14: si no conocemos bien el MODELO (datos de floor), tampoco pongas %.
+SHOW_PCT_MIN_VEHCONF = 0.55
 
 # ════════════════════════════════════════════════════════════════════
 # CAPA SEMÁNTICA (Fase 1) — qué ES un carro mas alla de su body_type.
@@ -687,6 +689,54 @@ def assign_strategy_labels(top):
     return top
 
 
+# ════════════════════════════════════════════════════════════════════
+# VEHICLE CAPABILITY LAYER  (comment 4/5)
+# Traduce el vehiculo a capacidad CON fuente + confianza por dimension.
+# NADA de scores inventados: cada score dice de donde salio (tabla de modelo,
+# prior de marca, carroceria, heuristica o floor) y que tan confiable es.
+# Separa model-fit (que tan bueno es el MODELO para la necesidad) de la
+# calidad del ANUNCIO (esa la mide listing_intelligence). Los Model Character
+# Cards de Supabase (fuente mas rica) entran por main.py aparte; aqui vive el
+# piso deterministico en codigo.
+# ════════════════════════════════════════════════════════════════════
+_CONF = {"high": 0.9, "med": 0.65, "low": 0.4}
+
+def vehicle_capability(car):
+    """Devuelve (cap_dict, vehicle_data_confidence 0..1).
+    cap_dict[dim] = {score, source, confidence}."""
+    make, model = car.get("make"), car.get("model")
+    km, year, body = car.get("km"), car.get("year"), car.get("body_type")
+    nmake, nmodel, cb = _norm(make), canon_model(model), canon_body(body)
+    cap = {}
+
+    if (nmake, nmodel) in RELIABILITY_BY_MODEL:
+        src, conf = "model_table", "high"
+    elif nmake in RELIABILITY_BY_BRAND:
+        src, conf = "brand_prior", "med"
+    else:
+        src, conf = "floor", "low"
+    cap["reliability"] = {"score": reliability_score(make, model, km), "source": src, "confidence": conf}
+
+    cap["resale"] = {"score": resale_score(make),
+                     "source": "brand_table" if nmake in RESALE_BY_BRAND else "floor",
+                     "confidence": "med" if nmake in RESALE_BY_BRAND else "low"}
+    cap["space"] = {"score": space_score(body),
+                    "source": "body_table" if cb in SPACE_BY_BODY else "floor",
+                    "confidence": "med" if cb in SPACE_BY_BODY else "low"}
+    cap["appeal"] = {"score": appeal_score(body, year),
+                     "source": "body_table" if cb in APPEAL_BY_BODY else "floor",
+                     "confidence": "med" if cb in APPEAL_BY_BODY else "low"}
+    cap["economy"] = {"score": economy_score(km, year, car.get("fuel_type")),
+                      "source": "heuristic", "confidence": "med"}
+    cap["modernity"] = {"score": modernity_score(year),
+                        "source": "year" if year else "floor",
+                        "confidence": "high" if year else "low"}
+
+    vals = [_CONF[d["confidence"]] for d in cap.values()]
+    vdc = round(sum(vals) / len(vals), 3) if vals else 0.5
+    return cap, vdc
+
+
 def rank_cars(cars, profile: CarlyProfile, top_n=5):
     comps_by_model = {}
     for c in cars:
@@ -747,18 +797,25 @@ def rank_cars(cars, profile: CarlyProfile, top_n=5):
             if canon_body(cand["car"].get("body_type")) not in bodies:
                 top[-1] = {**cand, "surprise": True}; break
 
-    # ── Listing Intelligence + Recommendation Experience (modulos nuevos) ──
+    # ── Listing Intelligence + Vehicle Capability + Recommendation Experience ──
     for e in top:
         c = e["car"]
         key = (_norm(c.get("make")), canon_model(c.get("model")))
         li = listing_intelligence(c, comps_by_model.get(key))
+        cap, vdc = vehicle_capability(c)
+        sim = e.get("similarity")
+        model_fit = round((sim if sim is not None else e["score"]) / 100.0, 3)  # 0..1, separado de listing_quality
         e.update({
             "anomalies": li["anomalies"], "listing_quality": li["listing_quality"],
             "provenance": li["provenance"], "good_value": li["good_value"],
             "price_attractiveness": li["price_attractiveness"],
             "match_display": match_display(e["score"]),
+            "vehicle_capability": cap, "vehicle_data_confidence": vdc,
+            "model_fit": model_fit,
         })
-        # comment 14: retener el % cuando NO confiamos en el anuncio
-        e["match_pct"] = None if (li["anomalies"] or li["listing_quality"] < SHOW_PCT_MIN_QUALITY) else round(e["score"])
+        # comment 14: retener el % si no confiamos NI en el anuncio (listing_quality)
+        # NI en los datos del modelo (vehicle-data). Las 3 confianzas juntas deciden.
+        withhold = bool(li["anomalies"]) or li["listing_quality"] < SHOW_PCT_MIN_QUALITY or vdc < SHOW_PCT_MIN_VEHCONF
+        e["match_pct"] = None if withhold else round(e["score"])
     assign_strategy_labels(top)
     return top
