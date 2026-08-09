@@ -17,8 +17,12 @@ Filosofia intacta: filtrar duro, puntuar suave, pesos por conversacion.
 from dataclasses import dataclass, field
 from typing import Optional
 import re as _re
+import statistics as _stats
 
 CURRENT_YEAR = 2026
+# Comment 14: no mostrar % numerico si no confiamos en ESTE anuncio. Sube el umbral
+# para ocultar mas %, ponlo en 0 para mostrar siempre el numero (comportamiento viejo).
+SHOW_PCT_MIN_QUALITY = 70
 
 # ════════════════════════════════════════════════════════════════════
 # CAPA SEMÁNTICA (Fase 1) — qué ES un carro mas alla de su body_type.
@@ -547,6 +551,142 @@ def best_for_label(factors, car=None):
             "modernity":"Lo mas nuevo"}
     return ejes.get(max(factors, key=factors.get), "Balance")
 
+# ════════════════════════════════════════════════════════════════════
+# LISTING INTELLIGENCE  (modulo nuevo — comments 6-11)
+# "¿Puedo confiar en ESTE anuncio?" Separado del model-fit. Se computa en
+# runtime desde columnas que YA existen en CARLY_COLS (km, year, price,
+# description, photo_count, listing_state) — NO requiere migracion de esquema.
+# Nunca AFIRMA daño; lo marca como probabilistico y pide verificacion.
+# ════════════════════════════════════════════════════════════════════
+
+_DAMAGE_WORDS = ("chocad", "golpe", "para reparar", "detalle de lat", "para pintura",
+                 "hojalater", "accidentad", "choque", "reparar", "yarda", "salvage")
+
+def _plausible_km(car):
+    """Sanity check de kilometraje. Devuelve (codigo_anomalia|None, nota|None).
+    Vigila el error de cero clasico: 15,000 vs 150,000."""
+    km, year = car.get("km"), car.get("year")
+    if not km or not year:
+        return None, None
+    age = CURRENT_YEAR - year
+    if age <= 0:
+        return None, None
+    kpy = km / age
+    if age >= 6 and km < 30000 and kpy < 2500:
+        return "mileage_zero_error_suspected", "Kilometraje muy bajo para el año; podria faltar un digito (verificar)."
+    if age >= 3 and kpy < 1500:
+        return "mileage_implausibly_low", "Kilometraje inusualmente bajo para su año."
+    if km > 300000:
+        return "mileage_implausibly_high", "Kilometraje muy alto para el año."
+    return None, None
+
+def listing_intelligence(car, comps=None):
+    """Motor de anomalias + provenance + calidad del anuncio + buen-valor.
+    price_attractiveness (barato) se separa de good_value (barato Y limpio)."""
+    anomalies, prov, quality = [], {}, 100
+    km, year, price = car.get("km"), car.get("year"), car.get("price_usd")
+    desc = (car.get("description") or "").lower()
+    photos = car.get("photo_count")
+    state = (car.get("listing_state") or "").lower()
+
+    # provenance: TODO lo scrapeado es "reportado por el vendedor" hasta que
+    # CarTrade inspeccione. Solo la inspeccion mueve un dato a "verified".
+    km_src = "verified" if state == "verified" else "reported"
+    if km is not None:
+        prov["km"] = {"value": km, "source": km_src}
+
+    # precio vs comparables — "barato" NO es "buen valor" (comment 9)
+    price_attr, vd = None, None
+    if comps and price:
+        clean = [p for p in comps if p and p > 0 and p != price]
+        if clean:
+            med = _stats.median(clean)
+            if med:
+                vd = (price - med) / med * 100.0
+                if vd <= -10:
+                    price_attr = f"{abs(round(vd))}% bajo comparables"
+    if vd is not None and vd <= -25:      # precio anomalo → SUBE escrutinio
+        anomalies.append("price_below_market"); quality -= 15
+
+    # kilometraje improbable / error de cero (comment 8)
+    mflag, mnote = _plausible_km(car)
+    if mflag:
+        anomalies.append(mflag); quality -= 15
+        prov["km"] = {"value": km, "source": "inferred", "note": mnote}
+
+    # importado de subasta/aduana (recuperacion)
+    if import_status(car) == "subasta_aduana":
+        anomalies.append("import_auction"); quality -= 25
+        prov["condition"] = {"source": "inferred",
+            "note": "Importado de subasta/aduana (posible recuperacion). Inspeccion de daños clave."}
+
+    # posible daño DESCRITO — probabilistico, jamas afirma "esta chocado" (comment 7)
+    if "condition" not in prov and any(w in desc for w in _DAMAGE_WORDS):
+        anomalies.append("possible_damage"); quality -= 20
+        prov["condition"] = {"source": "inferred",
+            "note": "Posible daño mencionado en la descripcion. Requiere verificacion."}
+
+    # fotos
+    if photos in (None, 0):
+        anomalies.append("photos_missing"); quality -= 20
+    elif photos <= 2:
+        anomalies.append("low_photos"); quality -= 8
+
+    # info critica faltante
+    if price is None: anomalies.append("missing_price"); quality -= 25
+    if km is None:    anomalies.append("missing_km"); quality -= 12
+    if not car.get("transmission"): quality -= 4
+
+    # año reciente + precio muy bajo sin bandera de import → inconsistente
+    if year and price and (CURRENT_YEAR - year) <= 5 and price < 8000 and "price_below_market" not in anomalies:
+        anomalies.append("year_price_inconsistent"); quality -= 12
+
+    quality = max(0, min(100, quality))
+
+    # good_value = precio JUSTO (no sospechosamente barato) Y anuncio limpio
+    good_value = bool(
+        vd is not None and -20 <= vd <= 3 and not anomalies
+        and (photos or 0) >= 3 and quality >= 75)
+
+    # condicion verificada por CarTrade (unico camino a "verified")
+    if state == "verified" and "condition" not in prov:
+        prov["condition"] = {"source": "verified",
+            "note": "Condicion verificada en la inspeccion de CarTrade."}
+
+    return {"anomalies": anomalies, "listing_quality": quality, "provenance": prov,
+            "good_value": good_value, "price_attractiveness": price_attr}
+
+
+def match_display(score):
+    """Etiqueta cualitativa del match (comment 14: lenguaje antes que numero)."""
+    if score >= 90: return "Muy buen match"
+    if score >= 82: return "Match fuerte"
+    if score >= 72: return "Buen match"
+    return "Match razonable"
+
+
+def assign_strategy_labels(top):
+    """Recommendation Experience (comment 15): que las primeras cards sean
+    estrategias comprensibles, no 6 tarjetas iguales con % parecidos."""
+    if not top: return top
+    def monthly(e): return e["car"].get("monthly_est") or e["car"].get("price_usd") or 1e12
+    def yr(e):      return e["car"].get("year") or 0
+    def rel(e):     return (e.get("factors") or {}).get("reliability", 0)
+    used = set()
+    def tag(e, label, tone):
+        if id(e) not in used:
+            e["strategy_label"], e["strategy_tone"] = label, tone; used.add(id(e))
+    tag(top[0], "Mejor match", "green")
+    tag(min(top, key=monthly), "Menor costo total", "amber")
+    tag(max(top, key=rel),     "Mejor confiabilidad", "blue")
+    tag(max(top, key=yr),      "Mas nuevo por tu presupuesto", "blue")
+    for e in top:
+        if id(e) not in used:
+            e["strategy_label"] = "Buena opcion para " + str(e.get("best_for", "ti")).lower()
+            e["strategy_tone"] = "blue"
+    return top
+
+
 def rank_cars(cars, profile: CarlyProfile, top_n=5):
     comps_by_model = {}
     for c in cars:
@@ -607,4 +747,18 @@ def rank_cars(cars, profile: CarlyProfile, top_n=5):
             if canon_body(cand["car"].get("body_type")) not in bodies:
                 top[-1] = {**cand, "surprise": True}; break
 
+    # ── Listing Intelligence + Recommendation Experience (modulos nuevos) ──
+    for e in top:
+        c = e["car"]
+        key = (_norm(c.get("make")), canon_model(c.get("model")))
+        li = listing_intelligence(c, comps_by_model.get(key))
+        e.update({
+            "anomalies": li["anomalies"], "listing_quality": li["listing_quality"],
+            "provenance": li["provenance"], "good_value": li["good_value"],
+            "price_attractiveness": li["price_attractiveness"],
+            "match_display": match_display(e["score"]),
+        })
+        # comment 14: retener el % cuando NO confiamos en el anuncio
+        e["match_pct"] = None if (li["anomalies"] or li["listing_quality"] < SHOW_PCT_MIN_QUALITY) else round(e["score"])
+    assign_strategy_labels(top)
     return top
