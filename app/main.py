@@ -2055,6 +2055,16 @@ def _carly_card(entry):
         "inspect": entry.get("inspect"),                    # (9) que revisar
         "surprise": entry.get("surprise", False),
         "import_status": _import_status(c),   # subasta_aduana o None
+        # ── Carly Intelligence Layer (nuevos: Listing Intelligence + Rec Experience) ──
+        "strategy_label": entry.get("strategy_label"),
+        "strategy_tone": entry.get("strategy_tone"),
+        "match_pct": entry.get("match_pct"),          # None si retenido (comment 14)
+        "match_display": entry.get("match_display"),  # etiqueta cualitativa
+        "anomalies": entry.get("anomalies") or [],
+        "listing_quality": entry.get("listing_quality"),
+        "provenance": entry.get("provenance") or {},  # reported|inferred|verified por dato
+        "value": {"good_value": entry.get("good_value", False),
+                  "price_attractiveness": entry.get("price_attractiveness")},
     }
 
 
