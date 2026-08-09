@@ -2065,6 +2065,8 @@ def _carly_card(entry):
         "provenance": entry.get("provenance") or {},  # reported|inferred|verified por dato
         "value": {"good_value": entry.get("good_value", False),
                   "price_attractiveness": entry.get("price_attractiveness")},
+        "model_fit": entry.get("model_fit"),                      # que tan bueno es el MODELO (0..1)
+        "vehicle_data_confidence": entry.get("vehicle_data_confidence"),  # confianza en los datos del modelo
     }
 
 
