@@ -194,17 +194,35 @@ def canon_model(m):
 # ──────────────────────────── PERFIL ───────────────────────────────
 @dataclass
 class CarlyProfile:
+    # Hard ceilings vs comfortable targets are deliberately separate.
     max_monthly: Optional[float] = None
     max_price: Optional[float] = None
+    target_monthly: Optional[float] = None
+    target_price: Optional[float] = None
     min_year: Optional[int] = None
+
+    # Hard / soft vehicle constraints.
     exclude_body: list = field(default_factory=list)
+    require_body: list = field(default_factory=list)
+    prefer_body: list = field(default_factory=list)
     exclude_transmission: Optional[str] = None
     exclude_brands: list = field(default_factory=list)
     require_brands: list = field(default_factory=list)
-    require_body: list = field(default_factory=list)
+    prefer_brands: list = field(default_factory=list)
+
+    # Need Intelligence.
+    primary_job: Optional[str] = None
+    secondary_job: Optional[str] = None
+    daily_km: Optional[float] = None
+    passengers: Optional[int] = None
+    need_confidence: float = 0.5
+    need_evidence: list = field(default_factory=list)
+
     intent_segment: Optional[str] = None   # deportivo|lujo|7_plazas|convertible|off_road|electrico|hibrido
-    ideal_vector: Optional[dict] = None     # carro ideal abstracto (vector 0..1 por dimension)
-    ideal_weights: Optional[dict] = None     # cuanto pesa cada dimension
+    ideal_vector: Optional[dict] = None    # deterministically derived Need Vector
+    ideal_weights: Optional[dict] = None   # deterministic importance by dimension
+
+    # Fallback factor weights (used when vector matching is unavailable).
     w_reliability: float = 0.45
     w_economy: float = 0.30
     w_space: float = 0.30
@@ -252,31 +270,55 @@ def modernity_score(year):
     if age <= 13: return 35.0
     return 20.0
 
-def economy_score(km, year, fuel_type):
+def economy_score(km, year, fuel_type, body_type=None):
+    """0..100 estimate of day-to-day operating economy.
+
+    Important: odometer is NOT fuel economy. Older versions rewarded low-km cars
+    as "economical", which could make a new large SUV look frugal. Mileage risk
+    belongs in reliability/listing intelligence; here we use powertrain + body as
+    the deterministic proxy available in the current inventory schema.
+    """
     f = canon_fuel(fuel_type)
-    if f == "electrico": s = 95.0
-    elif f == "hibrido": s = 88.0
-    elif f == "diesel": s = 70.0
-    else: s = 58.0
-    if km is not None:
-        if km < 40000: s += 12
-        elif km < 80000: s += 6
-        elif km < 130000: s -= 2
-        elif km < 180000: s -= 10
-        else: s -= 18
+    body = canon_body(body_type)
+
+    if f == "electrico":
+        s = 96.0
+    elif f == "hibrido":
+        s = 90.0
+    else:
+        body_base = {
+            "hatchback": 82.0,
+            "sedan": 76.0,
+            "crossover": 67.0,
+            "wagon": 64.0,
+            "coupe": 61.0,
+            "minivan": 55.0,
+            "suv": 54.0,
+            "pickup": 45.0,
+            "convertible": 55.0,
+        }
+        s = body_base.get(body, 62.0)
+        if f == "diesel":
+            s += 6.0
+
+    # Technology/age is a small proxy only; it must never dominate body/powertrain.
     if year:
         age = CURRENT_YEAR - year
-        if age <= 4: s += 6
-        elif age >= 13: s -= 8
+        if age <= 4:
+            s += 4.0
+        elif age >= 13:
+            s -= 5.0
     return max(0.0, min(100.0, s))
 
 def value_score(price, comps):
     valid = [p for p in comps if p and p > 0]
     if not price or len(valid) < 3:
         return 60.0, None, "precio de referencia"
-    avg = sum(valid)/len(valid)
-    if avg <= 0: return 60.0, None, "precio de referencia"
-    ratio = price/avg
+    # Median is much more robust than average when marketplace data contains
+    # typos, salvage cars or badly parsed prices.
+    ref = _stats.median(valid)
+    if ref <= 0: return 60.0, None, "precio de referencia"
+    ratio = price/ref
     delta_pct = round((ratio-1.0)*100, 1)
     # Outlier guard: precio absurdamente bajo (>60% bajo el promedio) casi
     # siempre es dato basura (mal parseado), no una ganga. No lo premies como
@@ -328,7 +370,7 @@ def car_vector(car: dict) -> dict:
     elif "convertible" in segs:
         deportividad = 0.85
     else:
-        deportividad = {"coupe": 0.6, "hatch": 0.35}.get(body, 0.15)
+        deportividad = {"coupe": 0.6, "hatchback": 0.35}.get(body, 0.15)
 
     # espacio: por body + boost si es 7 plazas
     espacio = (space_score(body) / 100.0)
@@ -349,7 +391,7 @@ def car_vector(car: dict) -> dict:
         "deportividad": round(deportividad, 3),
         "espacio": round(espacio, 3),
         "confiabilidad": round(reliability_score(make, model, km) / 100.0, 3),
-        "economia": round(economy_score(km, year, car.get("fuel_type")) / 100.0, 3),
+        "economia": round(economy_score(km, year, car.get("fuel_type"), car.get("body_type")) / 100.0, 3),
         "lujo": round(lujo, 3),
         "reventa": round(resale_score(make) / 100.0, 3),
         "modernidad": round(modernity_score(year) / 100.0, 3),
@@ -458,6 +500,13 @@ def passes_filters(car, p: CarlyProfile):
         return False
     if _norm(car.get("make")) in [_norm(b) for b in p.exclude_brands]: return False
     if p.require_brands and _norm(car.get("make")) not in [_norm(b) for b in p.require_brands]: return False
+    # Six people is not a "preference for space": it is a capacity constraint.
+    # We do not have a seat-count column yet, so use the semantic 7_plazas model
+    # map as the safest available proxy. This is intentionally limited to the
+    # concrete >=6-passenger case; other intent segments stay soft.
+    if getattr(p, "passengers", None) is not None and p.passengers >= 6:
+        if "7_plazas" not in car_segments(car):
+            return False
     return True
 
 # ──────────────────────────── SCORING ──────────────────────────────
@@ -468,7 +517,7 @@ def score_car(car, p: CarlyProfile, comps_by_model):
     v_score, v_delta, v_label = value_score(car.get("price_usd"), comps)
     factors = {
         "reliability": reliability_score(make, model, km),
-        "economy": economy_score(km, year, car.get("fuel_type")),
+        "economy": economy_score(km, year, car.get("fuel_type"), car.get("body_type")),
         "space": space_score(car.get("body_type")),
         "value": v_score,
         "resale": resale_score(make),
@@ -483,7 +532,20 @@ def score_car(car, p: CarlyProfile, comps_by_model):
     wsum = sum(weights.values()) or 1.0
     total = sum(factors[k]*weights[k] for k in factors)/wsum
 
-    # MOTOR DE SIMILITUD: si el LLM construyo un "carro ideal", la cercania a ese
+    # Soft preferences never filter a car out. They are small tie-breakers only.
+    # This preserves Carly's ability to say "you mentioned Toyota, but this Mazda
+    # solves your actual need better".
+    make_norm = _norm(car.get("make"))
+    body_norm = canon_body(car.get("body_type"))
+    soft_bonus = 0.0
+    if getattr(p, "prefer_brands", None):
+        if make_norm in {_norm(x) for x in p.prefer_brands}:
+            soft_bonus += 3.0
+    if getattr(p, "prefer_body", None):
+        if body_norm in {canon_body(x) for x in p.prefer_body}:
+            soft_bonus += 2.0
+
+    # MOTOR DE SIMILITUD: el Need Vector deterministico manda.
     # ideal MANDA (mezclada con el valor/precio para no premiar caro). Esto
     # reemplaza el boost fijo: el MX-5 gana por estar cerca del ideal deportivo,
     # no por un +18 arbitrario.
@@ -500,6 +562,7 @@ def score_car(car, p: CarlyProfile, comps_by_model):
             total = min(100.0, total + 18.0)
         else:
             total = max(0.0, total - 12.0)
+    total = min(100.0, total + soft_bonus)
     return round(total,1), factors, {"value_delta_pct": v_delta, "value_label": v_label}
 
 # ──────────────── (8) CONTRA + (9) INSPECCION ──────────────────────
@@ -632,8 +695,27 @@ def listing_intelligence(car, comps=None):
     if vdr is not None and vdr >= VISUAL_DAMAGE_THRESHOLD:
         anomalies.append("possible_visual_damage")
         quality -= int(15 + 25 * min(1.0, vdr))    # -15..-40 segun riesgo
-        prov["condition"] = {"source": "inferred", "risk": round(vdr, 2),
-            "note": "Posible daño visible en las fotos. Requiere verificacion."}
+        # Conserva evidencia visual concreta si el batch la guardo. Esto permite
+        # explicar el flag sin convertir una inferencia visual en un hecho.
+        _raw_ds = car.get("damage_signals")
+        _ds = []
+        if isinstance(_raw_ds, list):
+            _ds = _raw_ds
+        elif isinstance(_raw_ds, str) and _raw_ds.strip():
+            try:
+                import json as _json
+                _tmp = _json.loads(_raw_ds)
+                if isinstance(_tmp, list):
+                    _ds = _tmp
+            except Exception:
+                _ds = []
+        _ds = [str(x)[:90] for x in _ds if str(x).strip()][:4]
+        prov["condition"] = {
+            "source": "inferred",
+            "risk": round(vdr, 2),
+            "note": "Posible daño visible en las fotos. Requiere verificacion.",
+            "signals": _ds,
+        }
 
     # importado de subasta/aduana (recuperacion)
     if import_status(car) == "subasta_aduana":
@@ -712,7 +794,7 @@ def assign_strategy_labels(top):
             e["strategy_label"], e["strategy_tone"] = label, tone; used.add(id(e))
     clean = [e for e in top if not _has_severe(e.get("anomalies"))]
     tag(clean[0] if clean else top[0], "Mejor match", "green")
-    tag(min(top, key=monthly), "Menor costo total", "amber")
+    tag(min(top, key=monthly), "Menor cuota", "amber")
     tag(max(top, key=rel),     "Mejor confiabilidad", "blue")
     tag(max(top, key=yr),      "Mas nuevo por tu presupuesto", "blue")
     for e in top:
@@ -759,7 +841,7 @@ def vehicle_capability(car):
     cap["appeal"] = {"score": appeal_score(body, year),
                      "source": "body_table" if cb in APPEAL_BY_BODY else "floor",
                      "confidence": "med" if cb in APPEAL_BY_BODY else "low"}
-    cap["economy"] = {"score": economy_score(km, year, car.get("fuel_type")),
+    cap["economy"] = {"score": economy_score(km, year, car.get("fuel_type"), car.get("body_type")),
                       "source": "heuristic", "confidence": "med"}
     cap["modernity"] = {"score": modernity_score(year),
                         "source": "year" if year else "floor",
@@ -856,10 +938,16 @@ def rank_cars(cars, profile: CarlyProfile, top_n=5):
             "match_display": match_display(e["_final"]),  # coherente con el orden (_final), no el fit crudo
             "vehicle_capability": cap, "vehicle_data_confidence": vdc,
             "model_fit": model_fit,
+            "need_confidence": getattr(profile, "need_confidence", 0.5),
+            "budget_target_monthly": getattr(profile, "target_monthly", None),
+            "budget_ceiling_monthly": getattr(profile, "max_monthly", None),
         })
         # comment 14: retener el % si no confiamos NI en el anuncio (listing_quality)
         # NI en los datos del modelo (vehicle-data). Las 3 confianzas juntas deciden.
-        withhold = bool(li["anomalies"]) or li["listing_quality"] < SHOW_PCT_MIN_QUALITY or vdc < SHOW_PCT_MIN_VEHCONF
+        withhold = (bool(li["anomalies"])
+                    or li["listing_quality"] < SHOW_PCT_MIN_QUALITY
+                    or vdc < SHOW_PCT_MIN_VEHCONF
+                    or getattr(profile, "need_confidence", 0.5) < 0.70)
         # El % sale de _final (lo que de verdad ordena), NO de score. Asi el #1
         # SIEMPRE tiene el % mas alto, y "Mejor match" == mayor % == orden mostrado
         # == favorita del texto. Un solo ranking manda todo.
