@@ -281,9 +281,12 @@ def value_score(price, comps):
     # Outlier guard: precio absurdamente bajo (>60% bajo el promedio) casi
     # siempre es dato basura (mal parseado), no una ganga. No lo premies como
     # "bajisimo bajo mercado"; marcalo neutro para que no suba en el ranking.
-    if ratio < 0.40:
-        return 55.0, delta_pct, "precio a verificar"
-    s = max(0.0, min(100.0, 60.0 + (1.0-ratio)*150.0))
+    # Descuentos MUY profundos casi siempre son basura (mal parseo, chocado,
+    # odometro alterado), NO gangas. No los premies: bajan a "verificar".
+    if ratio < 0.55:
+        return 50.0, delta_pct, "precio a verificar"
+    # Curva aplanada: una ganga real (5-20% bajo) sube un poco; no domina el ranking.
+    s = max(0.0, min(100.0, 60.0 + (1.0-ratio)*90.0))
     # Etiqueta clara: nada de "0% en precio de mercado" (confunde).
     if -8 < delta_pct < 8:
         label = "precio justo de mercado"   # cerca de la mediana
@@ -675,6 +678,19 @@ def listing_intelligence(car, comps=None):
             "good_value": good_value, "price_attractiveness": price_attr}
 
 
+_SEVERE_ANOM = {"possible_visual_damage", "mileage_zero_error_suspected",
+                "mileage_implausibly_low", "mileage_implausibly_high",
+                "import_auction", "price_below_market", "year_price_inconsistent",
+                "missing_price"}
+
+def _has_severe(anoms):
+    return any(a in _SEVERE_ANOM for a in (anoms or []))
+
+def _listing_penalty(anoms):
+    """Cuanto BAJA en el ranking un anuncio por sus anomalias (no solo un chip)."""
+    return sum(18 if a in _SEVERE_ANOM else 5 for a in (anoms or []))
+
+
 def match_display(score):
     """Etiqueta cualitativa del match (comment 14: lenguaje antes que numero)."""
     if score >= 90: return "Muy buen match"
@@ -694,7 +710,8 @@ def assign_strategy_labels(top):
     def tag(e, label, tone):
         if id(e) not in used:
             e["strategy_label"], e["strategy_tone"] = label, tone; used.add(id(e))
-    tag(top[0], "Mejor match", "green")
+    clean = [e for e in top if not _has_severe(e.get("anomalies"))]
+    tag(clean[0] if clean else top[0], "Mejor match", "green")
     tag(min(top, key=monthly), "Menor costo total", "amber")
     tag(max(top, key=rel),     "Mejor confiabilidad", "blue")
     tag(max(top, key=yr),      "Mas nuevo por tu presupuesto", "blue")
@@ -777,6 +794,14 @@ def rank_cars(cars, profile: CarlyProfile, top_n=5):
         if iv:
             sim = similarity_score(iv, car_vector(c), getattr(profile, "ideal_weights", None))
             entry["similarity"] = sim
+        # Listing Intelligence AQUI (antes de ordenar) para que la confianza del
+        # anuncio MANDE en el ranking, no solo pinte un chip. Un chocado o un km
+        # imposible se hunde; no puede quedar de "Mejor match".
+        _comps = comps_by_model.get((_norm(c.get("make")), canon_model(c.get("model"))))
+        li = listing_intelligence(c, _comps)
+        entry["_li"] = li
+        base = entry.get("similarity", entry["score"])
+        entry["_final"] = base * (li["listing_quality"] / 100.0) - _listing_penalty(li["anomalies"])
         scored.append(entry)
 
     iv = getattr(profile, "ideal_vector", None)
@@ -786,21 +811,25 @@ def rank_cars(cars, profile: CarlyProfile, top_n=5):
         # No dejar a la persona sin nada: si hay muy pocos sobre el umbral,
         # garantiza al menos los 3 mas cercanos (Carly explicara que hay pocos).
         if len(fits) < 3:
-            scored.sort(key=lambda x: x.get("similarity", 0), reverse=True)
+            scored.sort(key=lambda x: x["_final"], reverse=True)
             fits = scored[:3]
         scored = fits
 
-    scored.sort(key=lambda x: x["score"], reverse=True)
+    scored.sort(key=lambda x: x["_final"], reverse=True)   # _final = fit * listing_quality - penalty
 
-    # (4) diversidad: evita clones make+body
+    # (4) diversidad + CLEAN-FIRST: los anuncios con anomalia severa (chocado, km
+    # imposible, precio-basura) van SIEMPRE despues de los limpios, aunque rompa
+    # la diversidad. Nunca mostrar chatarra arriba si hay un carro sano.
+    clean = [e for e in scored if not _has_severe(e["_li"]["anomalies"])]
+    junk  = [e for e in scored if _has_severe(e["_li"]["anomalies"])]
     top, seen = [], set()
-    for e in scored:
+    for e in clean:
         c = e["car"]; combo = (_norm(c.get("make")), canon_body(c.get("body_type")))
         if combo in seen: continue
         top.append(e); seen.add(combo)
         if len(top) >= top_n: break
-    if len(top) < top_n:
-        for e in scored:
+    if len(top) < top_n:                       # rellena: limpios repetidos primero, chatarra al final
+        for e in clean + junk:
             if e not in top:
                 top.append(e)
                 if len(top) >= top_n: break
@@ -816,8 +845,7 @@ def rank_cars(cars, profile: CarlyProfile, top_n=5):
     # ── Listing Intelligence + Vehicle Capability + Recommendation Experience ──
     for e in top:
         c = e["car"]
-        key = (_norm(c.get("make")), canon_model(c.get("model")))
-        li = listing_intelligence(c, comps_by_model.get(key))
+        li = e.get("_li") or listing_intelligence(c, comps_by_model.get((_norm(c.get("make")), canon_model(c.get("model")))))
         cap, vdc = vehicle_capability(c)
         sim = e.get("similarity")
         model_fit = round((sim if sim is not None else e["score"]) / 100.0, 3)  # 0..1, separado de listing_quality
@@ -834,4 +862,6 @@ def rank_cars(cars, profile: CarlyProfile, top_n=5):
         withhold = bool(li["anomalies"]) or li["listing_quality"] < SHOW_PCT_MIN_QUALITY or vdc < SHOW_PCT_MIN_VEHCONF
         e["match_pct"] = None if withhold else round(e["score"])
     assign_strategy_labels(top)
+    for e in top:
+        e.pop("_li", None); e.pop("_final", None)
     return top
