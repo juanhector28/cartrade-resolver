@@ -1,120 +1,247 @@
 """
-vision_damage.py  —  Analizador visual de daño (comment 7)
+vision_damage.py — Analizador visual probabilístico de daño para Carly.
 
-Usa el modelo de vision de Anthropic sobre la foto del anuncio para estimar la
-PROBABILIDAD de daño visible. Filosofia dura, no negociable:
+Objetivo:
+  * detectar SEÑALES VISIBLES compatibles con daño por impacto/reparación;
+  * nunca afirmar que un auto "está chocado" ni inferir historial/salvage;
+  * analizar varias fotos del mismo listing en UNA sola llamada;
+  * usar el resultado como una señal de Listing Intelligence, no como veredicto.
 
-  * NUNCA afirma que un carro "esta chocado". Devuelve un RIESGO 0..1 y señales.
-  * El copy hacia el usuario siempre es "posible daño visible, requiere
-    verificacion" — la certeza la da la inspeccion de CarTrade, no una foto.
-  * Corre en BATCH (no en cada /carly/chat: seria lento y caro). Guarda el
-    resultado en Supabase; listing_intelligence lo LEE de la columna.
-
-Requiere: `anthropic` en requirements.txt y ANTHROPIC_API_KEY en el entorno
-(el mismo cliente que ya usa /carly/chat). El modelo CARLY_MODEL
-(claude-sonnet-4-6) soporta vision.
+El resultado persistido sigue siendo compatible con el esquema actual:
+  visible_damage_risk, damage_signals, vision_checked_at.
 """
+
+from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
+from typing import Iterable, Optional
 
-# Umbral por defecto a partir del cual el riesgo se trata como anomalia.
-DAMAGE_RISK_THRESHOLD = 0.5
+# Umbral compartido conceptualmente con carly_ranking.VISUAL_DAMAGE_THRESHOLD.
+DAMAGE_RISK_THRESHOLD = 0.50
+MAX_VISION_PHOTOS = 4
 
 _VISION_SYSTEM = """\
-Eres un perito que revisa FOTOS de autos usados en venta. Tu unico trabajo es
-estimar, SOLO por lo que se ve en la imagen, la PROBABILIDAD de que el vehiculo
-tenga daño visible en carroceria. Reglas absolutas:
+Revisas fotografías de un MISMO auto usado en venta. Tu tarea NO es diagnosticar
+historial de accidentes. Solo debes estimar, a partir de evidencia visual concreta,
+el riesgo de que las fotos muestren daño de carrocería compatible con impacto o una
+reparación relevante que merece verificación presencial.
 
-- JAMAS concluyas que el carro "esta chocado", "es salvage" o "es perdida
-  total". Eso NO se puede afirmar desde una foto. Solo estimas un riesgo.
-- Marca señales concretas y visibles: paneles desalineados o deformados, puertas
-  o capó que no cierran parejo, guardafangos abollados, faros/calaveras rotos o
-  empañados, parachoques desprendido, pintura dispareja o masilla, oxido
-  estructural, piezas faltantes, rueda/suspension colapsada, vidrios rotos.
-- Diferencia daño de simple suciedad, reflejos, sombras o una foto de mala
-  calidad: esos NO son daño. Ante la duda, riesgo BAJO.
-- Si la foto no permite juzgar (muy lejana, oscura, solo interior, solo tablero),
-  devuelve risk bajo y note null: no inventes daño que no ves.
+REGLAS:
+- Nunca afirmes que el auto "está chocado", "es salvage", "tuvo accidente" o es
+  "pérdida total". Una foto no permite concluir eso.
+- Evalúa TODAS las imágenes juntas: pueden mostrar ángulos distintos del mismo auto.
+- Prioriza señales de impacto/reparación: paneles o gaps claramente desalineados,
+  piezas deformadas, parachoques/faros desprendidos o rotos, guardafangos hundidos,
+  puertas/capó que no alinean, rueda/suspensión visiblemente fuera de posición,
+  vidrio roto, piezas faltantes, diferencias de pintura fuertes/localizadas que sean
+  compatibles con reparación.
+- Rayones leves, pequeños dents de estacionamiento, suciedad, reflejos, sombras,
+  stickers, diferencias de iluminación y mala calidad fotográfica NO bastan para
+  elevar el riesgo de forma importante.
+- No "premies" un auto por no ver daño. Si los ángulos son insuficientes, simplemente
+  reporta cobertura baja. La ausencia de evidencia visible NO equivale a auto sano.
+- Una señal clara en una sola foto puede justificar riesgo alto aunque la cobertura
+  total sea incompleta.
 
-Responde EXCLUSIVAMENTE con un JSON, sin texto extra, con esta forma:
-{"visible_damage_risk": <0.0-1.0>, "signals": ["<señal corta>", ...],
- "note": "<una frase o null>"}
+CALIBRACIÓN DEL RIESGO:
+- 0.00–0.15: no hay señal concreta visible en las fotos disponibles.
+- 0.20–0.45: indicios débiles/ambiguos que pueden ser ángulo, luz o cosmética menor.
+- 0.50–0.75: al menos una señal concreta compatible con daño/reparación relevante.
+- 0.80–1.00: varias señales claras o daño visible fuerte en las fotos.
+
+Responde EXCLUSIVAMENTE JSON:
+{
+  "visible_damage_risk": <0.0-1.0>,
+  "coverage": "low"|"medium"|"high",
+  "signals": ["señal visual concreta", ...],
+  "note": "frase corta o null"
+}
 """
 
 _VISION_USER = (
-    "Estima el riesgo de daño visible en carroceria de este auto en venta. "
-    "Recuerda: no afirmas que esta chocado, solo estimas la probabilidad y "
-    "listas señales concretas. Devuelve solo el JSON."
+    "Evalúa estas fotos del mismo vehículo. Devuelve solo el JSON calibrado. "
+    "Si no puedes ver suficiente carrocería, usa coverage='low'; no inventes daño."
 )
 
 
-def _parse_json(text):
+def _parse_json(text: str | None) -> Optional[dict]:
     if not text:
         return None
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
         return None
     raw = m.group(0)
-    try:
-        return json.loads(raw)
-    except Exception:
+    for candidate in (raw, re.sub(r",\s*([}\]])", r"\1", raw)):
         try:
-            return json.loads(re.sub(r",\s*([}\]])", r"\1", raw))
+            data = json.loads(candidate)
+            return data if isinstance(data, dict) else None
         except Exception:
-            return None
+            pass
+    return None
 
 
-def analyze_photo_damage(photo_url, client, model="claude-sonnet-4-6"):
-    """Devuelve {"visible_damage_risk": float 0..1, "signals": [...],
-    "note": str|None} o None si no se pudo evaluar (sin foto, sin cliente,
-    error de red o respuesta ilegible). NUNCA lanza: el enriquecimiento no
-    debe caerse por una foto."""
-    if not photo_url or client is None:
+def _normalize_photo_urls(value) -> list[str]:
+    """Acepta list/tuple, JSON string o string delimitado y devuelve URLs únicas."""
+    if not value:
+        return []
+
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return []
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                value = parsed
+            else:
+                value = [s]
+        except Exception:
+            # Compatibilidad con scrapers que guardan fotos separadas por |.
+            value = s.split("|") if "|" in s else [s]
+
+    if not isinstance(value, (list, tuple)):
+        value = [value]
+
+    out, seen = [], set()
+    for raw in value:
+        if not isinstance(raw, str):
+            continue
+        url = raw.strip()
+        if not url.startswith(("http://", "https://")) or url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+    return out
+
+
+def select_vision_photos(photos, primary_photo: str | None = None,
+                         limit: int = MAX_VISION_PHOTOS) -> list[str]:
+    """Elige hasta `limit` fotos repartidas por el set, preservando primary primero.
+
+    Los marketplaces suelen ordenar frente/lateral/trasera/interior. Tomar solo las
+    primeras N puede perder la trasera; muestrear posiciones repartidas mejora
+    cobertura sin multiplicar llamadas al modelo.
+    """
+    limit = max(1, int(limit or 1))
+    urls = _normalize_photo_urls(photos)
+    primary = _normalize_photo_urls(primary_photo)
+
+    if primary:
+        p = primary[0]
+        urls = [p] + [u for u in urls if u != p]
+
+    if len(urls) <= limit:
+        return urls
+    if limit == 1:
+        return urls[:1]
+
+    # Primary/primera + muestras equidistantes hasta el final.
+    idxs = [round(i * (len(urls) - 1) / (limit - 1)) for i in range(limit)]
+    chosen = []
+    for i in idxs:
+        u = urls[i]
+        if u not in chosen:
+            chosen.append(u)
+    # Redondeo puede duplicar índices en sets pequeños; rellena si hace falta.
+    for u in urls:
+        if len(chosen) >= limit:
+            break
+        if u not in chosen:
+            chosen.append(u)
+    return chosen[:limit]
+
+
+def _sanitize_result(data: dict) -> Optional[dict]:
+    risk = data.get("visible_damage_risk")
+    try:
+        risk = float(risk)
+    except (TypeError, ValueError):
         return None
+    risk = max(0.0, min(1.0, risk))
+
+    coverage = str(data.get("coverage") or "low").lower().strip()
+    if coverage not in {"low", "medium", "high"}:
+        coverage = "low"
+
+    signals = data.get("signals") or []
+    if not isinstance(signals, list):
+        signals = []
+    signals = [str(s).strip()[:90] for s in signals if str(s).strip()][:6]
+
+    note = data.get("note")
+    note = str(note).strip()[:180] if note else None
+
+    # Una respuesta sin señal concreta no debería disparar un riesgo >= umbral.
+    # Es un guardrail contra outputs mal calibrados del modelo.
+    if risk >= DAMAGE_RISK_THRESHOLD and not signals:
+        risk = min(risk, DAMAGE_RISK_THRESHOLD - 0.01)
+
+    return {
+        "visible_damage_risk": round(risk, 3),
+        "coverage": coverage,
+        "signals": signals,
+        "note": note,
+    }
+
+
+def analyze_listing_damage(photo_urls: Iterable[str], client,
+                           model: str = "claude-sonnet-4-6") -> Optional[dict]:
+    """Analiza varias fotos del mismo listing en una sola llamada.
+
+    Nunca lanza excepciones: la visión es enriquecimiento best-effort y no debe
+    tumbar ingestión, ranking ni chat.
+    """
+    photos = select_vision_photos(list(photo_urls or []), limit=MAX_VISION_PHOTOS)
+    if not photos or client is None:
+        return None
+
+    content = [
+        {"type": "image", "source": {"type": "url", "url": url}}
+        for url in photos
+    ]
+    content.append({"type": "text", "text": _VISION_USER})
+
     try:
         resp = client.messages.create(
             model=model,
-            max_tokens=350,
+            max_tokens=450,
             system=_VISION_SYSTEM,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "url", "url": photo_url}},
-                    {"type": "text", "text": _VISION_USER},
-                ],
-            }],
+            messages=[{"role": "user", "content": content}],
         )
-        text = "".join(getattr(b, "text", "") for b in resp.content
-                        if getattr(b, "type", "") == "text")
+        text = "".join(
+            getattr(b, "text", "") for b in resp.content
+            if getattr(b, "type", "") == "text"
+        )
         data = _parse_json(text)
-        if not isinstance(data, dict):
-            return None
-        risk = data.get("visible_damage_risk")
-        try:
-            risk = float(risk)
-        except (TypeError, ValueError):
-            return None
-        risk = max(0.0, min(1.0, risk))
-        signals = data.get("signals") or []
-        if not isinstance(signals, list):
-            signals = []
-        signals = [str(s)[:60] for s in signals][:6]
-        note = data.get("note")
-        note = str(note)[:160] if note else None
-        return {"visible_damage_risk": round(risk, 3), "signals": signals, "note": note}
+        return _sanitize_result(data) if data else None
     except Exception:
         return None
 
 
+def analyze_photo_damage(photo_url, client, model="claude-sonnet-4-6"):
+    """Backward-compatible wrapper para callers antiguos de una sola foto."""
+    photos = select_vision_photos([], primary_photo=photo_url, limit=1)
+    return analyze_listing_damage(photos, client, model)
+
+
 def enrich_listing_vision(row, client, model="claude-sonnet-4-6"):
-    """Toma una fila (dict) con primary_photo y devuelve el dict de update para
-    Supabase: {visible_damage_risk, damage_signals, vision_checked_at}. Devuelve
-    None si no hubo foto/evaluacion (para no escribir basura)."""
-    from datetime import datetime, timezone
-    res = analyze_photo_damage(row.get("primary_photo"), client, model)
+    """Devuelve columnas compatibles con el esquema actual de Supabase.
+
+    Usa `photos` si existe y cae a `primary_photo`. `coverage`/`note` sirven para
+    observabilidad interna, pero no se persisten para no exigir migración de DB.
+    """
+    photos = select_vision_photos(
+        row.get("photos"),
+        primary_photo=row.get("primary_photo"),
+        limit=MAX_VISION_PHOTOS,
+    )
+    res = analyze_listing_damage(photos, client, model)
     if res is None:
         return None
+
+    # Guardamos solo señales visuales reales. Coverage bajo no es "daño".
     return {
         "visible_damage_risk": res["visible_damage_risk"],
         "damage_signals": json.dumps(res["signals"], ensure_ascii=False),
