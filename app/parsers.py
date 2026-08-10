@@ -65,18 +65,28 @@ def extract_model(text: str, make: Optional[str]) -> Optional[Tuple[str, str]]:
     if not text or not make:
         return None
     # Look for "<make> <token>" pattern, case-insensitive
-    pat = re.compile(r"\b" + re.escape(make) + r"\s+([A-Za-z0-9\-]{2,20}(?:\s+[A-Za-z0-9\-]{2,15})?)",
+    pat = re.compile(r"\b" + re.escape(make) + r"\s+([A-Za-z0-9\-]{1,20}(?:\s+[A-Za-z0-9\-]{2,15})?)",
                      re.IGNORECASE)
     m = pat.search(text)
     if not m:
         return None
     model = m.group(1).strip()
-    # Strip common noise words and standalone years
+    # Strip noise: articulos, unidades (km/precio suelen filtrarse al modelo) y años sueltos
     noise = {"el", "la", "lo", "los", "las", "de", "del", "en", "para",
-             "automatic", "automatica", "manual", "usado", "nuevo", "venta"}
+             "automatic", "automatica", "manual", "usado", "nuevo", "venta",
+             "km", "kms", "kilometraje", "kilometros", "kilómetros", "mil",
+             "millas", "cc", "hp", "full", "extra", "extras", "negociable",
+             "permuta", "cambio", "recibo", "sedan", "sedán", "suv", "hatch",
+             "hatchback", "coupe", "coupé", "pickup", "crossover", "camioneta"}
+    def _num_noise(p):
+        q = p.replace(",", "").replace(".", "")
+        # km/precio: 2 digitos (debris de "62,500") o 4+ digitos (62500). Modelos
+        # numericos reales son de 1 digito (Mazda 3/6) o 3 (BMW 320): esos se conservan.
+        return q.isdigit() and (len(q) == 2 or len(q) >= 4)
     parts = [p for p in model.split()
              if p.lower() not in noise
-             and not re.fullmatch(r"(19|20)\d{2}", p)]
+             and not re.fullmatch(r"(19|20)\d{2}", p)
+             and not _num_noise(p)]
     if not parts:
         return None
     model = " ".join(parts[:2])  # keep at most 2 tokens
