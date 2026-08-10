@@ -25,6 +25,8 @@ CURRENT_YEAR = 2026
 SHOW_PCT_MIN_QUALITY = 70
 # Comment 4/14: si no conocemos bien el MODELO (datos de floor), tampoco pongas %.
 SHOW_PCT_MIN_VEHCONF = 0.55
+# Riesgo de daño visible (del analizador de vision) a partir del cual es anomalia.
+VISUAL_DAMAGE_THRESHOLD = 0.5
 
 # ════════════════════════════════════════════════════════════════════
 # CAPA SEMÁNTICA (Fase 1) — qué ES un carro mas alla de su body_type.
@@ -615,6 +617,20 @@ def listing_intelligence(car, comps=None):
     if mflag:
         anomalies.append(mflag); quality -= 15
         prov["km"] = {"value": km, "source": "inferred", "note": mnote}
+
+    # posible daño VISIBLE en fotos (analizador de vision, corrido en batch) —
+    # PROBABILISTICO, jamas afirma "esta chocado" (comment 7). Evidencia mas fuerte
+    # que la descripcion, por eso va primero.
+    vdr = car.get("visible_damage_risk")
+    try:
+        vdr = float(vdr) if vdr is not None else None
+    except (TypeError, ValueError):
+        vdr = None
+    if vdr is not None and vdr >= VISUAL_DAMAGE_THRESHOLD:
+        anomalies.append("possible_visual_damage")
+        quality -= int(15 + 25 * min(1.0, vdr))    # -15..-40 segun riesgo
+        prov["condition"] = {"source": "inferred", "risk": round(vdr, 2),
+            "note": "Posible daño visible en las fotos. Requiere verificacion."}
 
     # importado de subasta/aduana (recuperacion)
     if import_status(car) == "subasta_aduana":
