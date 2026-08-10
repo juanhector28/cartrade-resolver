@@ -340,7 +340,8 @@ def compute_quality_score(photo_count: int, price, year, km, make, model, locati
 # ============================================================================
 CARLY_COLS = (
     "id,country,url,make,model,year,km,price_usd,monthly_est,transmission,"
-    "fuel_type,location,body_type,quality_score,photo_count,primary_photo,description"
+    "fuel_type,location,body_type,quality_score,photo_count,primary_photo,description,"
+    "visible_damage_risk"
 )
 MAKES = [
     "toyota", "nissan", "honda", "hyundai", "kia", "mitsubishi", "ford", "chevrolet", "mazda",
@@ -1970,6 +1971,7 @@ def crautos_status():
 # ════════════════════════════════════════════════════════════════════
 
 from .carly_ranking import rank_cars, best_for_label, import_status as _import_status
+from .vision_damage import enrich_listing_vision as _enrich_vision
 from .carly_profile import (
     CARLY_SYSTEM_PROMPT, extract_profile_json, profile_from_extraction,
 )
@@ -2068,6 +2070,46 @@ def _carly_card(entry):
         "model_fit": entry.get("model_fit"),                      # que tan bueno es el MODELO (0..1)
         "vehicle_data_confidence": entry.get("vehicle_data_confidence"),  # confianza en los datos del modelo
     }
+
+
+@app.post("/vision/scan")
+def vision_scan(limit: int = 25, country: str | None = None):
+    """Corre el analizador visual sobre listings sin vision_checked_at y guarda
+    visible_damage_risk (batch acotado por `limit` para controlar costo/tiempo;
+    llamar repetidamente hasta que scanned < limit). NUNCA afirma daño: guarda un
+    riesgo probabilistico que listing_intelligence luego traduce a "posible daño,
+    requiere verificacion"."""
+    if not supabase:
+        return {"error": "supabase not connected"}
+    if not _anthropic:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY no configurada en el entorno.")
+    limit = max(1, min(100, limit))
+    try:
+        q = (supabase.table("scraped_listings")
+             .select("id,url,primary_photo")
+             .is_("vision_checked_at", "null")
+             .limit(limit))
+        if country:
+            q = q.eq("country", country)
+        rows = q.execute().data or []
+    except Exception as e:
+        log.exception("vision-scan select")
+        return {"error": str(e)}
+    checked = flagged = 0
+    for r in rows:
+        if not r.get("primary_photo"):
+            continue
+        upd = _enrich_vision(r, _anthropic, CARLY_MODEL)
+        if upd is None:
+            continue
+        try:
+            supabase.table("scraped_listings").update(upd).eq("url", r["url"]).execute()
+            checked += 1
+            if (upd.get("visible_damage_risk") or 0) >= 0.5:
+                flagged += 1
+        except Exception:
+            log.exception("vision-scan update")
+    return {"scanned": len(rows), "checked": checked, "flagged": flagged}
 
 
 @app.post("/carly/chat")
