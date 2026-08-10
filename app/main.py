@@ -254,6 +254,12 @@ _SEDAN = {
 }
 
 
+_COUPE = {
+    "cr-z", "crz", "mx-5", "mx5", "miata", "brz", "gt86", "gt-86", "supra",
+    "rx-8", "rx8", "370z", "350z", "z4", "tt", "s2000", "mr2", "celica",
+    "veloster",
+}
+
 def _family_body(m: str) -> Optional[str]:
     """Body type by luxury model family / trim prefix (handles trims like gle450, rx 450h)."""
     if re.match(r"^x[1-7]\b", m):
@@ -293,6 +299,8 @@ def classify_body_type(model: str | None, title: str | None) -> str:
         return "van"
     if m in _HATCH:
         return "hatch"
+    if m in _COUPE:
+        return "coupe"
     if m in _SEDAN:
         return "sedan"
     blob = m + " " + t
@@ -309,6 +317,11 @@ def classify_body_type(model: str | None, title: str | None) -> str:
         return "hatch"
     if any(k in blob for k in ("minivan", "microbus", "furgon", "furgón", "van ")):
         return "van"
+    if any(k in blob for k in ("coupe", "coupé", "cupe", "convertible", "cabrio",
+                               "descapotable", "roadster", "2 puertas", "cr-z", "crz",
+                               "mx-5", "miata", "brz", "gt86", "gt-86", "supra", "rx-8",
+                               "rx8", "370z", "350z", "s2000", "mr2")):
+        return "coupe"
     if any(k in blob for k in ("sedan", "sedán", "berlina", "4 puertas")):
         return "sedan"
     return "sedan"  # conservative default (most common class)
@@ -2258,11 +2271,30 @@ def carly_chat(body: CarlyChatRequest):
             return f", {vl}" if vl else ""
         def _imp(c):
             return "  · ⚠ IMPORTADO DE SUBASTA/ADUANA (auto de recuperación; honestidad obligatoria: di que requiere inspección de daños, NO lo llames 'sin peros')" if c.get("import_status") == "subasta_aduana" else ""
+        _ANOM_ES = {
+            "mileage_zero_error_suspected": "km inusualmente bajo para el año (posible error de digito)",
+            "mileage_implausibly_low": "km inusualmente bajo para el año",
+            "mileage_implausibly_high": "km muy alto para el año",
+            "price_below_market": "precio bastante debajo de comparables (revisar por que)",
+            "possible_visual_damage": "posible daño visible en las fotos",
+            "possible_damage": "posible daño mencionado en la descripcion",
+            "year_price_inconsistent": "año reciente con precio muy bajo (inconsistente)",
+            "photos_missing": "sin fotos", "low_photos": "muy pocas fotos",
+            "missing_km": "sin kilometraje reportado", "missing_price": "sin precio",
+            "import_auction": "importado de subasta/aduana",
+        }
+        def _signals(c):
+            parts = [_ANOM_ES[a] for a in (c.get("anomalies") or []) if a in _ANOM_ES]
+            if not parts:
+                return ""
+            return ("  · SEÑAL (marca para verificar; NO trates el precio bajo como "
+                    "ventaja hasta confirmar): " + "; ".join(parts))
         resumen = "\n".join(
             f"- {c['make']} {c['model']} {c['year']}, ${c['monthly_est']}/mes, "
             f"mejor para {c['best_for']}"
             + _vtxt(c)
             + _imp(c)
+            + _signals(c)
             + _character_brief_for_llm(c)
             for c in cards
         )
@@ -2273,36 +2305,41 @@ def carly_chat(body: CarlyChatRequest):
                         "que cumplen el criterio original.)")
         fav_caveat = fav.get("caveat", "")
         closing_prompt = (
-            "Acabas de recibir estas recomendaciones reales para la persona "
-            f"(ya rankeadas):\n{resumen}\n\n"
-            f"Tu favorita es la {fav['make']} {fav['model']} {fav['year']}. "
+            "Acabas de recibir estas recomendaciones reales para la persona, ya "
+            f"rankeadas por ti de mejor a menos:\n{resumen}\n\n"
+            f"La que yo INVESTIGARIA PRIMERO es la {fav['make']} {fav['model']} {fav['year']}. "
             f"Algo honesto que debe saber: {fav_caveat}\n\n"
-            "Escribe tu VEREDICTO con voz de experta compradora, no de asistente. "
+            "Escribe tu lectura con voz de experta compradora, no de asistente. "
             "En este orden:\n"
-            "1) Tu decision en primera persona: 'Yo compraria la X' con los 2-3 "
-            "motivos concretos sacados de los datos de arriba (mensualidad, año, "
-            "km, precio vs mercado).\n"
-            "2) El dato honesto a tener en cuenta, en tono PROPOSITIVO: no lo "
-            "enmarques como 'lo que me haria dudar' ni como alarma; dilo como un "
-            "trade-off util ('ten en cuenta que en gasolina rinde promedio; si eso "
-            "te pesa, hay rutas mas economicas') — honesto pero hacia adelante.\n"
-            "3) Tu lectura final en UNA frase, como amiga que sabe de carros: si "
-            "su prioridad es X, la favorita gana; si en realidad le pesa mas Y, "
-            "cual otra elegirias. Como AFIRMACION, no como pregunta.\n"
-            "4) Cierra SIEMPRE con el siguiente paso concreto dentro de CarTrade, "
-            "como invitacion directa (no pregunta). Ejemplo: 'Toca Ver detalles "
-            "en la favorita y desde ahi inicias la compra verificada: inspeccion, "
-            "papeles, custodia y financiamiento van por nuestra cuenta.' Adapta "
-            "la frase con naturalidad, pero el CTA siempre apunta a una accion "
-            "en CarTrade (ver detalles, comparar lado a lado, o iniciar la "
-            "compra verificada). Nunca termines sin proponer ese paso.\n"
+            "1) ABRE con UNA linea corta que empiece con 'Estoy optimizando para:' y "
+            "resuma en lenguaje humano lo que entendiste de su vida (como/con quien usa "
+            "el carro, su prioridad, su presupuesto). Hace visible tu razonamiento sin "
+            "sonar a formulario.\n"
+            "2) EL MEJOR CANDIDATO PARA EMPEZAR (no 'el ganador'): 'De todo lo que cruce, "
+            "yo empezaria por la X' con 2-3 motivos concretos de los datos (mensualidad, "
+            "año, km, precio vs mercado). Enmarcala como el candidato que MERECE que lo "
+            "investiguemos primero — CarTrade verifica ESA unidad antes de avanzar —, NO "
+            "como una compra ya decidida. Tu entregable no es 'el carro ganador' sino 'el "
+            "mejor candidato para avanzar'.\n"
+            "3) SI alguna opcion se ve muy barata PERO trae una SEÑAL (marcada arriba), "
+            "dilo con honestidad de asesora: 'encontre otra mas barata, pero no la pondria "
+            "de primera porque [señal en lenguaje humano]; la marcaria para verificar "
+            "antes de tratar el precio como ventaja'. NUNCA vendas lo barato como bueno si "
+            "hay una señal. Si ninguna trae señal, OMITE este punto.\n"
+            "4) El dato honesto del favorito en tono PROPOSITIVO (trade-off util hacia "
+            "adelante, no alarma), y tu lectura final en UNA frase: si su prioridad es X "
+            "la favorita gana; si le pesa mas Y, cual otra. Como AFIRMACION, no pregunta.\n"
+            "5) Cierra con el paso concreto en CarTrade, como invitacion directa: 'Toca "
+            "Ver detalles en la que empezaria a investigar y desde ahi inicias la compra "
+            "verificada — la inspeccion confirma km y condicion de ESA unidad; papeles, "
+            "custodia y financiamiento van por nuestra cuenta.' Nunca termines sin ese paso.\n"
             f"Incluye en alguna parte UNA frase de procedencia con el numero real: "
             f"'de los {len(pool)} que cumplen tus criterios, estas son mis mejores apuestas'. "
-            "Maximo 7 frases en total, sin titulos ni encabezados. "
-            "Se firme con lo que los datos muestran y explicita que el estado "
-            "mecanico real lo confirma la inspeccion. NO inventes porcentajes de "
-            "confianza ni datos que no esten arriba. NO hagas preguntas. NO "
-            "repitas la tabla (la persona ya la ve). NO emitas bloque PROFILE."
+            "Maximo 8 frases, sin titulos ni encabezados. Firme con lo que los datos "
+            "muestran; el estado mecanico real lo confirma la inspeccion. Usa lenguaje de "
+            "confianza CUALITATIVO ('muy buen candidato', 'el que mas me cuadra'); NO "
+            "inventes porcentajes de confianza ni datos que no esten arriba. NO hagas "
+            "preguntas. NO repitas la tabla (la persona ya la ve). NO emitas bloque PROFILE."
         )
         # Cruce comprador × carácter: si la favorita no destaca en la prioridad
         # declarada, usa el trade-off del carácter (sin trashear a nadie).
