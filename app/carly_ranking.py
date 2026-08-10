@@ -853,14 +853,17 @@ def rank_cars(cars, profile: CarlyProfile, top_n=5):
             "anomalies": li["anomalies"], "listing_quality": li["listing_quality"],
             "provenance": li["provenance"], "good_value": li["good_value"],
             "price_attractiveness": li["price_attractiveness"],
-            "match_display": match_display(e["score"]),
+            "match_display": match_display(e["_final"]),  # coherente con el orden (_final), no el fit crudo
             "vehicle_capability": cap, "vehicle_data_confidence": vdc,
             "model_fit": model_fit,
         })
         # comment 14: retener el % si no confiamos NI en el anuncio (listing_quality)
         # NI en los datos del modelo (vehicle-data). Las 3 confianzas juntas deciden.
         withhold = bool(li["anomalies"]) or li["listing_quality"] < SHOW_PCT_MIN_QUALITY or vdc < SHOW_PCT_MIN_VEHCONF
-        e["match_pct"] = None if withhold else round(e["score"])
+        # El % sale de _final (lo que de verdad ordena), NO de score. Asi el #1
+        # SIEMPRE tiene el % mas alto, y "Mejor match" == mayor % == orden mostrado
+        # == favorita del texto. Un solo ranking manda todo.
+        e["match_pct"] = None if withhold else max(0, min(100, round(e["_final"])))
     assign_strategy_labels(top)
     for e in top:
         e.pop("_li", None); e.pop("_final", None)
