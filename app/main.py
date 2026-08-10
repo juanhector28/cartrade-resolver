@@ -354,7 +354,7 @@ def compute_quality_score(photo_count: int, price, year, km, make, model, locati
 CARLY_COLS = (
     "id,country,url,make,model,year,km,price_usd,monthly_est,transmission,"
     "fuel_type,location,body_type,quality_score,photo_count,primary_photo,description,"
-    "visible_damage_risk"
+    "visible_damage_risk,damage_signals,vision_checked_at,listing_state"
 )
 MAKES = [
     "toyota", "nissan", "honda", "hyundai", "kia", "mitsubishi", "ford", "chevrolet", "mazda",
@@ -1563,7 +1563,7 @@ async def carly_search(body: CarlySearchRequest):
         raise HTTPException(status_code=500, detail="Supabase not connected.")
 
     it = parse_intent(body.q)
-    q = supabase.table("scraped_listings").select(CARLY_COLS + ",listing_state")
+    q = supabase.table("scraped_listings").select(CARLY_COLS)
 
     if body.addressable_only:
         q = q.eq("is_addressable", True)
@@ -2082,47 +2082,429 @@ def _carly_card(entry):
                   "price_attractiveness": entry.get("price_attractiveness")},
         "model_fit": entry.get("model_fit"),                      # que tan bueno es el MODELO (0..1)
         "vehicle_data_confidence": entry.get("vehicle_data_confidence"),  # confianza en los datos del modelo
+        "need_confidence": entry.get("need_confidence"),
+        "budget_target_monthly": entry.get("budget_target_monthly"),
+        "budget_ceiling_monthly": entry.get("budget_ceiling_monthly"),
     }
 
 
+# ─────────────────── Vision scan prioritization ───────────────────
+# Vision is useful but comparatively expensive. Do not scan unchecked listings in
+# arbitrary DB order. We build a small priority queue that mixes two goals:
+#   1) listings likely to be useful to Carly (complete/high-quality inventory), and
+#   2) listings that deserve extra scrutiny (especially suspiciously low prices).
+# This is NOT a damage verdict. It only decides which photos are worth inspecting first.
+
+
+def _vision_norm(value):
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+
+
+def _vision_price_refs(rows):
+    """Build robust price reference buckets from a broad inventory sample.
+
+    Model medians are preferred. If a model has too few comparables, we can fall
+    back to make+body or body+age-bucket. Medians keep typo/salvage outliers from
+    moving the reference as much as an average would.
+    """
+    import statistics as _statistics
+
+    model = {}
+    make_body = {}
+    body_age = {}
+
+    def _push(d, key, price):
+        try:
+            price = float(price)
+        except (TypeError, ValueError):
+            return
+        if 500 <= price <= 250000:
+            d.setdefault(key, []).append(price)
+
+    for r in rows or []:
+        make = _vision_norm(r.get("make"))
+        model_name = _vision_norm(r.get("model"))
+        body = _vision_norm(r.get("body_type")) or "unknown"
+        year = r.get("year")
+        price = r.get("price_usd")
+        try:
+            age = max(0, 2026 - int(year)) if year else None
+        except (TypeError, ValueError):
+            age = None
+        age_bucket = None if age is None else min(20, (age // 3) * 3)
+
+        if make and model_name:
+            _push(model, (make, model_name), price)
+        if make:
+            _push(make_body, (make, body), price)
+        _push(body_age, (body, age_bucket), price)
+
+    def _median_map(d, minimum):
+        out = {}
+        for k, vals in d.items():
+            if len(vals) >= minimum:
+                out[k] = _statistics.median(vals)
+        return out
+
+    return {
+        "model": _median_map(model, 3),
+        "make_body": _median_map(make_body, 5),
+        "body_age": _median_map(body_age, 8),
+    }
+
+
+def _vision_reference_price(row, refs):
+    make = _vision_norm(row.get("make"))
+    model_name = _vision_norm(row.get("model"))
+    body = _vision_norm(row.get("body_type")) or "unknown"
+    year = row.get("year")
+    try:
+        age = max(0, 2026 - int(year)) if year else None
+    except (TypeError, ValueError):
+        age = None
+    age_bucket = None if age is None else min(20, (age // 3) * 3)
+
+    if (make, model_name) in refs.get("model", {}):
+        return refs["model"][(make, model_name)], "same_model"
+    if (make, body) in refs.get("make_body", {}):
+        return refs["make_body"][(make, body)], "same_make_body"
+    if (body, age_bucket) in refs.get("body_age", {}):
+        return refs["body_age"][(body, age_bucket)], "same_body_age"
+    return None, None
+
+
+def _vision_priority(row, refs):
+    """Return a deterministic priority score + reasons for spending a vision call.
+
+    `scrutiny=True` means the listing has a non-visual signal that makes visual
+    inspection especially valuable (price/mileage/import language). This never
+    changes listing quality by itself; listing_intelligence owns that decision.
+    """
+    score = 0.0
+    reasons = []
+    scrutiny = False
+
+    # A. Recommendation potential: complete listings are much more likely to enter
+    # Carly's candidate pools than sparse records. quality_score already summarizes
+    # scraper completeness, so it is the strongest cheap proxy available here.
+    try:
+        qs = float(row.get("quality_score") or 0)
+    except (TypeError, ValueError):
+        qs = 0.0
+    qs = max(0.0, min(100.0, qs))
+    score += qs * 0.35
+    if qs >= 75:
+        reasons.append("high_listing_quality")
+
+    # Complete vehicle identity/data makes a future recommendation more plausible.
+    complete = sum(bool(row.get(k)) for k in ("make", "model", "year", "price_usd", "km"))
+    score += complete * 2.0
+    if complete >= 4:
+        reasons.append("complete_vehicle_data")
+
+    try:
+        pc = int(row.get("photo_count") or 0)
+    except (TypeError, ValueError):
+        pc = 0
+    if pc >= 4:
+        score += 5.0
+        reasons.append("good_photo_coverage")
+    elif pc <= 1:
+        # Vision cannot add much value if there is almost nothing to inspect.
+        score -= 8.0
+
+    # Recent inventory is more likely to be attractive across many buyer profiles,
+    # but this is intentionally a modest bonus so older good cars still get scanned.
+    try:
+        year = int(row.get("year")) if row.get("year") else None
+    except (TypeError, ValueError):
+        year = None
+    if year:
+        age = max(0, 2026 - year)
+        if age <= 4:
+            score += 10.0
+            reasons.append("recent_vehicle")
+        elif age <= 8:
+            score += 5.0
+        elif age >= 15:
+            score -= 3.0
+
+    # B. Price anomaly: cheap is NOT automatically good value. The deeper the
+    # discount versus a robust comparison bucket, the sooner we want photos reviewed.
+    ref_price, ref_source = _vision_reference_price(row, refs)
+    price_ratio = None
+    try:
+        price = float(row.get("price_usd")) if row.get("price_usd") else None
+    except (TypeError, ValueError):
+        price = None
+    if price and ref_price and ref_price > 0:
+        price_ratio = price / ref_price
+        if price_ratio <= 0.55:
+            score += 60.0
+            scrutiny = True
+            reasons.append("extreme_price_anomaly")
+        elif price_ratio <= 0.70:
+            score += 45.0
+            scrutiny = True
+            reasons.append("strong_price_anomaly")
+        elif price_ratio <= 0.80:
+            score += 28.0
+            scrutiny = True
+            reasons.append("price_below_comparables")
+        elif price_ratio <= 0.90:
+            score += 10.0
+            reasons.append("moderately_below_comparables")
+
+    # Fallback for a very recent, implausibly cheap unit when comparison coverage is
+    # thin. This is only a queueing signal, never a statement that the car is damaged.
+    if year and price:
+        age = max(0, 2026 - year)
+        if age <= 5 and price < 8000:
+            score += 25.0
+            scrutiny = True
+            reasons.append("recent_but_very_cheap")
+
+    # C. Non-visual anomalies can make a visual look especially worthwhile.
+    km = row.get("km")
+    try:
+        km = float(km) if km is not None else None
+    except (TypeError, ValueError):
+        km = None
+    if year and km and (2026 - year) >= 6 and km < 30000:
+        score += 18.0
+        scrutiny = True
+        reasons.append("mileage_needs_verification")
+
+    desc = (row.get("description") or "").lower()
+    if any(k in desc for k in ("subasta", "aduana", "salvage", "recuperacion", "recuperación",
+                               "chocado", "choque", "accidentado", "para reparar")):
+        score += 35.0
+        scrutiny = True
+        reasons.append("condition_language_in_listing")
+
+    # No usable photos means there is nothing for vision to do.
+    if not row.get("primary_photo") and not row.get("photos"):
+        score = -1e9
+        reasons.append("no_usable_photos")
+
+    return {
+        "priority": round(score, 2),
+        "scrutiny": scrutiny,
+        "reasons": list(dict.fromkeys(reasons)),
+        "reference_price": round(ref_price, 2) if ref_price else None,
+        "reference_source": ref_source,
+        "price_ratio": round(price_ratio, 3) if price_ratio is not None else None,
+    }
+
+
+def _vision_select(rows, refs, limit, scrutiny_share=0.60):
+    """Two-lane queue: suspicious listings + likely-useful clean listings.
+
+    A fixed share avoids spending every vision call on junk while still ensuring
+    that suspiciously cheap cars are reviewed before Carly can accidentally surface
+    them as bargains. Any unused quota is filled by the other lane.
+    """
+    enriched = []
+    for r in rows or []:
+        meta = _vision_priority(r, refs)
+        if meta["priority"] <= -1e8:
+            continue
+        enriched.append((r, meta))
+
+    scrutiny = sorted((x for x in enriched if x[1]["scrutiny"]),
+                      key=lambda x: x[1]["priority"], reverse=True)
+    useful = sorted((x for x in enriched if not x[1]["scrutiny"]),
+                    key=lambda x: x[1]["priority"], reverse=True)
+
+    s_quota = min(len(scrutiny), max(0, int(round(limit * scrutiny_share))))
+    u_quota = min(len(useful), max(0, limit - s_quota))
+    chosen = scrutiny[:s_quota] + useful[:u_quota]
+
+    # Fill unused capacity from whichever lane still has candidates.
+    if len(chosen) < limit:
+        chosen_ids = {((r.get("url") or ""), str(r.get("id") or "")) for r, _ in chosen}
+        leftovers = sorted(scrutiny[s_quota:] + useful[u_quota:],
+                           key=lambda x: x[1]["priority"], reverse=True)
+        for item in leftovers:
+            r = item[0]
+            key = ((r.get("url") or ""), str(r.get("id") or ""))
+            if key in chosen_ids:
+                continue
+            chosen.append(item)
+            chosen_ids.add(key)
+            if len(chosen) >= limit:
+                break
+
+    # The actual call order is highest priority first, regardless of lane.
+    return sorted(chosen, key=lambda x: x[1]["priority"], reverse=True)
+
+
 @app.post("/vision/scan")
-def vision_scan(limit: int = 25, country: str | None = None):
-    """Corre el analizador visual sobre listings sin vision_checked_at y guarda
-    visible_damage_risk (batch acotado por `limit` para controlar costo/tiempo;
-    llamar repetidamente hasta que scanned < limit). NUNCA afirma daño: guarda un
-    riesgo probabilistico que listing_intelligence luego traduce a "posible daño,
-    requiere verificacion"."""
+def vision_scan(limit: int = 25, country: str | None = None,
+                priority: bool = True, dry_run: bool = False):
+    """Prioritized batch visual review for unchecked listings.
+
+    Default behavior (`priority=true`) spends vision calls first on a balanced mix
+    of (a) listings with price/mileage/condition signals that deserve scrutiny and
+    (b) complete, high-quality listings likely to be useful to Carly. `dry_run=true`
+    returns the selected queue without calling the vision model, which is useful for
+    tuning cost/coverage safely.
+
+    The vision result itself remains probabilistic: it never asserts that a vehicle
+    is damaged; listing_intelligence later turns sufficient visual risk into
+    "possible visible damage — requires verification".
+    """
     if not supabase:
         return {"error": "supabase not connected"}
-    if not _anthropic:
+    if not _anthropic and not dry_run:
         raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY no configurada en el entorno.")
+
     limit = max(1, min(100, limit))
-    try:
+    # Pull more than we will scan so prioritization has something meaningful to rank.
+    candidate_pool = min(1500, max(250, limit * 16))
+    ref_pool = min(4000, max(1200, limit * 40))
+    fields = ("id,url,country,primary_photo,photos,photo_count,make,model,year,km,"
+              "price_usd,body_type,quality_score,description")
+
+    def _unchecked_query(order_field, desc=True, cap=500):
         q = (supabase.table("scraped_listings")
-             .select("id,url,primary_photo")
+             .select(fields)
              .is_("vision_checked_at", "null")
-             .limit(limit))
+             .order(order_field, desc=desc)
+             .limit(cap))
         if country:
             q = q.eq("country", country)
-        rows = q.execute().data or []
+        return q.execute().data or []
+
+    try:
+        if priority:
+            # Two discovery lanes before local priority scoring:
+            # high quality finds likely recommendations; recent vehicles ensure a
+            # suspicious cheap newer car is not hidden just because quality_score is low.
+            half = max(125, candidate_pool // 2)
+            raw = _unchecked_query("quality_score", True, half)
+            raw += _unchecked_query("year", True, half)
+            # Deduplicate the two lanes.
+            dedup, seen = [], set()
+            for r in raw:
+                key = r.get("url") or r.get("id")
+                if key in seen:
+                    continue
+                seen.add(key); dedup.append(r)
+            rows = dedup
+
+            # Reference prices can include already-scanned inventory; vision state does
+            # not affect whether a price is a useful market comparison.
+            rq = (supabase.table("scraped_listings")
+                  .select("make,model,year,price_usd,body_type,quality_score")
+                  .not_.is_("price_usd", "null")
+                  .order("quality_score", desc=True)
+                  .limit(ref_pool))
+            if country:
+                rq = rq.eq("country", country)
+            reference_rows = rq.execute().data or []
+            refs = _vision_price_refs(reference_rows)
+            selected = _vision_select(rows, refs, limit)
+        else:
+            q = (supabase.table("scraped_listings")
+                 .select(fields)
+                 .is_("vision_checked_at", "null")
+                 .limit(limit))
+            if country:
+                q = q.eq("country", country)
+            rows = q.execute().data or []
+            refs = {"model": {}, "make_body": {}, "body_age": {}}
+            selected = [(r, {"priority": None, "scrutiny": False, "reasons": ["fifo"],
+                              "reference_price": None, "reference_source": None,
+                              "price_ratio": None}) for r in rows]
     except Exception as e:
-        log.exception("vision-scan select")
+        log.exception("vision-scan select/prioritize")
         return {"error": str(e)}
-    checked = flagged = 0
-    for r in rows:
-        if not r.get("primary_photo"):
+
+    preview = [{
+        "id": r.get("id"), "url": r.get("url"),
+        "vehicle": " ".join(str(x) for x in (r.get("make"), r.get("model"), r.get("year")) if x),
+        "price_usd": r.get("price_usd"),
+        "priority": meta.get("priority"), "scrutiny": meta.get("scrutiny"),
+        "reasons": meta.get("reasons"),
+        "reference_price": meta.get("reference_price"),
+        "price_ratio": meta.get("price_ratio"),
+    } for r, meta in selected]
+
+    if dry_run:
+        return {
+            "mode": "priority" if priority else "fifo",
+            "dry_run": True,
+            "candidate_pool": len(rows),
+            "selected": len(selected),
+            "queue": preview,
+        }
+
+    checked = flagged = failed = 0
+    scrutiny_checked = useful_checked = 0
+    for r, meta in selected:
+        if not r.get("primary_photo") and not r.get("photos"):
             continue
         upd = _enrich_vision(r, _anthropic, CARLY_MODEL)
         if upd is None:
+            failed += 1
             continue
         try:
-            supabase.table("scraped_listings").update(upd).eq("url", r["url"]).execute()
+            uq = supabase.table("scraped_listings").update(upd)
+            if r.get("url"):
+                uq = uq.eq("url", r["url"])
+            else:
+                uq = uq.eq("id", r["id"])
+            uq.execute()
             checked += 1
+            if meta.get("scrutiny"):
+                scrutiny_checked += 1
+            else:
+                useful_checked += 1
             if (upd.get("visible_damage_risk") or 0) >= 0.5:
                 flagged += 1
         except Exception:
+            failed += 1
             log.exception("vision-scan update")
-    return {"scanned": len(rows), "checked": checked, "flagged": flagged}
+
+    return {
+        "mode": "priority" if priority else "fifo",
+        "candidate_pool": len(rows),
+        "selected": len(selected),
+        "checked": checked,
+        "flagged": flagged,
+        "failed": failed,
+        "scrutiny_checked": scrutiny_checked,
+        "recommendation_candidates_checked": useful_checked,
+        "queue_preview": preview[:min(10, len(preview))],
+    }
+
+
+_FRONT_CONTEXT_RE = re.compile(r"\n*\[CONTEXTO ACTIVO DE CARTRADE:(.*?)\]\s*$", re.S | re.I)
+
+
+def _clean_frontend_context(messages):
+    """Separate trusted location metadata from stale UI behavior instructions.
+
+    The frontend currently appends a [CONTEXTO ACTIVO...] block to the user's
+    message. Its location metadata is useful, but its MODO CARLY instructions
+    hard-code the old questionnaire (fixed shortlist, fixed refinements, etc.).
+    Backend policy must be authoritative, so we strip the block from user text
+    and move only the metadata before 'MODO CARLY:' into the system prompt.
+    """
+    cleaned, trusted_meta = [], []
+    for m in messages:
+        content = m.content or ""
+        if m.role == "user":
+            mt = _FRONT_CONTEXT_RE.search(content)
+            if mt:
+                raw = mt.group(1)
+                meta = raw.split("MODO CARLY:", 1)[0].strip(" ;\n")
+                if meta:
+                    trusted_meta.append(meta)
+                content = content[:mt.start()].rstrip()
+        cleaned.append({"role": m.role, "content": content})
+    return cleaned, list(dict.fromkeys(trusted_meta))
 
 
 @app.post("/carly/chat")
@@ -2133,12 +2515,19 @@ def carly_chat(body: CarlyChatRequest):
         raise HTTPException(status_code=500,
                             detail="ANTHROPIC_API_KEY no configurada en el entorno.")
 
-    msgs = [{"role": m.role, "content": m.content} for m in body.messages]
+    msgs, frontend_meta = _clean_frontend_context(body.messages)
+
+    # Trusted runtime context belongs in the system prompt, not inside user text.
+    system_prompt = CARLY_SYSTEM_PROMPT
+    if body.country:
+        system_prompt += ("\n\n# CONTEXTO CONFIRMADO POR EL SISTEMA\n"
+                          f"Pais/codigo seleccionado: {body.country}. No lo vuelvas a preguntar.")
+    if frontend_meta:
+        system_prompt += ("\n" + "\n".join(frontend_meta))
 
     # On-screen context: if the person already has recommendation cards visible
     # (frontend echoes them back), tell Carly exactly which cars they are so she
     # can discuss ANY of them without claiming she "didn't recommend it".
-    system_prompt = CARLY_SYSTEM_PROMPT
     if body.shown_cars:
         lines = []
         for c in body.shown_cars[:12]:
@@ -2158,14 +2547,14 @@ def carly_chat(body: CarlyChatRequest):
                 f"{c.get('km')} km, {c.get('body_type')}, {c.get('location')}{vtxt}"
             )
         system_prompt = (
-            CARLY_SYSTEM_PROMPT
+            system_prompt
             + "\n\n# CARROS QUE LA PERSONA TIENE EN PANTALLA AHORA MISMO\n"
-            "Estos son los autos que YA le mostraste y que ella esta viendo. "
-            "Puedes y DEBES hablar de cualquiera de ellos con sus datos; JAMAS "
-            "digas que no lo recomendaste o que no lo evaluaste: esta en tu lista.\n"
+            "Estos autos estan visibles en la interfaz. Pueden ser shortlist o exploracion. "
+            "Puedes hablar de cualquiera con sus datos, pero NO inventes que fue una de tus "
+            "recomendaciones principales si solo estaba en exploracion.\n"
             + "\n".join(lines)
-            + "\nSolo aclara 'ese no lo evalue' si preguntan por un modelo que NO "
-            "aparece en esta lista."
+            + "\nSi preguntan por un modelo que no aparece aqui, aclara brevemente que no esta "
+            "entre las unidades visibles y ofrece buscarlo si cambia el criterio."
         )
 
     # 1) Carly responde (conversa o emite el <PROFILE>)
@@ -2200,7 +2589,10 @@ def carly_chat(body: CarlyChatRequest):
         if isinstance(country, str):
             country = country.lower().strip() or None
         pool = _carly_inventory(profile, country=country)
-        top = rank_cars(pool, profile, top_n=body.top_n)
+        # The frontend may request top_n=30 to expose breadth. Curated Carly cards
+        # stay intentionally small; breadth belongs in `explore`.
+        curated_n = max(3, min(int(body.top_n or 6), 6))
+        top = rank_cars(pool, profile, top_n=curated_n)
         cards = [_carly_card(t) for t in top]
         relaxed_note = None
 
@@ -2225,7 +2617,7 @@ def carly_chat(body: CarlyChatRequest):
                     if drop_body:
                         p2.require_body = []
                     pl = _carly_inventory(p2, country=country)
-                    return rank_cars(pl, p2, top_n=body.top_n), pl
+                    return rank_cars(pl, p2, top_n=curated_n), pl
 
                 top, pool2 = _try(mult=1.25)
                 if top:
@@ -2253,10 +2645,10 @@ def carly_chat(body: CarlyChatRequest):
 
         if not cards:
             return {"phase": "recommendation",
-                    "reply": ("No encontre opciones que calcen exacto, incluso "
-                              "flexibilizando un poco. Dime que prefieres mover: "
-                              "presupuesto, tipo de carro o año. Con uno solo que "
-                              "sueltes te muestro opciones reales."),
+                    "reply": ("No encontre una opcion suficientemente buena aun, incluso "
+                              "flexibilizando el criterio menos importante. Necesito un dato "
+                              "mas de tu uso real para abrir la busqueda sin mandarte opciones "
+                              "que no resuelvan lo que necesitas."),
                     "profile": data, "pool_size": len(pool),
                     "recommendations": [], "favorite": None}
 
@@ -2341,17 +2733,21 @@ def carly_chat(body: CarlyChatRequest):
             "inventes porcentajes de confianza ni datos que no esten arriba. NO hagas "
             "preguntas. NO repitas la tabla (la persona ya la ve). NO emitas bloque PROFILE."
         )
-        # Cruce comprador × carácter: si la favorita no destaca en la prioridad
-        # declarada, usa el trade-off del carácter (sin trashear a nadie).
-        _prioridad = (data or {}).get("priority") if isinstance(data, dict) else None
-        if _prioridad:
-            closing_prompt += (
-                f"\n\nLa prioridad declarada de la persona es: {_prioridad}. "
-                "Si la favorita NO sobresale en esa prioridad, dilo con honestidad y "
-                "menciona la alternativa por trade-off que aparece en su 'carácter' "
-                "(la que sí cubre esa prioridad), enmarcandola como 'para eso, considera X'. "
-                "Nunca digas que un carro es malo: cada modelo gana para el comprador correcto."
-            )
+        # Feed the second pass the structured LIFE context, not a mandatory "priority".
+        if isinstance(data, dict):
+            _need_ctx = {k: data.get(k) for k in (
+                "primary_job", "secondary_job", "daily_km", "passengers",
+                "small_children", "road_mix", "cargo_level", "cost_sensitivity",
+                "target_monthly", "max_monthly", "target_price", "max_price",
+                "priority", "secondary") if data.get(k) is not None}
+            if _need_ctx:
+                closing_prompt += (
+                    "\n\nContexto estructurado que inferiste de la vida del comprador: "
+                    + str(_need_ctx)
+                    + ". Explica el fit usando esos hechos. Si existe una prioridad explicita, "
+                      "respetala; si no existe, NO inventes que la persona la declaro: deriva el "
+                      "criterio del job/contexto."
+                )
         try:
             resp2 = _anthropic.messages.create(
                 model=CARLY_MODEL, max_tokens=400, system=system_prompt,
