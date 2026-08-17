@@ -1,15 +1,27 @@
 from pathlib import Path
 
-# Keep shadow rows physically in the shared inventory table but outside every
-# production Carly path. Carly conversational inventory uses status='staging',
-# so Atlas shadow must use a distinct status.
+# Keep Atlas shadow rows physically in the shared inventory table but outside
+# production Carly paths. `is_addressable` is a GENERATED Supabase column, so
+# the runner must never try to write it directly.
 rp = Path('/app/app/atlas_manifest_runner.py')
 rs = rp.read_text(encoding='utf-8')
-rs = rs.replace('"status": "staging",\n            "is_addressable": False,', '"status": "atlas_shadow",\n            "is_addressable": False,')
+rs = rs.replace(
+    '"status": "staging",\n            "is_addressable": False,',
+    '"status": "atlas_shadow",',
+)
 rp.write_text(rs, encoding='utf-8')
 
 p = Path('/app/app/main.py')
 s = p.read_text(encoding='utf-8')
+
+# Defense in depth: deterministic Carly search must require the production
+# staging status as well as the generated is_addressable flag. This guarantees
+# Atlas shadow rows cannot surface even if the generated-column expression does
+# not itself know about the Atlas lifecycle.
+s = s.replace(
+    'if body.addressable_only:\n        q = q.eq("is_addressable", True)',
+    'if body.addressable_only:\n        q = q.eq("status", "staging").eq("is_addressable", True)',
+)
 
 marker = '# ATLAS_MANIFEST_RUNNER_V1'
 if marker not in s:
@@ -45,12 +57,13 @@ def _require_atlas_bridge_token(x_atlas_token: str | None):
 def atlas_runner_status():
     return {
         "ok": True,
-        "runner": "atlas-manifest-v1",
+        "runner": "atlas-manifest-v1.1",
         "bridge_token_configured": bool(os.environ.get("ATLAS_BRIDGE_TOKEN") or os.environ.get("CRON_TOKEN")),
         "supabase_connected": supabase is not None,
         "supported_modes": ["shadow"],
         "shadow_status": "atlas_shadow",
         "shadow_addressable": False,
+        "generated_columns_safe": True,
     }
 
 
@@ -88,8 +101,8 @@ async def atlas_run_source(req: AtlasManifestRunRequest, x_atlas_token: str | No
     s += block
 
 # Resolver metadata bump only. Do not rewrite unrelated business logic.
-s = s.replace('version="1.5.0"', 'version="1.6.0"')
-s = s.replace('"version": "1.5.0"', '"version": "1.6.0"')
+s = s.replace('version="1.5.0"', 'version="1.6.1"')
+s = s.replace('"version": "1.5.0"', '"version": "1.6.1"')
 
 p.write_text(s, encoding='utf-8')
-print('Applied Atlas Manifest Runner bridge; resolver version=1.6.0')
+print('Applied Atlas Manifest Runner bridge; resolver version=1.6.1')
