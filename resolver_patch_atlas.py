@@ -1,5 +1,13 @@
 from pathlib import Path
 
+# Keep shadow rows physically in the shared inventory table but outside every
+# production Carly path. Carly conversational inventory uses status='staging',
+# so Atlas shadow must use a distinct status.
+rp = Path('/app/app/atlas_manifest_runner.py')
+rs = rp.read_text(encoding='utf-8')
+rs = rs.replace('"status": "staging",\n            "is_addressable": False,', '"status": "atlas_shadow",\n            "is_addressable": False,')
+rp.write_text(rs, encoding='utf-8')
+
 p = Path('/app/app/main.py')
 s = p.read_text(encoding='utf-8')
 
@@ -41,6 +49,7 @@ def atlas_runner_status():
         "bridge_token_configured": bool(os.environ.get("ATLAS_BRIDGE_TOKEN") or os.environ.get("CRON_TOKEN")),
         "supabase_connected": supabase is not None,
         "supported_modes": ["shadow"],
+        "shadow_status": "atlas_shadow",
         "shadow_addressable": False,
     }
 
