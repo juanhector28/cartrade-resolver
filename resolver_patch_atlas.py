@@ -1,27 +1,148 @@
 from pathlib import Path
 
 # Keep Atlas shadow rows physically in the shared inventory table but outside
-# production Carly paths. `is_addressable` is a GENERATED Supabase column, so
-# the runner must never try to write it directly.
+# production Carly paths. is_addressable is a generated Supabase column, so it
+# must never be written directly.
 rp = Path('/app/app/atlas_manifest_runner.py')
 rs = rp.read_text(encoding='utf-8')
 rs = rs.replace(
     '"status": "staging",\n            "is_addressable": False,',
-    '"status": "atlas_shadow",',
+    '"status": "atlas_shadow",'
 )
+rs = rs.replace(
+    '"status": "atlas_shadow",\n            "is_addressable": False,',
+    '"status": "atlas_shadow",'
+)
+
+# Runtime extraction success is not the same as activation quality. Attach a
+# conservative semantic gate to every runner response so Atlas can keep a
+# technically healthy source in shadow until its data is publication-safe.
+semantic_marker = '# ATLAS_SEMANTIC_GATE_V1'
+if semantic_marker not in rs:
+    rs += r'''
+
+# ATLAS_SEMANTIC_GATE_V1
+_AtlasManifestRunner_run_without_semantic_gate = AtlasManifestRunner.run
+
+
+def _atlas_scalar_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        for key in ("name", "value", "title"):
+            if value.get(key) is not None:
+                return _atlas_scalar_text(value.get(key))
+        return ""
+    if isinstance(value, list):
+        return " ".join(_atlas_scalar_text(v) for v in value)
+    return str(value).strip()
+
+
+def _atlas_activation_quality(sample):
+    sample = list(sample or [])[:5]
+    n = len(sample)
+    if n < 3:
+        return {
+            "eligible": False,
+            "sample_size": n,
+            "score": 0.0,
+            "issues": ["semantic_sample_too_small"],
+        }
+
+    nested_core = 0
+    navigation_pollution = 0
+    non_car = 0
+    normalizable_price = 0
+    plausible_year = 0
+    photo_present = 0
+
+    nav_values = {
+        "inicio", "home", "buscar", "search", "menu", "menú", "vehiculos",
+        "vehículos", "autos", "carros", "principal"
+    }
+    non_car_hints = (
+        " motocic", "moto ", "/moto-", " atv", "atv ", "cuatri", "scooter",
+        "quadric", "motocross"
+    )
+
+    for item in sample:
+        for field in ("title", "make", "model"):
+            if isinstance(item.get(field), (dict, list)):
+                nested_core += 1
+
+        for field in ("fuel_type", "transmission"):
+            val = _atlas_scalar_text(item.get(field)).lower()
+            if val in nav_values:
+                navigation_pollution += 1
+
+        # Ignore the generic Encuentra24 category slug "autos-motos" before
+        # looking for motorcycle/ATV evidence in the listing itself.
+        evidence = " ".join(
+            _atlas_scalar_text(item.get(k)) for k in ("url", "title", "make", "model")
+        ).lower().replace("autos-motos", "")
+        if any(h in evidence for h in non_car_hints):
+            non_car += 1
+
+        if _money_usd(item.get("price_usd"), item.get("currency")) is not None:
+            normalizable_price += 1
+
+        try:
+            year = int(item.get("year"))
+            if 1950 <= year <= datetime.now(timezone.utc).year + 2:
+                plausible_year += 1
+        except Exception:
+            pass
+
+        photos = item.get("photos") or []
+        if isinstance(photos, str):
+            photos = [photos]
+        if any(isinstance(p, str) and p.startswith("http") for p in photos):
+            photo_present += 1
+
+    issues = []
+    if nested_core:
+        issues.append("nested_core_fields")
+    if navigation_pollution:
+        issues.append("navigation_text_in_vehicle_fields")
+    if non_car / n > 0.20:
+        issues.append("non_car_inventory_detected")
+    if normalizable_price / n < 0.80:
+        issues.append("price_currency_not_normalizable")
+    if plausible_year / n < 0.80:
+        issues.append("year_quality_low")
+    if photo_present / n < 0.80:
+        issues.append("photo_coverage_low")
+
+    checks = 6
+    failures = len(issues)
+    score = round(max(0.0, (checks - failures) / checks), 4)
+    return {
+        "eligible": not issues,
+        "sample_size": n,
+        "score": score,
+        "issues": issues,
+        "nested_core_fields": nested_core,
+        "navigation_pollution": navigation_pollution,
+        "non_car_ratio": round(non_car / n, 4),
+        "normalizable_price_pct": round(normalizable_price / n * 100, 2),
+        "plausible_year_pct": round(plausible_year / n * 100, 2),
+        "photo_coverage_pct": round(photo_present / n * 100, 2),
+    }
+
+
+async def _atlas_run_with_semantic_gate(self, *args, **kwargs):
+    result = await _AtlasManifestRunner_run_without_semantic_gate(self, *args, **kwargs)
+    result["activation_quality"] = _atlas_activation_quality(result.get("sample") or [])
+    return result
+
+
+AtlasManifestRunner.run = _atlas_run_with_semantic_gate
+'''
+
 rp.write_text(rs, encoding='utf-8')
 
 p = Path('/app/app/main.py')
 s = p.read_text(encoding='utf-8')
-
-# Defense in depth: deterministic Carly search must require the production
-# staging status as well as the generated is_addressable flag. This guarantees
-# Atlas shadow rows cannot surface even if the generated-column expression does
-# not itself know about the Atlas lifecycle.
-s = s.replace(
-    'if body.addressable_only:\n        q = q.eq("is_addressable", True)',
-    'if body.addressable_only:\n        q = q.eq("status", "staging").eq("is_addressable", True)',
-)
 
 marker = '# ATLAS_MANIFEST_RUNNER_V1'
 if marker not in s:
@@ -57,13 +178,14 @@ def _require_atlas_bridge_token(x_atlas_token: str | None):
 def atlas_runner_status():
     return {
         "ok": True,
-        "runner": "atlas-manifest-v1.1",
+        "runner": "atlas-manifest-v1.2",
         "bridge_token_configured": bool(os.environ.get("ATLAS_BRIDGE_TOKEN") or os.environ.get("CRON_TOKEN")),
         "supabase_connected": supabase is not None,
         "supported_modes": ["shadow"],
         "shadow_status": "atlas_shadow",
         "shadow_addressable": False,
         "generated_columns_safe": True,
+        "semantic_activation_gate": True,
     }
 
 
@@ -99,10 +221,20 @@ async def atlas_run_source(req: AtlasManifestRunRequest, x_atlas_token: str | No
     return result
 '''
     s += block
+else:
+    # Existing block from earlier Atlas bridge versions: update only metadata.
+    s = s.replace('"runner": "atlas-manifest-v1.1"', '"runner": "atlas-manifest-v1.2"')
+    s = s.replace('"runner": "atlas-manifest-v1"', '"runner": "atlas-manifest-v1.2"')
+    if '"semantic_activation_gate": True' not in s:
+        s = s.replace(
+            '"generated_columns_safe": True,',
+            '"generated_columns_safe": True,\n        "semantic_activation_gate": True,'
+        )
 
 # Resolver metadata bump only. Do not rewrite unrelated business logic.
-s = s.replace('version="1.5.0"', 'version="1.6.1"')
-s = s.replace('"version": "1.5.0"', '"version": "1.6.1"')
+for old in ('1.5.0', '1.6.0'):
+    s = s.replace(f'version="{old}"', 'version="1.7.0"')
+    s = s.replace(f'"version": "{old}"', '"version": "1.7.0"')
 
 p.write_text(s, encoding='utf-8')
-print('Applied Atlas Manifest Runner bridge; resolver version=1.6.1')
+print('Applied Atlas Manifest Runner bridge; resolver version=1.7.0; semantic gate=v1')
