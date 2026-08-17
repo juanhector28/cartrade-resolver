@@ -26,7 +26,7 @@ _ABS_IMAGE_RE = re.compile(
 def _clean_candidate(page_url: str, raw: str | None) -> str | None:
     if not raw:
         return None
-    value = str(raw).strip().strip('"\'')
+    value = str(raw).strip().strip("\"'")
     if not value or value.startswith(("data:", "blob:")):
         return None
     value = value.replace("\\/", "/").replace("&amp;", "&")
