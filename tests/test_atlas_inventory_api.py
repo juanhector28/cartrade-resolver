@@ -1,9 +1,7 @@
-import os
-
 import pytest
 from fastapi import HTTPException
 
-from atlas_inventory_api import _require_read_token, inventory_summary, query_inventory
+from app.atlas_inventory_api import _require_read_token, inventory_summary, query_inventory
 
 
 class Response:
