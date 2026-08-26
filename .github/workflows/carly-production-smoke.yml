@@ -11,22 +11,22 @@ permissions:
 jobs:
   first-car-objective:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify Carly production objective after deploy
+      - name: Verify Carly objective and preview-first behavior after deploy
         env:
           CARLY_BASE_URL: https://cartrade-resolver.onrender.com
         run: |
           for attempt in 1 2 3 4 5 6 7 8; do
             echo "Carly production smoke attempt $attempt"
-            if python tests/live_carly_objective_smoke.py; then
+            if python tests/live_carly_objective_smoke.py && python tests/live_carly_preview_smoke.py; then
               exit 0
             fi
             sleep 20
           done
-          echo "Carly production objective smoke failed after deploy window"
+          echo "Carly production objective/preview smoke failed after deploy window"
           exit 1
