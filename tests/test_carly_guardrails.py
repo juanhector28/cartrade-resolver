@@ -63,6 +63,17 @@ def test_latest_explicit_budget_and_km_override_earlier_values():
     assert facts["max_km"] == 50000
 
 
+def test_trailing_sentence_punctuation_never_poison_numeric_constraint():
+    messages = [
+        {"role": "user", "content": "Máximo $9,500."},
+        {"role": "assistant", "content": "Ok."},
+        {"role": "user", "content": "Ahora puedo llegar hasta $10,750, pero no más de 60,000 km."},
+    ]
+    facts = extract_explicit_facts(messages)
+    assert facts["max_price"] == 10750
+    assert facts["max_km"] == 60000
+
+
 def test_hard_odometer_ceiling_rejects_every_overage_and_unknown_km():
     p = pin_hard_constraints(_profile(), {"max_km": 65000})
 
