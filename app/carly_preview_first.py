@@ -49,7 +49,14 @@ def combined_user_text(messages: list[Any] | None) -> str:
 
 _BUDGET_RE = re.compile(
     r"(?:\$\s*\d|\b\d[\d.,]*\s*(?:usd|dolares?|dólares?)\b|"
-    r"\b(?:presupuesto|budget|cuota|mensual|al\s+mes|prima|enganche|inicial)\b.{0,40}\d)",
+    r"\b(?:presupuesto|budget|cuota|mensual|al\s+mes|precio\s+total|total|"
+    r"maximo|máximo|tope|hasta)\b.{0,40}\d)",
+    re.I,
+)
+_DOWN_PAYMENT_RE = re.compile(r"\b(?:prima|enganche|inicial|down\s*payment)\b", re.I)
+_AFFORDABILITY_RE = re.compile(
+    r"\b(?:presupuesto|budget|cuota|mensual|al\s+mes|precio\s+total|"
+    r"maximo|máximo|tope|hasta)\b|/\s*mes\b",
     re.I,
 )
 _INTENT_RE = re.compile(
@@ -62,7 +69,14 @@ _INTENT_RE = re.compile(
 
 
 def has_budget_signal(messages: list[Any] | None) -> bool:
-    return bool(_BUDGET_RE.search(combined_user_text(messages)))
+    """A real affordability ceiling, not merely cash available for a down payment."""
+    text = combined_user_text(messages)
+    # "Tengo $3,000 de prima" is useful context, but it does not tell Carly what
+    # total price or monthly payment the buyer can actually afford. Ask once for
+    # that missing ceiling instead of pretending the down payment is the budget.
+    if _DOWN_PAYMENT_RE.search(text) and not _AFFORDABILITY_RE.search(text):
+        return False
+    return bool(_BUDGET_RE.search(text))
 
 
 def has_intent_signal(messages: list[Any] | None) -> bool:
