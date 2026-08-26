@@ -25,6 +25,7 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly production composition root. main_preview adds preview-first time-to-value
-# above Decision Room, state, grounding and hard-constraint layers.
-CMD uvicorn app.main_preview:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly production composition root. main_commercial adds financing-forward,
+# sales-positive advisory behavior above preview-first, Decision Room, state,
+# grounding and hard-constraint layers.
+CMD uvicorn app.main_commercial:app --host 0.0.0.0 --port ${PORT:-8000}
