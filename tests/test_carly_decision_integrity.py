@@ -50,3 +50,31 @@ def test_carly_cannot_deny_a_visible_curated_car():
     bad = "No te lo recomendé. El Mitsubishi Mirage 2022 no estaba entre mis opciones."
     violations = _reply_violations(bad, "Cuéntame del Mitsubishi Mirage 2022", refs, CARS)
     assert any("curated" in x for x in violations)
+
+
+def test_exact_fuel_economy_is_blocked_without_structured_unit_data():
+    refs = _referenced_cars("¿Cuántos km por litro da el Mitsubishi Mirage 2022?", CARS)
+    bad = "El Mitsubishi Mirage 2022 da 20 km/l."
+    violations = _reply_violations(bad, "¿Cuántos km por litro da el Mitsubishi Mirage 2022?", refs, CARS)
+    assert any("fuel economy" in x for x in violations)
+
+
+def test_exact_engine_displacement_is_blocked_without_structured_unit_data():
+    refs = _referenced_cars("¿Qué motor trae el Mitsubishi Mirage 2022?", CARS)
+    bad = "El Mitsubishi Mirage 2022 trae motor 1.2L."
+    violations = _reply_violations(bad, "¿Qué motor trae el Mitsubishi Mirage 2022?", refs, CARS)
+    assert any("engine displacement" in x for x in violations)
+
+
+def test_absolute_reliability_promise_is_blocked():
+    refs = _referenced_cars("¿Qué te preocupa del Mitsubishi Mirage 2022?", CARS)
+    bad = "El Mitsubishi Mirage 2022 no te va a dar dolores de cabeza."
+    violations = _reply_violations(bad, "¿Qué te preocupa del Mitsubishi Mirage 2022?", refs, CARS)
+    assert any("unsupported certainty" in x for x in violations)
+
+
+def test_manual_transmission_does_not_prove_lower_fuel_or_maintenance_cost():
+    refs = _referenced_cars("Háblame del Toyota Agya 2020", CARS)
+    bad = "El Toyota Agya 2020 es manual, así que consume menos y su mantenimiento es más barato."
+    violations = _reply_violations(bad, "Háblame del Toyota Agya 2020", refs, CARS)
+    assert any("speculative mechanical" in x for x in violations)
