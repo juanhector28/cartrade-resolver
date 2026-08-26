@@ -25,6 +25,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly production composition root. This keeps the existing app and installs
-# the buyer-fact / hard-constraint guardrails before FastAPI serves requests.
-CMD uvicorn app.main_guarded:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly production composition root. main_decision adds deterministic grounding,
+# exact vehicle anchoring, and latest-criteria integrity on top of main_guarded.
+CMD uvicorn app.main_decision:app --host 0.0.0.0 --port ${PORT:-8000}
