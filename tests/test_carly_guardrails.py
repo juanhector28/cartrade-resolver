@@ -43,6 +43,26 @@ def test_real_first_car_conversation_preserves_numeric_facts():
     }
 
 
+def test_latest_explicit_budget_and_km_override_earlier_values():
+    messages = [
+        {"role": "user", "content": "Máximo $12,000 y máximo 65,000 km."},
+        {"role": "assistant", "content": "Te muestro mis opciones."},
+        {
+            "role": "user",
+            "content": "Cambio una cosa: ahora puedo llegar hasta $13,000, pero mantén el límite de 65,000 km.",
+        },
+    ]
+    facts = extract_explicit_facts(messages)
+    assert facts["max_price"] == 13000
+    assert facts["max_km"] == 65000
+
+    messages.append({"role": "assistant", "content": "Listo."})
+    messages.append({"role": "user", "content": "Pensándolo bien, máximo 50,000 km y sigo con máximo $12,000."})
+    facts = extract_explicit_facts(messages)
+    assert facts["max_price"] == 12000
+    assert facts["max_km"] == 50000
+
+
 def test_hard_odometer_ceiling_rejects_every_overage_and_unknown_km():
     p = pin_hard_constraints(_profile(), {"max_km": 65000})
 
