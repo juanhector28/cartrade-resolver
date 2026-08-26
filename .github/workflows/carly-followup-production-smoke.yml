@@ -22,13 +22,13 @@ jobs:
           CARLY_BASE_URL: https://cartrade-resolver.onrender.com
         run: |
           # Render may still be serving the previous image briefly after main moves.
-          # Retry the complete quality suite rather than accepting a single lucky pass.
+          # Both the normal follow-up suite and the decision-reset regression must pass.
           for attempt in 1 2 3 4 5; do
-            echo "Carly follow-up smoke attempt $attempt"
-            if python tests/live_carly_followup_smoke_v2.py; then
+            echo "Carly follow-up/reset smoke attempt $attempt"
+            if python tests/live_carly_followup_smoke_v2.py && python tests/live_carly_reset_smoke.py; then
               exit 0
             fi
             sleep 20
           done
-          echo "Carly follow-up quality smoke failed after deploy window"
+          echo "Carly follow-up/reset quality smoke failed after deploy window"
           exit 1

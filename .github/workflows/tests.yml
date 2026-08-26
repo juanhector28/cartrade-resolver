@@ -23,9 +23,11 @@ jobs:
         run: python -m pytest -q tests/test_atlas_inventory_api.py
       - name: Run Carly objective guardrail tests
         run: python -m pytest -q tests/test_carly_guardrails.py
+      - name: Run Carly decision state tests
+        run: python -m pytest -q tests/test_carly_decision_state.py
       - name: Run Carly decision integrity tests
         run: python -m pytest -q tests/test_carly_decision_integrity.py
       - name: Check Carly production entrypoint
-        run: grep -q "CMD uvicorn app.main_decision:app" Dockerfile
+        run: grep -q "CMD uvicorn app.main_state:app" Dockerfile
       - name: Check patch syntax
-        run: python -m py_compile app/atlas_inventory_api.py resolver_patch_atlas_v17.py app/carly_guardrails.py app/main_guarded.py app/main_decision.py tests/live_carly_objective_smoke.py tests/live_carly_followup_smoke.py tests/live_carly_followup_smoke_v2.py
+        run: python -m py_compile app/atlas_inventory_api.py resolver_patch_atlas_v17.py app/carly_guardrails.py app/carly_state.py app/main_guarded.py app/main_decision.py app/main_state.py tests/live_carly_objective_smoke.py tests/live_carly_followup_smoke.py tests/live_carly_followup_smoke_v2.py tests/live_carly_reset_smoke.py
