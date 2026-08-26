@@ -47,7 +47,10 @@ Estas reglas prevalecen sobre cualquier instruccion anterior que sea mas laxa.
    mejor precio" salvo que el sistema te haya dado explicitamente esa señal.
 """
 
-_NUMBER = r"[0-9][0-9.,]*"
+# Numeric tokens must end in a digit. The previous expression allowed trailing
+# punctuation, so a perfectly natural phrase such as "$13,000, pero..." could
+# be captured as "13,000," and fail parsing, leaving an older budget active.
+_NUMBER = r"[0-9]+(?:[.,][0-9]+)*"
 _MAX_KM_RE = re.compile(
     rf"\b(?:abajo\s+de|menos\s+de|max(?:imo|imum)?|máximo|hasta|no\s+mas\s+de|no\s+más\s+de)"
     rf"\s*\$?\s*({_NUMBER})\s*(k|mil)?\s*(?:km|kms|kilometros|kilómetros)\b",
@@ -125,7 +128,11 @@ def _parse_number(raw: str, suffix: str | None = None) -> float | None:
 
 
 def extract_explicit_facts(messages: Iterable[Any]) -> dict[str, float]:
-    """Extract only high-confidence, explicitly stated numeric buyer facts."""
+    """Extract only high-confidence, explicitly stated numeric buyer facts.
+
+    Messages are processed chronologically and assignments deliberately replace
+    prior values. Therefore the latest explicit buyer constraint wins.
+    """
     facts: dict[str, float] = {}
     previous_role = ""
     previous_text = ""
