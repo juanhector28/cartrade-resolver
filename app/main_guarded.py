@@ -57,6 +57,23 @@ _RERANK_FOLLOWUP_RE = re.compile(
     re.I,
 )
 
+_BUYER_JOB_RE = re.compile(
+    r"\b(?:primer\s+(?:carro|auto)|uni|universidad|facultad|trabajo|negocio|"
+    r"familia|hijos?|bebe|bebé|pickup|carga|delivery|reparto|uber|rideshare|"
+    r"carretera|viajes?|ciudad|commute|oficina)\b",
+    re.I,
+)
+
+_READY_TO_RECOMMEND_PROMPT = r"""
+# REGLA DE DECISION SUFICIENTE
+Cuando el pais ya esta confirmado por sistema, ya conoces un techo de presupuesto
+y ya entiendes para que se usara el carro, DEBES recomendar en ese mismo turno.
+Marca, transmision, carroceria y una prioridad declarada son datos OPCIONALES salvo
+que el comprador los haya planteado como requisito. Nunca preguntes por ellos solo
+para completar el perfil. Ejemplo autoritativo: "primer carro" + "ir a la uni" +
+"20 km diarios" + "$12k" ya es suficiente para emitir <PROFILE> y recomendar.
+"""
+
 _FOLLOWUP_SYSTEM_PROMPT = r"""
 Eres Carly, la asesora de compra de CarTrade, y estas en MODO FOLLOW-UP despues
 de que la persona ya vio opciones reales.
@@ -78,23 +95,62 @@ REGLAS DE FOLLOW-UP:
    ("en general", "suele", "normalmente"), nunca como especificacion exacta de
    esta unidad. Equipamiento, airbags, motor exacto, consumo exacto, historial de
    accidentes, numero de dueños y condicion NO se inventan.
-5) Si un dato exacto no esta en las unidades visibles, dilo claramente. No llenes
+5) No uses la transmision como atajo para afirmar que ESTA unidad consume menos o
+   costara menos mantenerla. No predigas cuantos años faltan para reparaciones o
+   mantenimientos mayores. Si no tienes evidencia estructurada para una comparacion
+   mecanica concreta, omite esa afirmacion.
+6) Si un dato exacto no esta en las unidades visibles, dilo claramente. No llenes
    el hueco con memoria del modelo. Para historial/condicion/km/documentos, explica
    que la verificacion/inspeccion de CarTrade confirma lo que corresponda.
-6) Un precio sobre mercado significa caro frente a comparables, nada mas. No lo
+7) Un precio sobre mercado significa caro frente a comparables, nada mas. No lo
    conviertas en sospecha mecanica o documental.
-7) Si comparan dos o mas opciones, toma una posicion para ESTE comprador y explica
+8) Si comparan dos o mas opciones, toma una posicion para ESTE comprador y explica
    el trade-off. No respondas con "depende" sin criterio.
-8) Nunca prometas que una unidad "no dara problemas", "esta limpia" o "esta en
+9) Nunca prometas que una unidad "no dara problemas", "esta limpia" o "esta en
    buen estado" antes de inspeccion.
-9) Si preguntan que hacer antes de comprar, el camino es CarTrade: Ver detalles /
-   Iniciar compra verificada, contacto con vendedor, verificacion, inspeccion,
-   documentos, custodia y cierre segun corresponda. No mandes al comprador a
-   buscar mecanico ni negociar por fuera.
-10) Responde con la extension que pida la pregunta. Por defecto 3-7 frases o una
+10) Si preguntan que hacer antes de comprar, el camino es CarTrade: Ver detalles /
+    Iniciar compra verificada, contacto con vendedor, verificacion, inspeccion,
+    documentos, custodia y cierre segun corresponda. No mandes al comprador a
+    buscar mecanico ni negociar por fuera.
+11) Responde con la extension que pida la pregunta. Por defecto 3-7 frases o una
     lista corta si pros/contras lo amerita. No cierres cada respuesta con una
     pregunta automatica; solo pregunta si de verdad falta un dato para responder.
 """
+
+
+def _message_text(message: Any) -> str:
+    if isinstance(message, dict):
+        return str(message.get("content") or "")
+    return str(getattr(message, "content", "") or "")
+
+
+def _message_role(message: Any) -> str:
+    if isinstance(message, dict):
+        return str(message.get("role") or "")
+    return str(getattr(message, "role", "") or "")
+
+
+def _decision_ready(messages, facts: dict) -> bool:
+    """High-confidence readiness signal used only to block optional questions."""
+    if facts.get("max_price") is None:
+        return False
+    user_text = "\n".join(
+        _message_text(m) for m in (messages or []) if _message_role(m).lower() == "user"
+    )
+    return bool(_BUYER_JOB_RE.search(user_text))
+
+
+def _sanitize_buyer_reply(result):
+    """Never expose Carly's internal PROFILE protocol to the buyer."""
+    if not isinstance(result, dict):
+        return result
+    reply = result.get("reply")
+    if not isinstance(reply, str):
+        return result
+    clean = re.sub(r"<PROFILE>.*?</PROFILE>", "", reply, flags=re.S | re.I)
+    clean = re.sub(r"<PROFILE>.*$", "", clean, flags=re.S | re.I).strip()
+    result["reply"] = clean
+    return result
 
 
 def _sanitize_frontend_meta(items: list[str]) -> list[str]:
@@ -124,6 +180,11 @@ def _clean_frontend_context_guarded(messages):
     canonical = canonical_context_line(facts)
     if canonical:
         safe_meta.append(canonical)
+    if _decision_ready(messages, facts):
+        safe_meta.append(
+            "ESTADO DE DECISION CONFIRMADO: ya existe presupuesto y un uso/job claro. "
+            "Recomienda ahora; no preguntes marca, transmision, carroceria ni prioridades opcionales."
+        )
     return cleaned, safe_meta
 
 
@@ -275,13 +336,9 @@ def _answer_followup(body):
     reply = "".join(
         block.text for block in resp.content if getattr(block, "type", "") == "text"
     ).strip()
-    # Follow-up mode never exposes internal structured protocol even if the model
-    # tries to emit it.
-    reply = re.sub(r"<PROFILE>.*?</PROFILE>", "", reply, flags=re.S | re.I).strip()
-    reply = re.sub(r"<PROFILE>.*$", "", reply, flags=re.S | re.I).strip()
     if not reply:
         return None
-    return {"phase": "conversation", "reply": reply}
+    return _sanitize_buyer_reply({"phase": "conversation", "reply": reply})
 
 
 def _patch_carly_route():
@@ -302,11 +359,11 @@ def _patch_carly_route():
                 try:
                     direct = _answer_followup(body)
                     if direct:
-                        return direct
+                        return _sanitize_buyer_reply(direct)
                 except Exception:
                     legacy.log.exception("Carly direct follow-up failed; falling back to legacy path")
 
-            result = __original(*args, **kwargs)
+            result = _sanitize_buyer_reply(__original(*args, **kwargs))
             if (
                 isinstance(result, dict)
                 and result.get("phase") == "recommendation"
@@ -317,7 +374,7 @@ def _patch_carly_route():
                     "No voy a saltarme una restriccion que me diste. Si quieres abrir una, "
                     "te digo exactamente cual conviene flexibilizar y que opciones aparecen."
                 )
-            return result
+            return _sanitize_buyer_reply(result)
 
         route.endpoint = guarded_endpoint
         dependant.call = guarded_endpoint
@@ -332,7 +389,9 @@ legacy._carly_inventory = _carly_inventory_guarded
 legacy.rank_cars = _rank_cars_guarded
 
 profile_module.CARLY_SYSTEM_PROMPT = (
-    profile_module.CARLY_SYSTEM_PROMPT + "\n\n" + GUARDRAIL_PROMPT
+    profile_module.CARLY_SYSTEM_PROMPT
+    + "\n\n" + GUARDRAIL_PROMPT
+    + "\n\n" + _READY_TO_RECOMMEND_PROMPT
 )
 legacy.CARLY_SYSTEM_PROMPT = profile_module.CARLY_SYSTEM_PROMPT
 

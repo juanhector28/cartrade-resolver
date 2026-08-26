@@ -11,7 +11,7 @@ permissions:
 jobs:
   followup-quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,9 +21,9 @@ jobs:
         env:
           CARLY_BASE_URL: https://cartrade-resolver.onrender.com
         run: |
-          for attempt in 1 2 3 4 5 6 7 8; do
+          for attempt in 1 2 3 4; do
             echo "Carly follow-up smoke attempt $attempt"
-            if python tests/live_carly_followup_smoke.py; then
+            if python tests/live_carly_followup_smoke_v2.py; then
               exit 0
             fi
             sleep 20

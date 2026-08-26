@@ -26,4 +26,4 @@ jobs:
       - name: Check Carly production entrypoint
         run: grep -q "CMD uvicorn app.main_guarded:app" Dockerfile
       - name: Check patch syntax
-        run: python -m py_compile app/atlas_inventory_api.py resolver_patch_atlas_v17.py app/carly_guardrails.py app/main_guarded.py tests/live_carly_objective_smoke.py tests/live_carly_followup_smoke.py
+        run: python -m py_compile app/atlas_inventory_api.py resolver_patch_atlas_v17.py app/carly_guardrails.py app/main_guarded.py tests/live_carly_objective_smoke.py tests/live_carly_followup_smoke.py tests/live_carly_followup_smoke_v2.py
