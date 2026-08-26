@@ -17,6 +17,13 @@ def test_prado_case_previews_after_budget_answer():
     assert policy["reason"] == "enough_information_early"
 
 
+def test_initial_vague_request_can_still_ask_a_useful_question():
+    policy = preview_policy([m("user", "Estoy pensando comprar un carro.")])
+    assert policy["questions"] == 0
+    assert policy["force_preview"] is False
+    assert policy["reason"] == "one_blocker_may_remain"
+
+
 def test_two_questions_is_target_when_budget_and_use_are_known():
     messages = [
         m("user", "Estoy buscando un carro."),
