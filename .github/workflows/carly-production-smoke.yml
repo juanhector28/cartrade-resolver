@@ -26,6 +26,8 @@ jobs:
             if python tests/live_carly_objective_smoke.py && python tests/live_carly_preview_smoke.py; then
               exit 0
             fi
+            echo "Diagnostic snapshot after failed attempt $attempt"
+            python tests/diag_carly_live.py || true
             sleep 20
           done
           echo "Carly production objective/preview smoke failed after deploy window"
