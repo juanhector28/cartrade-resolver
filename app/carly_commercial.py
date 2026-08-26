@@ -43,8 +43,9 @@ pendiente. Por defecto usa:
 - "esto podría cambiar mi recomendación si se confirma" cuando un dato pendiente
   es material.
 
-Sí puedes frenar una mala compra y decir "no compraría este" si la evidencia lo
-justifica. La regla es: rigor sin dramatizar, optimismo sin ocultar hechos.
+Si existe un riesgo REAL y sustentado, sí debes nombrarlo con claridad. No
+maquilles daños, problemas legales, precio anómalo o una mala compra. La regla es:
+rigor sin dramatizar, optimismo sin ocultar hechos.
 
 Patrón psicológico: entender -> entusiasmar -> financiar -> avanzar.
 """
@@ -62,8 +63,6 @@ def preferred_budget_question(reply: str) -> str:
     if not text:
         return text
     if any(p.search(text) for p in _BUDGET_QUESTION_PATTERNS) and "?" in text:
-        # Preserve a short acknowledgement if one exists, but make the actual
-        # question consistent and financing-friendly.
         prefix = text.split("?", 1)[0]
         if len(prefix) > 120 or "cuánto" in prefix.lower() or "cuanto" in prefix.lower():
             prefix = ""
@@ -81,12 +80,12 @@ _TONE_REWRITES = (
     (re.compile(r"red\s+flags?", re.I), "señales que revisaría"),
     (re.compile(r"banderas?\s+rojas?", re.I), "señales que revisaría"),
     (re.compile(r"riesgos?\s+principales", re.I), "puntos principales por confirmar"),
-    (re.compile(r"riesgos?", re.I), "puntos por confirmar"),
+    (re.compile(r"qu[eé]\s+riesgos?\s+(?:ves|hay|tiene)", re.I), "qué puntos materiales por confirmar ves"),
 )
 
 
 def soften_advisory_tone(reply: str) -> str:
-    """Remove fear-inducing phrasing without hiding negative facts."""
+    """Remove fear-inducing framing without hiding a substantiated real risk."""
     text = reply or ""
     for pattern, replacement in _TONE_REWRITES:
         text = pattern.sub(replacement, text)
