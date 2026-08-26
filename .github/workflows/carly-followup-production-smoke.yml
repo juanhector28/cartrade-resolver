@@ -11,7 +11,7 @@ permissions:
 jobs:
   followup-quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,7 +21,9 @@ jobs:
         env:
           CARLY_BASE_URL: https://cartrade-resolver.onrender.com
         run: |
-          for attempt in 1 2 3 4; do
+          # Render may still be serving the previous image briefly after main moves.
+          # Retry the complete quality suite rather than accepting a single lucky pass.
+          for attempt in 1 2 3 4 5; do
             echo "Carly follow-up smoke attempt $attempt"
             if python tests/live_carly_followup_smoke_v2.py; then
               exit 0
