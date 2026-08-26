@@ -25,6 +25,7 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly production composition root. main_state invalidates stale cards when the
-# buyer changes missions, on top of decision grounding and hard constraints.
-CMD uvicorn app.main_state:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly production composition root. main_room adds a persistent Decision payload,
+# explicit execution state and market-watch refresh above the existing state,
+# grounding and hard-constraint layers.
+CMD uvicorn app.main_room:app --host 0.0.0.0 --port ${PORT:-8000}
