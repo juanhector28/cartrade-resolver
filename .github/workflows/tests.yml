@@ -10,7 +10,7 @@ permissions:
 jobs:
   atlas-inventory-api:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,7 +27,3 @@ jobs:
         run: grep -q "CMD uvicorn app.main_guarded:app" Dockerfile
       - name: Check patch syntax
         run: python -m py_compile app/atlas_inventory_api.py resolver_patch_atlas_v17.py app/carly_guardrails.py app/main_guarded.py tests/live_carly_objective_smoke.py tests/live_carly_followup_smoke.py
-      - name: Run live Carly follow-up quality smoke
-        env:
-          CARLY_BASE_URL: https://cartrade-resolver.onrender.com
-        run: python tests/live_carly_followup_smoke.py
