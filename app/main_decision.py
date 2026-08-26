@@ -7,6 +7,7 @@ compliance:
 * the latest explicit buyer constraints are pinned before a rerank;
 * a follow-up about a named visible car is anchored to that exact unit;
 * percentages and exact specs are checked against structured visible-car data;
+* unsupported unit certainty and speculative mechanical claims are blocked;
 * an unsafe / ungrounded answer gets one repair attempt before a deterministic
   conservative fallback is returned.
 """
@@ -24,6 +25,10 @@ app = guarded.app
 
 _PERCENT_RE = re.compile(r"\b(\d+(?:[.,]\d+)?)\s*%")
 _EXACT_AIRBAG_RE = re.compile(r"\b\d+\s+airbags?\b", re.I)
+_EXACT_FUEL_RE = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:km/l|km\s+por\s+litro|l/100\s*km)\b", re.I)
+_EXACT_HP_RE = re.compile(r"\b\d+\s*(?:hp|caballos(?:\s+de\s+fuerza)?)\b", re.I)
+_EXACT_ENGINE_RE = re.compile(r"\b\d(?:[.,]\d)?\s*(?:l|litros?)\b", re.I)
+
 _UNKNOWN_MARKERS = (
     "no tengo", "no aparece", "no esta en los datos", "no está en los datos",
     "no esta confirmado", "no está confirmado", "no puedo confirmar",
@@ -33,6 +38,18 @@ _UNKNOWN_MARKERS = (
 _DENIAL_MARKERS = (
     "no te lo recomende", "no te lo recomendé", "no lo recomende",
     "no lo recomendé", "nunca te lo recomende", "nunca te lo recomendé",
+)
+_ABSOLUTE_UNIT_CLAIMS = (
+    "no te va a dar dolores de cabeza", "no te dara dolores de cabeza",
+    "no te va a dar problemas", "no te dara problemas",
+    "esta en buen estado", "está en buen estado", "esta limpia", "está limpia",
+    "esta impecable", "está impecable", "sin problemas mecanicos",
+    "sin problemas mecánicos", "sin problemas de documentos",
+)
+_SPECULATIVE_MECHANICAL_PATTERNS = (
+    re.compile(r"manual.{0,100}(?:consume\s+menos|ahorra\s+gasolina|mas\s+economico\s+en\s+combustible)", re.I | re.S),
+    re.compile(r"manual.{0,120}(?:mantenimiento|caja).{0,80}mas\s+barat", re.I | re.S),
+    re.compile(r"(?:muchos|varios)\s+años?.{0,80}(?:mantenimiento|reparacion|reparación)\s+mayor", re.I | re.S),
 )
 
 
@@ -87,7 +104,14 @@ def _allowed_percentages(cars: list[dict]) -> list[float]:
 
 def _needs_unknown_marking(latest: str) -> bool:
     n = _norm(latest)
-    return any(x in n for x in ("airbag", "km por litro", "km/l", "accidente", "accidentes"))
+    return any(
+        x in n
+        for x in (
+            "airbag", "km por litro", "km/l", "consumo exacto", "rendimiento exacto",
+            "accidente", "accidentes", "caballos", " hp", "potencia", "motor exacto",
+            "cilindrada",
+        )
+    )
 
 
 def _reply_violations(reply: str, latest: str, refs: list[dict], visible: list[dict]) -> list[str]:
@@ -104,7 +128,7 @@ def _reply_violations(reply: str, latest: str, refs: list[dict], visible: list[d
         if year and year not in reply:
             violations.append("missing focused vehicle year")
 
-    if any(marker in n for marker in _DENIAL_MARKERS):
+    if any(_norm(marker) in n for marker in _DENIAL_MARKERS):
         violations.append("denied a vehicle already curated in the visible shortlist")
 
     pct_scope = refs or visible
@@ -116,9 +140,25 @@ def _reply_violations(reply: str, latest: str, refs: list[dict], visible: list[d
         if not any(abs(pct - expected) <= 1.0 for expected in allowed):
             violations.append(f"ungrounded percentage {pct}%")
 
-    latest_n = _norm(latest)
-    if "airbag" in latest_n and _EXACT_AIRBAG_RE.search(reply):
+    # These exact specs do not exist in the structured visible-car payload. They
+    # therefore cannot be asserted as facts about the unit, even if model-level
+    # memory makes the number sound plausible.
+    if _EXACT_AIRBAG_RE.search(reply):
         violations.append("echoed or invented an exact airbag count")
+    if _EXACT_FUEL_RE.search(reply):
+        violations.append("invented exact fuel economy")
+    if _EXACT_HP_RE.search(reply):
+        violations.append("invented exact horsepower")
+    if _EXACT_ENGINE_RE.search(reply):
+        violations.append("invented exact engine displacement")
+
+    if any(_norm(claim) in n for claim in _ABSOLUTE_UNIT_CLAIMS):
+        violations.append("unsupported certainty about unit condition or reliability")
+
+    for pattern in _SPECULATIVE_MECHANICAL_PATTERNS:
+        if pattern.search(n):
+            violations.append("speculative mechanical inference")
+            break
 
     if _needs_unknown_marking(latest) and not any(_norm(x) in n for x in _UNKNOWN_MARKERS):
         violations.append("failed to distinguish unknown from verified")
@@ -150,11 +190,23 @@ def _fallback_followup(latest: str, refs: list[dict], visible: list[dict], facts
             "general del modelo. Hay que verificar el equipamiento exacto dentro del proceso de "
             "CarTrade antes de cerrar."
         )
-    if "km por litro" in n or "km/l" in n:
+    if "km por litro" in n or "km/l" in n or "consumo" in n or "rendimiento" in n:
         return (
             f"Sobre el {name}: el consumo exacto no aparece confirmado en los datos de esta "
             "unidad. Puedo hablar de tendencias generales del modelo, pero no atribuirle una cifra "
             "a este carro sin respaldo. La condición mecánica se contrasta en la inspección de CarTrade."
+        )
+    if "caballos" in n or " hp" in n or "potencia" in n:
+        return (
+            f"Sobre el {name}: la potencia exacta no está confirmada en los datos disponibles de "
+            "esta unidad. No sería correcto completar la cifra con memoria general del modelo; el "
+            "equipamiento y la versión exacta deben verificarse antes del cierre."
+        )
+    if "motor" in n or "cilindrada" in n:
+        return (
+            f"Sobre el {name}: la motorización exacta de esta unidad no está confirmada en los datos "
+            "disponibles. Puedo orientarte sobre el modelo en general, pero la versión/motor exactos "
+            "deben verificarse dentro del proceso de CarTrade."
         )
     if "accidente" in n:
         return (
@@ -200,7 +252,9 @@ def _answer_followup_integrity(body):
         "Si el comprador nombra modelo/año, ESA unidad es el foco obligatorio. Repite modelo y año "
         "para dejar claro el anclaje. No calcules, derives ni improvises porcentajes: solo puedes "
         "copiar literalmente value_delta_pct o match_pct de la unidad o unidades que el comprador "
-        "está preguntando. Si un dato exacto no existe, responde explícitamente que no está confirmado."
+        "está preguntando. Si un dato exacto no existe, responde explícitamente que no está confirmado. "
+        "No atribuyas a una unidad consumo exacto, potencia, cilindrada, airbags, condición o confiabilidad "
+        "que no existan en los datos estructurados."
     )
     if refs:
         system += "\nFOCO RESUELTO POR SISTEMA: " + json.dumps(refs, ensure_ascii=False, separators=(",", ":"))
