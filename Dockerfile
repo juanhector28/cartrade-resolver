@@ -25,7 +25,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly production composition root. main_room adds a persistent Decision payload,
-# explicit execution state and market-watch refresh above the existing state,
-# grounding and hard-constraint layers.
-CMD uvicorn app.main_room:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly production composition root. main_preview enforces time-to-value above
+# Decision Room, state, grounding and hard-constraint layers.
+CMD uvicorn app.main_preview:app --host 0.0.0.0 --port ${PORT:-8000}
