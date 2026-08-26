@@ -1,12 +1,14 @@
 """Production composition root for Carly guardrails.
 
 The existing FastAPI implementation stays in app.main. This module patches only
-Carly's decision path at import time and exposes the same `app` object. Railway
-points here so the rollout is easy to revert while the guardrails prove out.
+Carly's decision path at import time and exposes the same `app` object. The
+wrapper also separates post-shortlist follow-up advice from fresh recommendation
+runs so a question about one visible car does not restart the whole funnel.
 """
 from __future__ import annotations
 
 import contextvars
+import json
 import re
 from typing import Any
 
@@ -34,6 +36,65 @@ _original_profile_from_extraction = legacy.profile_from_extraction
 _original_passes_filters = ranking.passes_filters
 _original_inventory = legacy._carly_inventory
 _original_rank_cars = legacy.rank_cars
+
+
+# A buyer can ask almost anything after the shortlist. Most of those turns should
+# be answered directly from the visible cars + conversation context. Only an
+# explicit change to search criteria should restart extraction/ranking.
+_RERANK_FOLLOWUP_RE = re.compile(
+    r"\b(?:"
+    r"reordena|reordenar|recomienda(?:me)?\s+(?:de\s+nuevo|otra\s+vez)|"
+    r"nuevas?\s+opciones|mas\s+opciones|más\s+opciones|"
+    r"cambia(?:r)?\s+(?:tu\s+)?recomendacion|cambia(?:r)?\s+(?:tu\s+)?recomendación|"
+    r"cambio\s+una\s+cosa|pensandolo\s+bien|pensándolo\s+bien|"
+    r"ahora\s+(?:puedo|quiero|necesito)|subo\s+(?:el\s+)?presupuesto|"
+    r"bajo\s+(?:el\s+)?(?:presupuesto|limite|límite)|"
+    r"mant[eé]n\s+(?:el\s+)?limite|mant[eé]n\s+(?:el\s+)?límite|"
+    r"maximo\s+\$|máximo\s+\$|maximo\s+\d[\d.,]*\s*(?:km|kms)|"
+    r"máximo\s+\d[\d.,]*\s*(?:km|kms)|menos\s+de\s+\d[\d.,]*\s*(?:km|kms)|"
+    r"hasta\s+\$\s*\d"
+    r")\b",
+    re.I,
+)
+
+_FOLLOWUP_SYSTEM_PROMPT = r"""
+Eres Carly, la asesora de compra de CarTrade, y estas en MODO FOLLOW-UP despues
+de que la persona ya vio opciones reales.
+
+Tu trabajo en este turno es responder DIRECTAMENTE la ultima pregunta. No
+reinicies el cuestionario, no vuelvas a presentar el shortlist completo y NO
+emitas <PROFILE> ni ningun bloque estructurado.
+
+REGLAS DE FOLLOW-UP:
+1) Usa la conversacion para recordar la vida y restricciones del comprador. No
+   sustituyas hechos por supuestos nuevos.
+2) Los datos de las unidades visibles que recibes abajo son autoritativos para
+   precio, año, km, ubicacion, transmision, señales de mercado y provenance.
+3) Si preguntan pros/contras o "por que este", separa:
+   - fit del modelo con la necesidad del comprador;
+   - datos concretos de ESA unidad;
+   - lo que todavia requiere verificacion.
+4) Puedes mencionar conocimiento GENERAL de un modelo solo como tendencia general
+   ("en general", "suele", "normalmente"), nunca como especificacion exacta de
+   esta unidad. Equipamiento, airbags, motor exacto, consumo exacto, historial de
+   accidentes, numero de dueños y condicion NO se inventan.
+5) Si un dato exacto no esta en las unidades visibles, dilo claramente. No llenes
+   el hueco con memoria del modelo. Para historial/condicion/km/documentos, explica
+   que la verificacion/inspeccion de CarTrade confirma lo que corresponda.
+6) Un precio sobre mercado significa caro frente a comparables, nada mas. No lo
+   conviertas en sospecha mecanica o documental.
+7) Si comparan dos o mas opciones, toma una posicion para ESTE comprador y explica
+   el trade-off. No respondas con "depende" sin criterio.
+8) Nunca prometas que una unidad "no dara problemas", "esta limpia" o "esta en
+   buen estado" antes de inspeccion.
+9) Si preguntan que hacer antes de comprar, el camino es CarTrade: Ver detalles /
+   Iniciar compra verificada, contacto con vendedor, verificacion, inspeccion,
+   documentos, custodia y cierre segun corresponda. No mandes al comprador a
+   buscar mecanico ni negociar por fuera.
+10) Responde con la extension que pida la pregunta. Por defecto 3-7 frases o una
+    lista corta si pros/contras lo amerita. No cierres cada respuesta con una
+    pregunta automatica; solo pregunta si de verdad falta un dato para responder.
+"""
 
 
 def _sanitize_frontend_meta(items: list[str]) -> list[str]:
@@ -125,8 +186,106 @@ def _rank_cars_guarded(cars, profile, top_n=5):
     return _original_rank_cars(live + references, profile, top_n=top_n)
 
 
-def _patch_empty_result_message():
-    """Make zero-match behavior explicit instead of implying silent relaxation."""
+def _request_body(args: tuple[Any, ...], kwargs: dict[str, Any]):
+    body = kwargs.get("body")
+    if body is not None:
+        return body
+    for arg in args:
+        if hasattr(arg, "messages") and hasattr(arg, "shown_cars"):
+            return arg
+    return None
+
+
+def _latest_user_text(body) -> str:
+    if body is None:
+        return ""
+    for message in reversed(list(getattr(body, "messages", None) or [])):
+        role = getattr(message, "role", None)
+        content = getattr(message, "content", None)
+        if isinstance(message, dict):
+            role = message.get("role")
+            content = message.get("content")
+        if str(role or "").lower() == "user":
+            return str(content or "").strip()
+    return ""
+
+
+def _should_answer_as_followup(body) -> bool:
+    """Visible cars + no explicit criteria change => answer, don't rerank."""
+    if body is None or not (getattr(body, "shown_cars", None) or []):
+        return False
+    latest = _latest_user_text(body)
+    if not latest:
+        return False
+    return not bool(_RERANK_FOLLOWUP_RE.search(latest))
+
+
+def _shown_car_payload(cars) -> list[dict]:
+    keep = (
+        "make", "model", "year", "km", "price_usd", "monthly_est", "body_type",
+        "transmission", "location", "value_delta_pct", "value_label", "caveat",
+        "inspect", "anomalies", "provenance", "strategy_label", "best_for",
+        "match_pct", "match_display", "value",
+    )
+    out = []
+    for car in list(cars or [])[:12]:
+        if not isinstance(car, dict):
+            try:
+                car = dict(car)
+            except Exception:
+                continue
+        out.append({k: car.get(k) for k in keep if car.get(k) is not None})
+    return out
+
+
+def _answer_followup(body):
+    """Direct post-shortlist answer grounded only in visible-car unit facts."""
+    if not legacy._anthropic:
+        return None
+
+    msgs, frontend_meta = _clean_frontend_context_guarded(body.messages)
+    facts = extract_explicit_facts(body.messages)
+    system = _FOLLOWUP_SYSTEM_PROMPT + "\n\n" + GUARDRAIL_PROMPT
+
+    if getattr(body, "country", None):
+        system += (
+            "\n\n# CONTEXTO CONFIRMADO POR EL SISTEMA\n"
+            f"Pais/codigo seleccionado: {body.country}."
+        )
+    if frontend_meta:
+        system += "\n" + "\n".join(frontend_meta)
+    canonical = canonical_context_line(facts)
+    if canonical and canonical not in system:
+        system += "\n" + canonical
+
+    cars = _shown_car_payload(getattr(body, "shown_cars", None) or [])
+    system += (
+        "\n\n# UNIDADES VISIBLES: DATOS AUTORITATIVOS DE ESTA CONVERSACION\n"
+        + json.dumps(cars, ensure_ascii=False, separators=(",", ":"))
+        + "\nNo inventes campos que no aparezcan aqui. Si el usuario pregunta un dato "
+          "exacto ausente, di que no esta confirmado en los datos disponibles."
+    )
+
+    resp = legacy._anthropic.messages.create(
+        model=legacy.CARLY_MODEL,
+        max_tokens=900,
+        system=system,
+        messages=msgs,
+    )
+    reply = "".join(
+        block.text for block in resp.content if getattr(block, "type", "") == "text"
+    ).strip()
+    # Follow-up mode never exposes internal structured protocol even if the model
+    # tries to emit it.
+    reply = re.sub(r"<PROFILE>.*?</PROFILE>", "", reply, flags=re.S | re.I).strip()
+    reply = re.sub(r"<PROFILE>.*$", "", reply, flags=re.S | re.I).strip()
+    if not reply:
+        return None
+    return {"phase": "conversation", "reply": reply}
+
+
+def _patch_carly_route():
+    """Add direct follow-up mode and preserve explicit zero-match behavior."""
     for route in getattr(legacy.app, "routes", []):
         if getattr(route, "path", None) != "/carly/chat":
             continue
@@ -138,6 +297,15 @@ def _patch_empty_result_message():
         original_endpoint = endpoint
 
         def guarded_endpoint(*args: Any, __original=original_endpoint, **kwargs: Any):
+            body = _request_body(args, kwargs)
+            if _should_answer_as_followup(body):
+                try:
+                    direct = _answer_followup(body)
+                    if direct:
+                        return direct
+                except Exception:
+                    legacy.log.exception("Carly direct follow-up failed; falling back to legacy path")
+
             result = __original(*args, **kwargs)
             if (
                 isinstance(result, dict)
@@ -168,6 +336,6 @@ profile_module.CARLY_SYSTEM_PROMPT = (
 )
 legacy.CARLY_SYSTEM_PROMPT = profile_module.CARLY_SYSTEM_PROMPT
 
-_patch_empty_result_message()
+_patch_carly_route()
 
 app = legacy.app
