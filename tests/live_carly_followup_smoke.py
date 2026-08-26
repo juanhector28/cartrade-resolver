@@ -41,6 +41,10 @@ def norm(text):
     return re.sub(r"\s+", " ", s).strip()
 
 
+def digits(text):
+    return re.sub(r"\D", "", str(text or ""))
+
+
 def car_name(car):
     return " ".join(str(x) for x in (car.get("make"), car.get("model"), car.get("year")) if x)
 
@@ -53,6 +57,8 @@ def ensure_clean_reply(result, label):
         raise AssertionError(f"{label}: empty reply")
     if "[DIAG]" in reply:
         raise AssertionError(f"{label}: diagnostic text leaked: {reply}")
+    if "<PROFILE>" in reply.upper():
+        raise AssertionError(f"{label}: internal PROFILE protocol leaked into buyer reply\n{reply}")
     return reply
 
 
@@ -129,7 +135,6 @@ def assert_market_pct_consistent(reply, car, label):
     mp = car.get("match_pct")
     if isinstance(mp, (int, float)):
         allowed.update({round(abs(mp)), int(abs(mp))})
-    # Ignore generic 100% phrases, but any market/match percentage must come from data.
     bad = [p for p in percentages if p != 100 and p not in allowed]
     if bad:
         raise AssertionError(f"{label}: percentage(s) not grounded in shown car data: {bad}; allowed={sorted(allowed)}\n{reply}")
@@ -138,6 +143,13 @@ def assert_market_pct_consistent(reply, car, label):
 def followup(base_messages, recs, text):
     messages = list(base_messages) + [{"role": "user", "content": text}]
     return post_chat(messages, shown_cars=recs)
+
+
+def _contains_number(reply, value):
+    if value is None:
+        return False
+    target = digits(round(float(value)))
+    return bool(target and target in digits(reply))
 
 
 def test_pros_cons(base_messages, recs, report):
@@ -157,9 +169,13 @@ def test_pros_cons(base_messages, recs, report):
             raise AssertionError(f"pros-cons:{name}: did not anchor the requested year\n{reply}")
         if "no te lo recomende" in n or "no lo recomende" in n:
             raise AssertionError(f"pros-cons:{name}: denied a car that is in Carly's curated recommendations\n{reply}")
-        if not any(k in n for k in ("a favor", "pros", "ventaja", "gana", "punto fuerte", "te conviene", "cuadra")):
+        if result.get("phase") != "conversation":
+            raise AssertionError(f"pros-cons:{name}: follow-up restarted recommendation flow ({result.get('phase')})\n{reply}")
+        if not (_contains_number(reply, car.get("km")) or _contains_number(reply, car.get("price_usd"))):
+            raise AssertionError(f"pros-cons:{name}: answer was not grounded in this unit's actual km/price\n{reply}")
+        if not any(k in n for k in ("a favor", "pros", "ventaja", "gana", "punto fuerte", "te conviene", "cuadra", "encaja", "empezaria por", "me gusta", "buena opcion")):
             raise AssertionError(f"pros-cons:{name}: no clear upside/reasoning\n{reply}")
-        if not any(k in n for k in ("en contra", "contra", "preocupa", "trade-off", "tradeoff", "ojo", "verificar", "pero", "punto debil")):
+        if not any(k in n for k in ("en contra", "contra", "preocupa", "trade-off", "tradeoff", "ojo", "verificar", "pero", "punto debil", "limite", "cuidado")):
             raise AssertionError(f"pros-cons:{name}: no honest downside/caveat\n{reply}")
         assert_no_unverified_certainty(reply, f"pros-cons:{name}")
         assert_no_invented_exact_specs(reply, f"pros-cons:{name}")
@@ -173,6 +189,8 @@ def test_comparison(base_messages, recs, report):
     result = followup(base_messages, recs, f"Entre el {an} y el {bn}, ¿cuál escogerías para mí y por qué?")
     reply = ensure_clean_reply(result, "comparison")
     n = norm(reply)
+    if result.get("phase") != "conversation":
+        raise AssertionError(f"comparison: follow-up restarted recommendation flow ({result.get('phase')})\n{reply}")
     for car in (a, b):
         if norm(car.get("model")) not in n:
             raise AssertionError(f"comparison: did not discuss both cars\n{reply}")
@@ -202,6 +220,8 @@ def test_unknown_facts(base_messages, recs, report):
     for key, question, ban_exact_specs in questions:
         result = followup(base_messages, recs, question)
         reply = ensure_clean_reply(result, f"unknown:{key}")
+        if result.get("phase") != "conversation":
+            raise AssertionError(f"unknown:{key}: fact question restarted recommendation flow ({result.get('phase')})\n{reply}")
         require_uncertainty(reply, f"unknown:{key}")
         assert_no_unverified_certainty(reply, f"unknown:{key}")
         if ban_exact_specs:
@@ -215,6 +235,8 @@ def test_cartrade_next_step(base_messages, recs, report):
     result = followup(base_messages, recs, f"¿Qué debería verificar antes de comprar el {name} y qué hago después?")
     reply = ensure_clean_reply(result, "next-step")
     n = norm(reply)
+    if result.get("phase") != "conversation":
+        raise AssertionError(f"next-step: advice question restarted recommendation flow ({result.get('phase')})\n{reply}")
     if "cartrade" not in n:
         raise AssertionError(f"next-step: Carly did not keep CarTrade in the execution path\n{reply}")
     if not any(k in n for k in ("inspeccion", "verificacion", "kilometraje", "documentos", "papeles")):
@@ -244,7 +266,6 @@ def assert_recommendation_constraints(result, max_km, max_price, label):
 
 
 def test_buyer_corrections(base_messages, recs, report):
-    # Raise budget while preserving the odometer ceiling.
     result = followup(
         base_messages, recs,
         "Cambio una cosa: ahora puedo llegar hasta $13,000, pero mantén el límite de 65,000 km. ¿Cambia tu recomendación?",
@@ -253,7 +274,6 @@ def test_buyer_corrections(base_messages, recs, report):
     assert_recommendation_constraints(result, 65000, 13000, "correction:budget")
     report.append({"test": "buyer_correction_budget", "status": "PASS", "reply": reply})
 
-    # Tighten odometer ceiling. Latest explicit buyer fact must win over history.
     result = followup(
         base_messages, recs,
         "Pensándolo bien, quiero máximo 50,000 km y sigo con máximo $12,000. Reordena tus opciones.",
