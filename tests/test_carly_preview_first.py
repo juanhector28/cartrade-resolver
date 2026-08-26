@@ -1,8 +1,15 @@
-from app.carly_preview_first import assistant_question_turns, preview_policy
+from app.carly_preview_first import assistant_question_turns, has_budget_signal, preview_policy
 
 
 def m(role, content):
     return {"role": role, "content": content}
+
+
+def test_down_payment_alone_is_not_affordability_ceiling():
+    messages = [m("user", "Quiero un Prado, tengo aproximadamente $3,000 de prima.")]
+    assert has_budget_signal(messages) is False
+    policy = preview_policy(messages)
+    assert policy["force_preview"] is False
 
 
 def test_prado_case_previews_after_budget_answer():
@@ -13,6 +20,7 @@ def test_prado_case_previews_after_budget_answer():
     ]
     policy = preview_policy(messages)
     assert assistant_question_turns(messages) == 1
+    assert policy["budget_signal"] is True
     assert policy["force_preview"] is True
     assert policy["reason"] == "enough_information_early"
 
