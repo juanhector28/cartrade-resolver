@@ -6,6 +6,7 @@ sales-positive without weakening factual rigor.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from . import main_preview as preview
@@ -14,6 +15,8 @@ from .carly_commercial import COMMERCIAL_PROMPT, commercialize_response
 app = preview.app
 legacy = preview.legacy
 guarded = preview.guarded
+
+RUNTIME_COMPOSITION = "commercial-v1"
 
 
 try:
@@ -26,6 +29,16 @@ try:
         guarded._FOLLOWUP_SYSTEM_PROMPT += COMMERCIAL_PROMPT
 except Exception:
     pass
+
+
+@app.get("/carly/runtime")
+def carly_runtime():
+    """Cheap deploy marker used by CI before any paid LLM smoke calls."""
+    return {
+        "ok": True,
+        "composition": RUNTIME_COMPOSITION,
+        "git_commit": os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or None,
+    }
 
 
 def _patch_commercial_route() -> None:
