@@ -14,9 +14,15 @@ El resultado persistido sigue siendo compatible con el esquema actual:
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from typing import Iterable, Optional
+
+# DEMO-DAY TOKEN GUARD:
+# Vision is expensive and is non-essential to Carly's conversational/search demo.
+# It is OFF by default and can only spend tokens when explicitly enabled in env.
+VISION_ENABLED = os.environ.get("CARLY_VISION_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 # Umbral compartido conceptualmente con carly_ranking.VISUAL_DAMAGE_THRESHOLD.
 DAMAGE_RISK_THRESHOLD = 0.50
@@ -174,7 +180,6 @@ def _sanitize_result(data: dict) -> Optional[dict]:
     note = str(note).strip()[:180] if note else None
 
     # Una respuesta sin señal concreta no debería disparar un riesgo >= umbral.
-    # Es un guardrail contra outputs mal calibrados del modelo.
     if risk >= DAMAGE_RISK_THRESHOLD and not signals:
         risk = min(risk, DAMAGE_RISK_THRESHOLD - 0.01)
 
@@ -193,6 +198,12 @@ def analyze_listing_damage(photo_urls: Iterable[str], client,
     Nunca lanza excepciones: la visión es enriquecimiento best-effort y no debe
     tumbar ingestión, ranking ni chat.
     """
+    # Emergency cost kill-switch. Unless CARLY_VISION_ENABLED=1 is explicitly set,
+    # this function performs ZERO Anthropic calls. Existing persisted vision data
+    # remains usable by ranking/search, so disabling fresh scans does not break Carly.
+    if not VISION_ENABLED:
+        return None
+
     photos = select_vision_photos(list(photo_urls or []), limit=MAX_VISION_PHOTOS)
     if not photos or client is None:
         return None
