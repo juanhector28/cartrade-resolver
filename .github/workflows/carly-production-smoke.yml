@@ -1,8 +1,8 @@
 name: Carly production objective smoke
 
+# PAID production smoke: manual only. Do not run on every push because each
+# journey calls the live /carly/chat endpoint and consumes Anthropic tokens.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
