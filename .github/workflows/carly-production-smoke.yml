@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: carly-production-objective-smoke
+  cancel-in-progress: true
+
 jobs:
   first-car-objective:
     runs-on: ubuntu-latest
@@ -17,20 +21,37 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify Carly objective, preview-first, and commercial behavior after deploy
+      - name: Wait for the exact Carly runtime to reach Render
         env:
           CARLY_BASE_URL: https://cartrade-resolver.onrender.com
         run: |
-          for attempt in 1 2 3 4 5 6 7 8; do
-            echo "Carly production smoke attempt $attempt"
-            if python tests/live_carly_objective_smoke.py && \
-               python tests/live_carly_preview_smoke.py && \
-               python tests/live_carly_commercial_smoke.py; then
+          for attempt in $(seq 1 24); do
+            echo "Render deploy check $attempt"
+            if python - <<'PY'
+          import json, os, urllib.request
+          try:
+              with urllib.request.urlopen(os.environ["CARLY_BASE_URL"] + "/carly/runtime", timeout=10) as r:
+                  data = json.loads(r.read().decode("utf-8"))
+              expected = os.environ.get("GITHUB_SHA")
+              deployed = data.get("git_commit")
+              ok = data.get("composition") == "commercial-v1" and (not deployed or deployed == expected)
+              print({"composition": data.get("composition"), "deployed": deployed, "expected": expected, "ready": ok})
+              raise SystemExit(0 if ok else 1)
+          except Exception as exc:
+              print(f"not ready: {exc}")
+              raise SystemExit(1)
+          PY
+            then
               exit 0
             fi
-            echo "Diagnostic snapshot after failed attempt $attempt"
-            python tests/diag_carly_live.py || true
-            sleep 20
+            sleep 10
           done
-          echo "Carly production objective/preview/commercial smoke failed after deploy window"
+          echo "Render never exposed the expected Carly runtime"
           exit 1
+      - name: Verify Carly objective, preview-first, and commercial behavior
+        env:
+          CARLY_BASE_URL: https://cartrade-resolver.onrender.com
+        run: |
+          python tests/live_carly_objective_smoke.py
+          python tests/live_carly_preview_smoke.py
+          python tests/live_carly_commercial_smoke.py
