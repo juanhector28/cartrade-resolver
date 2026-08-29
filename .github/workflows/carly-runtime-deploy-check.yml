@@ -34,7 +34,7 @@ jobs:
                       data = json.loads(r.read().decode("utf-8"))
                   deployed = data.get("git_commit")
                   composition = data.get("composition")
-                  ok = composition == "commercial-v9-advisor-intelligence" and deployed == expected
+                  ok = composition == "commercial-v10-verification-briefs" and deployed == expected
                   print({"attempt": attempt, "composition": composition,
                          "deployed": deployed, "expected": expected, "ready": ok})
                   if ok:
