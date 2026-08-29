@@ -39,6 +39,10 @@ _MONTHLY_SIGNAL_RE = re.compile(
     r"(?:cuota|mensual).{0,30}(?:\$\s*)?\d",
     re.I,
 )
+_OLD_BUDGET_MODE_RE = re.compile(
+    r"\s*¿?prefieres\s+pensar\s+en\s+precio\s+total\s+o\s+en\s+una\s+cuota\s+mensual\s+c[oó]moda\??",
+    re.I,
+)
 _DOWN_PAYMENT_SIGNAL_RE = re.compile(
     r"(?:prima|enganche|inicial|down\s*payment).{0,30}(?:\$\s*)?(\d[\d.,]*)(?:\s*k)?|"
     r"(?:\$\s*)?(\d[\d.,]*)(?:\s*k)?\s*(?:de\s+)?(?:prima|enganche|inicial|down\s*payment)",
@@ -63,17 +67,15 @@ def has_monthly_signal(messages: list[Any] | None) -> bool:
 
 
 def preferred_budget_question(reply: str) -> str:
-    """Collapse budget interrogation into one mode-agnostic question.
-
-    Carly does not need the buyer to choose a budget ontology. If they answer
-    "$15k" we parse total price; if they answer "$500 al mes" we parse a monthly
-    limit. One question is enough.
-    """
+    """Collapse budget interrogation into one mode-agnostic question."""
     text = (reply or "").strip()
     if not text:
         return text
     if any(p.search(text) for p in _BUDGET_QUESTION_PATTERNS) and "?" in text:
-        prefix = text.split("?", 1)[0].strip()
+        # If the old binary question itself is present, remove it rather than
+        # preserving it as a prefix and appending yet another question.
+        text = _OLD_BUDGET_MODE_RE.sub("", text).strip()
+        prefix = text.split("?", 1)[0].strip() if "?" in text else text
         if len(prefix) > 90 or "cuánto" in prefix.lower() or "cuanto" in prefix.lower():
             prefix = ""
         if prefix and not prefix.endswith((".", "!", ":")):
@@ -113,7 +115,6 @@ def financing_for_car(car: dict) -> dict:
 
 
 def monthly_payment(principal: float, apr: float, months: int) -> float:
-    """Deterministic amortization helper. Zero token cost."""
     principal = max(0.0, float(principal or 0))
     months = max(1, int(months or 1))
     rate = max(0.0, float(apr or 0)) / 12.0
@@ -123,7 +124,6 @@ def monthly_payment(principal: float, apr: float, months: int) -> float:
 
 
 def financing_scenarios(price: float, cash_available: float, apr: float = 0.12, months: int = 60) -> list[dict]:
-    """Compare a few useful down-payment levels without an LLM."""
     price = max(0.0, float(price or 0))
     cash = max(0.0, min(float(cash_available or 0), price))
     candidates = sorted({0.0, min(2500.0, cash), min(5000.0, cash), cash})
@@ -215,14 +215,12 @@ def commercialize_response(result: Any, messages: list[Any] | None = None) -> An
     if not isinstance(result, dict):
         return result
     if isinstance(result.get("reply"), str):
-        reply = preferred_budget_question(result["reply"])
-        # Safety net for old prompt text that may still exist in a cached runtime.
+        reply = result["reply"]
         if has_monthly_signal(messages):
-            reply = re.sub(
-                r"¿Prefieres pensar en precio total o en una cuota mensual cómoda\?",
-                "",
-                reply,
-                flags=re.I,
-            ).strip()
+            # Budget is already known. Strip the old mode question and do not
+            # replace it with another budget question.
+            reply = _OLD_BUDGET_MODE_RE.sub("", reply).strip()
+        else:
+            reply = preferred_budget_question(reply)
         result["reply"] = soften_advisory_tone(reply)
     return decorate_financing(result)
