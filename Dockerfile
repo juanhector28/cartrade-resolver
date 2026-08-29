@@ -25,6 +25,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v13 keeps routine paths deterministic, strengthens city incompatibility
-# filtering, and gives all replies compact scan-friendly presentation metadata.
-CMD uvicorn app.main_v13:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v14 adds deterministic relative vehicle advice at zero LLM token cost.
+CMD uvicorn app.main_v14:app --host 0.0.0.0 --port ${PORT:-8000}
