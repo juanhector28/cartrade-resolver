@@ -1,10 +1,8 @@
 """Deterministic recommendation quality gate for Carly.
 
 The ranking model should never be allowed to rescue obviously incompatible or
-misclassified inventory.  This layer is intentionally cheap: no LLM or vision
-calls are made here.  It corrects a few high-confidence body-type mistakes from
-model names and applies a conservative pre-rank gate for explicit compact-city
-journeys.
+misclassified inventory. This layer is intentionally cheap: no LLM or vision
+calls are made here.
 """
 from __future__ import annotations
 
@@ -36,19 +34,21 @@ def _canon_body(value: Any) -> str:
     return aliases.get(v, v)
 
 
-# High-confidence utility/commercial model families.  These are used only to
-# override clearly bad DB body labels such as L200="sedan" or Saveiro="sedan".
 _PICKUP_MODELS = re.compile(
     r"\b(?:hilux|hi lux|frontier|ranger|tacoma|d max|dmax|l200|np300|"
     r"ridgeline|colorado|tundra|titan|gladiator|dakota|hardbody|bt 50|"
     r"amarok|sierra|silverado|navara|triton|wingle|alaskan|maverick|"
-    r"f 150|f150|f 250|f250|raptor|saveiro|ram 1500)\b",
-    re.I,
+    r"f 150|f150|f 250|f250|raptor|saveiro|ram 1500)\b", re.I,
 )
 _COMMERCIAL_MODELS = re.compile(
     r"\b(?:hfc\w*|k2700|k2500|npr|nqr|dutro|canter|jac hfc|"
-    r"hiace|hi ace|urvan|transit|starex|h 1|h1|sprinter)\b",
-    re.I,
+    r"hiace|hi ace|urvan|transit|starex|h 1|h1|sprinter)\b", re.I,
+)
+# Common MPV/people-carrier families that are often mislabeled as sedans in raw
+# marketplace metadata. They are legitimate cars, just not compact-city matches.
+_MPV_MODELS = re.compile(
+    r"\b(?:c max|cmax|c-max|b max|bmax|b-max|touran|scenic|picasso|zafira|"
+    r"carens|rondo|prius v|verso|freed|stream)\b", re.I,
 )
 
 
@@ -58,9 +58,9 @@ def semantic_body(car: dict) -> str:
     if _PICKUP_MODELS.search(blob):
         return "pickup"
     if _COMMERCIAL_MODELS.search(blob):
-        # HFC/K-series/NPR are commercial vehicles; vans are grouped here because
-        # neither belongs in a compact-city shortlist.
         return "commercial"
+    if _MPV_MODELS.search(blob):
+        return "mpv"
     return _canon_body(car.get("body_type"))
 
 
@@ -77,13 +77,6 @@ def _profile_bodies(profile: Any, field: str) -> set[str]:
 
 
 def is_explicit_compact_city_profile(profile: Any) -> bool:
-    """Recognize the profile emitted for an explicit compact-city request.
-
-    `prefer_body=[hatchback, sedan]` is only emitted by the deterministic parser
-    when the buyer actually says compact/compacto, so it is safe to make the
-    incompatibility gate hard here even though the general ranker treats prefers
-    softly.
-    """
     if getattr(profile, "primary_job", None) != "city_runabout":
         return False
     bodies = _profile_bodies(profile, "prefer_body") | _profile_bodies(profile, "require_body")
@@ -98,26 +91,18 @@ def _num(value: Any) -> float | None:
 
 
 def eligible_for_profile(car: dict, profile: Any) -> bool:
-    """Cheap pre-rank eligibility gate.  Unknown signals do not cause rejection."""
+    """Cheap pre-rank eligibility gate. Unknown signals do not cause rejection."""
     c = normalize_car(car)
-
     risk = _num(c.get("visible_damage_risk"))
     if risk is not None and risk >= VISUAL_DAMAGE_THRESHOLD:
         return False
-
     quality = _num(c.get("quality_score"))
     if quality is not None and quality < MIN_LISTING_QUALITY:
         return False
-
-    # Do not recommend a listing with no usable visual at all. This is a product
-    # quality rule, not a claim about vehicle condition.
     if not c.get("primary_photo") and not c.get("photos"):
         return False
-
-    if is_explicit_compact_city_profile(profile):
-        if semantic_body(c) not in {"hatchback", "sedan"}:
-            return False
-
+    if is_explicit_compact_city_profile(profile) and semantic_body(c) not in {"hatchback", "sedan"}:
+        return False
     return True
 
 
@@ -133,20 +118,16 @@ def filter_pool(cars: list[dict], profile: Any) -> list[dict]:
 
 
 def install_rank_quality(original_rank: Callable) -> Callable:
-    """Wrap `rank_cars` once so every Carly chat path gets the same gate."""
     if getattr(original_rank, "_carly_quality_wrapped", False):
         return original_rank
-
     def quality_rank(cars, profile, *args, **kwargs):
         return original_rank(filter_pool(list(cars or []), profile), profile, *args, **kwargs)
-
     quality_rank._carly_quality_wrapped = True
     quality_rank._carly_original_rank = original_rank
     return quality_rank
 
 
 def filter_cards(cards: list[dict], profile: Any, limit: int | None = None) -> list[dict]:
-    """Final UI safety net for already-built cards."""
     out = []
     for card in cards or []:
         if not isinstance(card, dict):
