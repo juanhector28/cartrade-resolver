@@ -82,3 +82,18 @@ def test_monthly_is_not_misread_as_total_price():
     state = intake_state(messages, country="sv")
     assert state["max_monthly"] == 500
     assert state["max_price"] is None
+
+
+def test_outer_fastpath_keeps_budget_question_concise():
+    from types import SimpleNamespace
+    from app.main_commercial import _deterministic_outer_fastpath
+
+    body = SimpleNamespace(country="sv", shown_cars=[])
+    messages = [{"role": "user", "content": "Busco un compacto para ciudad, económico y fácil de estacionar"}]
+    out = _deterministic_outer_fastpath(body, messages)
+
+    assert out is not None
+    assert out["phase"] == "conversation"
+    assert out["token_path"] == "deterministic"
+    assert out["reply"] == "Entendido. ¿Qué cuota mensual te queda cómoda?"
+    assert "precio total" not in out["reply"].lower()
