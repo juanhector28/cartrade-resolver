@@ -1,8 +1,7 @@
 """Production commercial-advisory layer for Carly.
 
 Sits above preview-first and preserves every existing decision/state/grounding
-layer while making financing discoverable and keeping Carly's language
-sales-positive without weakening factual rigor.
+layer while making financing discoverable. The wrapper itself makes no LLM call.
 """
 from __future__ import annotations
 
@@ -16,7 +15,7 @@ app = preview.app
 legacy = preview.legacy
 guarded = preview.guarded
 
-RUNTIME_COMPOSITION = "commercial-v1"
+RUNTIME_COMPOSITION = "commercial-v2-low-token"
 
 
 try:
@@ -41,6 +40,13 @@ def carly_runtime():
     }
 
 
+def _request_body(args, kwargs):
+    try:
+        return guarded._request_body(args, kwargs)
+    except Exception:
+        return None
+
+
 def _patch_commercial_route() -> None:
     for route in getattr(app, "routes", []):
         if getattr(route, "path", None) != "/carly/chat":
@@ -52,8 +58,10 @@ def _patch_commercial_route() -> None:
         prior = endpoint
 
         def commercial_endpoint(*args: Any, __prior=prior, **kwargs: Any):
+            body = _request_body(args, kwargs)
             result = __prior(*args, **kwargs)
-            return commercialize_response(result)
+            messages = list(getattr(body, "messages", None) or []) if body is not None else []
+            return commercialize_response(result, messages=messages)
 
         route.endpoint = commercial_endpoint
         dependant.call = commercial_endpoint
