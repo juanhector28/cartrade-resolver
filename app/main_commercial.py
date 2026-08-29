@@ -15,7 +15,7 @@ app = preview.app
 legacy = preview.legacy
 guarded = preview.guarded
 
-RUNTIME_COMPOSITION = "commercial-v2-low-token"
+RUNTIME_COMPOSITION = "commercial-v3-token-fastpath"
 
 
 try:
@@ -36,6 +36,9 @@ def carly_runtime():
     return {
         "ok": True,
         "composition": RUNTIME_COMPOSITION,
+        "token_strategy": "rules-first",
+        "intake_fastpath": True,
+        "followup_max_tokens": 320,
         "git_commit": os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or None,
     }
 
