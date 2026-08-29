@@ -9,6 +9,7 @@ from typing import Any
 
 from . import main_room as room
 from .carly_fastpath import deterministic_intake_reply, extract_fast_profile
+from .carly_guardrails import apply_explicit_facts, extract_explicit_facts
 from .carly_preview_first import preview_policy
 
 app = room.app
@@ -25,9 +26,6 @@ carroceria secundaria, plazo ni prioridades blandas solo para completar perfil.
 Nunca hagas una cuarta pregunta antes del primer preview.
 """
 
-# Small extraction-only prompt used only when the deterministic parser cannot
-# safely classify a journey. This replaces resending Carly's full advisory prompt
-# for a mechanical JSON extraction task.
 _COMPACT_PROFILE_PROMPT = r"""
 Eres el extractor de estado de Carly. Devuelve SOLO <PROFILE>{json}</PROFILE>.
 No converses. No inventes datos. Desconocido = null o lista vacia.
@@ -109,10 +107,21 @@ def _profile_extraction(body) -> dict | None:
     return data
 
 
-def _preview_result(body, policy: dict, data: dict | None = None) -> dict | None:
+def _preview_result(body, policy: dict, data: dict | None = None, token_path: str | None = None) -> dict | None:
     data = data or _profile_extraction(body)
     if not data:
         return None
+
+    # Direct fast paths bypass the inner decision wrapper, so pin explicit hard
+    # facts here before profile creation. This prevents a cheap path from being
+    # less safe than the LLM path.
+    facts = extract_explicit_facts(list(getattr(body, "messages", None) or []))
+    apply_explicit_facts(data, facts)
+    try:
+        guarded._facts_ctx.set(dict(facts))
+    except Exception:
+        pass
+
     try:
         profile = legacy.profile_from_extraction(data)
         chat_country = data.get("country") if isinstance(data, dict) else None
@@ -159,7 +168,7 @@ def _preview_result(body, policy: dict, data: dict | None = None) -> dict | None
         "show_market_animation": True,
         "replace_recommendations": True,
         "clear_recommendations": False,
-        "token_path": "deterministic" if extract_fast_profile(list(getattr(body, "messages", None) or []), country=getattr(body, "country", None)) else "compact_extraction",
+        "token_path": token_path or "compact_extraction",
     }
     result = room.state.apply_ui_contract(result)
     return room.decorate_response(result, country=country)
@@ -200,17 +209,18 @@ def _patch_preview_route() -> None:
             visible = bool(getattr(body, "shown_cars", None) or []) if body is not None else False
             policy = preview_policy(messages, has_visible_cars=visible)
 
-            # Zero-token path: common request already contains a clear job + budget.
-            # Rank immediately instead of asking the conversational LLM to emit the
-            # same structured profile first.
             if body is not None and not visible:
                 fast = extract_fast_profile(messages, country=getattr(body, "country", None))
                 if fast:
-                    direct = _preview_result(body, {**policy, "reason": "deterministic_fastpath"}, data=fast)
+                    direct = _preview_result(
+                        body,
+                        {**policy, "reason": "deterministic_fastpath"},
+                        data=fast,
+                        token_path="deterministic",
+                    )
                     if direct is not None:
                         return direct
 
-                # Common missing-blocker questions do not require generative AI.
                 blocker = deterministic_intake_reply(messages, country=getattr(body, "country", None))
                 if blocker and not policy.get("force_preview"):
                     return {
@@ -219,10 +229,10 @@ def _patch_preview_route() -> None:
                         "token_path": "deterministic",
                     }
 
-                # If the question cap is already reached, do not pay for the normal
-                # conversational call and then pay again for forced extraction.
+                # Avoid the historical double-spend: conversational LLM first,
+                # forced profile extraction second. At the cap, extract once.
                 if policy.get("force_preview"):
-                    forced = _preview_result(body, policy)
+                    forced = _preview_result(body, policy, token_path="compact_extraction")
                     if forced is not None:
                         return forced
 
