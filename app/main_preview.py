@@ -1,15 +1,14 @@
 """Production preview-first layer for Carly.
 
-Sits above the Decision Room. Carly should earn the right to keep asking by
-showing useful market value first: target <=2 questions before the first preview,
-third only for a genuine blocker, and never a fourth pre-preview question.
+Sits above the Decision Room. Common intake journeys are resolved with rules and
+structured state first; the LLM is reserved for ambiguous language.
 """
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from . import main_room as room
+from .carly_fastpath import deterministic_intake_reply, extract_fast_profile
 from .carly_preview_first import preview_policy
 
 app = room.app
@@ -19,47 +18,34 @@ guarded = room.guarded
 
 PREVIEW_FIRST_PROMPT = r"""
 
-# PREVIEW FIRST: REGLA DE TIME-TO-VALUE
-Tu objetivo no es completar un perfil perfecto antes de enseñar mercado. Tu
-objetivo es darle valor al comprador lo antes posible y refinar DESPUES de que
-ya tenga carros reales enfrente.
-
-Reglas obligatorias antes del primer shortlist:
-1) Aspira a mostrar una primera ronda tras 0-2 preguntas útiles.
-2) Si ya conoces una intención/uso razonable Y algún límite de presupuesto o
-   capacidad de pago, EMITE <PROFILE> y recomienda ahora. Lo desconocido queda
-   como null o preferencia pendiente; no bloquea el preview.
-3) Una tercera pregunta solo se permite si todavía falta UNO de estos dos
-   bloques materiales: (a) intención/uso suficientemente entendible, o (b) una
-   referencia de presupuesto/capacidad de pago.
-4) NUNCA hagas una cuarta pregunta antes de mostrar mercado. Después de tres
-   preguntas, emite el mejor <PROFILE> provisional posible con lo que sabes y
-   muestra una primera ronda, aunque queden preferencias por afinar.
-5) Marca, transmisión, carrocería secundaria, plazo financiero, prioridad
-   declarada y detalles blandos NO bloquean el primer preview salvo que el
-   comprador los haya expresado como requisito duro.
-6) Si la persona pide un modelo concreto, no uses preguntas de estilo de vida
-   para retrasar el preview. Primero enseña mercado relevante; luego afina si
-   hace falta.
-7) El primer shortlist es una hipótesis útil, no una sentencia final. Después de
-   mostrarlo puedes seguir aprendiendo y reordenar con cada dato nuevo.
-
-Patrón de producto: understand enough -> preview -> learn -> rerank -> decide.
+# PREVIEW FIRST
+Muestra mercado pronto. Si ya entiendes uso/intencion y existe presupuesto o
+capacidad de pago, emite <PROFILE> y recomienda. No preguntes marca, transmision,
+carroceria secundaria, plazo ni prioridades blandas solo para completar perfil.
+Nunca hagas una cuarta pregunta antes del primer preview.
 """
 
-_FORCE_PROFILE_PROMPT = r"""
+# Small extraction-only prompt used only when the deterministic parser cannot
+# safely classify a journey. This replaces resending Carly's full advisory prompt
+# for a mechanical JSON extraction task.
+_COMPACT_PROFILE_PROMPT = r"""
+Eres el extractor de estado de Carly. Devuelve SOLO <PROFILE>{json}</PROFILE>.
+No converses. No inventes datos. Desconocido = null o lista vacia.
 
-# FORZAR PREVIEW AHORA
-El límite de preguntas pre-preview ya se alcanzó o ya existe información
-suficiente. NO hagas otra pregunta. Extrae el mejor perfil provisional posible
-solo con hechos explícitos/inferencias permitidas por Carly. Campos desconocidos
-quedan null o vacíos. No inventes presupuesto, pasajeros, kilometraje, plazo ni
-preferencias.
+Campos:
+country, target_monthly, max_monthly, target_price, max_price, min_year,
+primary_job, secondary_job, usage, daily_km, passengers, small_children,
+road_mix, cargo_level, holding_period, cost_sensitivity, priority, secondary,
+avoid_body, require_body, prefer_body, intent_segment, avoid_transmission,
+avoid_brands, prefer_brands, require_brands, open_to_surprise.
 
-Devuelve SOLO un bloque <PROFILE> válido según el esquema de Carly. No agregues
-prosa antes ni después. Si hay país confirmado por sistema, úsalo. Si el usuario
-dio una cuota máxima, guárdala como max_monthly; si dio precio total máximo,
-max_price. Una prima/enganche por sí sola NO es precio total máximo.
+primary_job/secondary_job solo: daily_commute, family_transport, first_car,
+work_vehicle, delivery, long_distance, city_runabout, upgrade,
+status_lifestyle, weekend_adventure, rideshare.
+
+Reglas: una cuota declarada como maximo/techo -> max_monthly. Un precio total
+maximo -> max_price. Una prima NO es presupuesto. "solo/tiene que ser" = hard;
+"me gusta/preferiria" = preferencia. No emitas pesos ni ideal_vector.
 """
 
 try:
@@ -76,29 +62,40 @@ def _request_body(args, kwargs):
         return None
 
 
+def _compact_messages(messages, keep: int = 6):
+    rows = list(messages or [])
+    return rows[-keep:] if len(rows) > keep else rows
+
+
 def _profile_extraction(body) -> dict | None:
-    if body is None or not legacy._anthropic:
+    """Extract profile with rules first, one compact LLM call only if needed."""
+    if body is None:
         return None
-    msgs, frontend_meta = guarded._clean_frontend_context_guarded(body.messages)
-    system = legacy.CARLY_SYSTEM_PROMPT + _FORCE_PROFILE_PROMPT
     country = getattr(body, "country", None)
+    messages = list(getattr(body, "messages", None) or [])
+
+    fast = extract_fast_profile(messages, country=country)
+    if fast:
+        return fast
+
+    if not legacy._anthropic:
+        return None
+    msgs, frontend_meta = guarded._clean_frontend_context_guarded(_compact_messages(messages))
+    system = _COMPACT_PROFILE_PROMPT
     if country:
-        system += (
-            "\n\n# CONTEXTO CONFIRMADO POR EL SISTEMA\n"
-            f"Pais/codigo seleccionado: {country}. No lo vuelvas a preguntar."
-        )
+        system += f"\nPais confirmado por sistema: {str(country).lower().strip()}."
     if frontend_meta:
-        system += "\n" + "\n".join(frontend_meta)
+        system += "\n" + "\n".join(frontend_meta[-3:])
 
     try:
         resp = legacy._anthropic.messages.create(
             model=legacy.CARLY_MODEL,
-            max_tokens=1000,
+            max_tokens=450,
             system=system,
             messages=msgs,
         )
     except Exception:
-        legacy.log.exception("Carly preview-first forced extraction failed")
+        legacy.log.exception("Carly compact profile extraction failed")
         return None
 
     raw = "".join(
@@ -112,8 +109,8 @@ def _profile_extraction(body) -> dict | None:
     return data
 
 
-def _preview_result(body, policy: dict) -> dict | None:
-    data = _profile_extraction(body)
+def _preview_result(body, policy: dict, data: dict | None = None) -> dict | None:
+    data = data or _profile_extraction(body)
     if not data:
         return None
     try:
@@ -137,14 +134,13 @@ def _preview_result(body, policy: dict) -> dict | None:
         ).strip()
         reply = (
             "Ya tengo suficiente para darte una primera ronda. "
-            + (f"Con lo que sé hasta ahora, empezaría mirando el {name}. " if name else "")
-            + "Te muestro mis mejores opciones y afinamos el ranking mientras las ves."
+            + (f"Con lo que sé hasta ahora, empezaría por el {name}. " if name else "")
+            + "Te muestro solo las opciones que pasan mi filtro y afinamos desde ahí."
         )
     else:
         reply = (
-            "Ya tengo suficiente para revisar el mercado sin seguir interrogándote. "
-            "No encontré un match exacto con lo que sé hasta ahora; podemos afinar desde "
-            "aquí sin reiniciar la búsqueda."
+            "Ya tengo suficiente para revisar el mercado. No encontré un match exacto "
+            "con estos criterios; podemos afinar sin reiniciar la búsqueda."
         )
 
     result = {
@@ -163,8 +159,8 @@ def _preview_result(body, policy: dict) -> dict | None:
         "show_market_animation": True,
         "replace_recommendations": True,
         "clear_recommendations": False,
+        "token_path": "deterministic" if extract_fast_profile(list(getattr(body, "messages", None) or []), country=getattr(body, "country", None)) else "compact_extraction",
     }
-    # Preserve the same frontend state contract emitted by main_state.
     result = room.state.apply_ui_contract(result)
     return room.decorate_response(result, country=country)
 
@@ -204,18 +200,33 @@ def _patch_preview_route() -> None:
             visible = bool(getattr(body, "shown_cars", None) or []) if body is not None else False
             policy = preview_policy(messages, has_visible_cars=visible)
 
+            # Zero-token path: common request already contains a clear job + budget.
+            # Rank immediately instead of asking the conversational LLM to emit the
+            # same structured profile first.
+            if body is not None and not visible:
+                fast = extract_fast_profile(messages, country=getattr(body, "country", None))
+                if fast:
+                    direct = _preview_result(body, {**policy, "reason": "deterministic_fastpath"}, data=fast)
+                    if direct is not None:
+                        return direct
+
+                # Common missing-blocker questions do not require generative AI.
+                blocker = deterministic_intake_reply(messages, country=getattr(body, "country", None))
+                if blocker and not policy.get("force_preview"):
+                    return {
+                        "phase": "conversation",
+                        "reply": blocker,
+                        "token_path": "deterministic",
+                    }
+
+                # If the question cap is already reached, do not pay for the normal
+                # conversational call and then pay again for forced extraction.
+                if policy.get("force_preview"):
+                    forced = _preview_result(body, policy)
+                    if forced is not None:
+                        return forced
+
             result = __prior(*args, **kwargs)
-            # The prompt should normally cause Carly to preview on her own. This
-            # runtime fallback makes the question cap an invariant, not a request.
-            if (
-                isinstance(result, dict)
-                and result.get("phase") == "conversation"
-                and policy.get("force_preview")
-                and not visible
-            ):
-                forced = _preview_result(body, policy)
-                if forced is not None:
-                    return forced
             return _mark_first_preview(result, body, policy)
 
         route.endpoint = preview_endpoint
