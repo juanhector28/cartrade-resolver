@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from app.carly_commercial import (
     commercialize_response,
     financing_for_car,
@@ -7,6 +9,7 @@ from app.carly_commercial import (
     preferred_budget_question,
     soften_advisory_tone,
 )
+from app import main_commercial
 
 
 def test_budget_question_is_single_mode_agnostic_question():
@@ -79,3 +82,59 @@ def test_recommendation_gets_financing_and_advisor_metadata():
     assert out["recommendation_depth"]["choices"] == [3, 5, 10]
     assert out["recommendation_depth"]["default"] == 3
     assert out["recommendation_depth"]["never_fill_below_quality_threshold"] is True
+
+
+def test_standalone_500_survives_missing_assistant_context():
+    messages = [
+        {"role": "user", "content": "Busco un compacto para ciudad, económico y fácil de estacionar"},
+        # Reproduces the live client-state race: prior assistant turn is absent.
+        {"role": "user", "content": "500"},
+    ]
+    repaired = main_commercial._repair_missing_monthly_context(messages, country="sv")
+    profile = main_commercial.preview.extract_fast_profile(repaired, country="sv")
+    assert profile is not None
+    assert profile["max_monthly"] == 500
+    assert profile["primary_job"] == "city_runabout"
+
+
+def test_rank_cap_never_returns_six_equal_strong_recommendations():
+    def original(cars, profile, *args, **kwargs):
+        return kwargs.get("top_n")
+
+    capped = main_commercial._install_rank_cap(original, cap=3)
+    assert capped([], object(), top_n=6) == 3
+    assert capped([], object(), top_n=2) == 2
+
+
+def test_inventory_gate_blocks_misclassified_pickup_before_explore():
+    rows = [
+        {
+            "make": "Mitsubishi", "model": "L200", "year": 2025,
+            "body_type": "sedan", "primary_photo": "x", "quality_score": 90,
+        },
+        {
+            "make": "Kia", "model": "Rio", "year": 2021,
+            "body_type": "hatchback", "primary_photo": "y", "quality_score": 90,
+        },
+    ]
+    profile = SimpleNamespace(primary_job="city_runabout", prefer_body=["hatchback", "sedan"], require_body=[])
+
+    wrapped = main_commercial._install_inventory_quality(lambda profile, **kwargs: rows)
+    out = wrapped(profile)
+    assert [c["model"] for c in out] == ["Rio"]
+
+
+def test_compound_why_and_concern_followup_answers_both_questions():
+    decision = main_commercial.preview.room.state.decision
+    car = {
+        "make": "Skoda", "model": "Fabia", "year": 2017,
+        "body_type": "hatchback", "price_usd": 5000, "monthly_est": 119,
+    }
+    reply = decision._deterministic_followup(
+        "Cuéntame más del Skoda Fabia 2017: ¿por qué me lo recomiendas y qué debería preocuparme?",
+        [car], [car], {},
+    )
+    low = reply.lower()
+    assert "porque" in low
+    assert "valid" in low
+    assert "publicado en $5,000. ese es el precio" not in low
