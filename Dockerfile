@@ -25,5 +25,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v14 adds deterministic relative vehicle advice at zero LLM token cost.
-CMD uvicorn app.main_v14:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v15 keeps continuation/pagination deterministic and zero-token.
+CMD uvicorn app.main_v15:app --host 0.0.0.0 --port ${PORT:-8000}
