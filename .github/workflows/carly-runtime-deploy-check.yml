@@ -1,7 +1,6 @@
 name: Carly runtime deploy check
 
-# ZERO Anthropic calls. This only polls the cheap runtime marker so we know the
-# exact backend commit is live before asking a human to test Carly.
+# ZERO model calls. Poll only the runtime marker.
 on:
   push:
     branches: [main]
@@ -34,7 +33,7 @@ jobs:
                       data = json.loads(r.read().decode("utf-8"))
                   deployed = data.get("git_commit")
                   composition = data.get("composition")
-                  ok = composition == "commercial-v17-coherent-recommendation-set" and deployed == expected
+                  ok = composition == "commercial-v18-recurring-invariant-guard" and deployed == expected
                   print({"attempt": attempt, "composition": composition,
                          "deployed": deployed, "expected": expected, "ready": ok})
                   if ok:
