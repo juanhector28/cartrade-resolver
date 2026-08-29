@@ -9,10 +9,12 @@ from app.carly_commercial import (
 )
 
 
-def test_budget_question_is_low_friction_choice():
+def test_budget_question_is_single_mode_agnostic_question():
     text = "Perfecto. ¿Cuánto puedes destinar al mes en cuota, o tienes un precio total en mente?"
     out = preferred_budget_question(text)
-    assert "¿Prefieres pensar en precio total o en una cuota mensual cómoda?" in out
+    assert "¿Cuál es tu presupuesto?" in out
+    assert "precio total o cuota máxima" in out
+    assert "Prefieres pensar" not in out
     assert "Cuánto puedes destinar" not in out
 
 
