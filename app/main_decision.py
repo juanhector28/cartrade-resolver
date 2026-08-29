@@ -1,8 +1,7 @@
 """Final production integrity layer for Carly discovery + decision quality.
 
-This module sits on top of ``main_guarded``. It turns the most important
-post-shortlist rules into runtime invariants instead of relying only on prompt
-compliance.
+Post-shortlist turns are deterministic whenever structured vehicle data is enough.
+Only genuinely interpretive follow-ups reach the LLM, with a compact prompt/context.
 """
 from __future__ import annotations
 
@@ -44,6 +43,16 @@ _SPECULATIVE_MECHANICAL_PATTERNS = (
     re.compile(r"manual.{0,120}(?:mantenimiento|caja).{0,80}mas\s+barat", re.I | re.S),
     re.compile(r"(?:muchos|varios)\s+años?.{0,80}(?:mantenimiento|reparacion|reparación)\s+mayor", re.I | re.S),
 )
+
+_LOW_TOKEN_FOLLOWUP_PROMPT = r"""
+Eres Carly en follow-up. Responde la ultima pregunta en español neutro, directo,
+normalmente 2-5 frases. No reinicies el cuestionario ni emitas PROFILE.
+UNIDADES contiene los hechos autoritativos de cada unidad. No inventes specs,
+condicion, historial ni porcentajes. Si falta un dato exacto, di que no esta
+confirmado. Conocimiento general del modelo solo como tendencia general. Si el
+usuario compara, toma posicion para su caso. Si pide siguiente paso, CarTrade
+verifica vendedor/unidad, inspeccion, documentos, pago y cierre.
+"""
 
 
 def _norm(value: Any) -> str:
@@ -155,44 +164,119 @@ def _fallback_followup(latest: str, refs: list[dict], visible: list[dict], facts
     return f"Sobre el {name}: para tu caso{(' (' + context + ')') if context else ''}, sigue siendo una opción válida. Sí puedo sostener {concrete_text}. Estado, historial y documentos requieren verificación antes de cerrar."
 
 
-def _compact_messages(messages, keep: int = 8):
-    """Bound paid follow-up context. Structured state carries the hard facts."""
+def _compact_messages(messages, keep: int = 6):
     rows = list(messages or [])
-    if len(rows) <= keep:
-        return rows
-    return rows[-keep:]
+    return rows[-keep:] if len(rows) > keep else rows
+
+
+def _compact_car(car: dict) -> dict:
+    keep = (
+        "make", "model", "year", "km", "price_usd", "monthly_est", "body_type",
+        "transmission", "value_delta_pct", "value_label", "caveat", "inspect",
+        "strategy_label", "best_for", "match_pct",
+    )
+    return {k: car.get(k) for k in keep if car.get(k) is not None}
+
+
+def _focused_visible(latest: str, visible: list[dict], limit: int = 6) -> tuple[list[dict], list[dict]]:
+    """Keep the named unit even when it came from the tail of Explore."""
+    refs = _referenced_cars(latest, visible)
+    out: list[dict] = []
+    seen = set()
+    for car in refs + visible:
+        key = (car.get("make"), car.get("model"), car.get("year"), car.get("price_usd"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(_compact_car(car))
+        if len(out) >= limit:
+            break
+    return out, _referenced_cars(latest, out)
+
+
+def _deterministic_followup(latest: str, refs: list[dict], visible: list[dict], facts: dict) -> str | None:
+    """Answer common fact/advisor questions with zero model tokens."""
+    n = _norm(latest)
+    if _needs_unknown_marking(latest) and (refs or visible):
+        return _fallback_followup(latest, refs, visible, facts)
+
+    focus = refs[0] if len(refs) == 1 else None
+    if focus:
+        name = _car_name(focus)
+        if any(x in n for x in ("cuanto cuesta", "precio", "precio tiene")) and focus.get("price_usd") is not None:
+            return f"El {name} está publicado en ${float(focus['price_usd']):,.0f}. Ese es el precio reportado por el anuncio; el valor final se valida antes del cierre."
+        if any(x in n for x in ("cuota", "al mes", "mensual")) and focus.get("monthly_est") is not None:
+            return f"Para el {name}, la cuota estimada que tengo es de aproximadamente ${float(focus['monthly_est']):,.0f}/mes. Es una estimación hasta la pre-calificación y condiciones finales."
+        if any(x in n for x in ("kilometraje", "cuantos km", "kilometros")) and focus.get("km") is not None:
+            return f"El anuncio del {name} reporta {float(focus['km']):,.0f} km. CarTrade contrasta el kilometraje dentro de la verificación antes de cerrar."
+        if any(x in n for x in ("transmision", "automatico", "manual")) and focus.get("transmission"):
+            return f"El {name} aparece publicado con transmisión {focus['transmission']}. Ese dato se confirma con la unidad antes del cierre."
+        if any(x in n for x in ("por que este", "por que me lo recomiendas", "why this")):
+            facts_bits = []
+            if focus.get("monthly_est") is not None:
+                facts_bits.append(f"cuota estimada de ${float(focus['monthly_est']):,.0f}/mes")
+            if focus.get("price_usd") is not None:
+                facts_bits.append(f"precio de ${float(focus['price_usd']):,.0f}")
+            if focus.get("value_label"):
+                facts_bits.append(str(focus.get("value_label")))
+            grounded = ", ".join(facts_bits[:3]) or "los datos concretos de esta unidad"
+            tail = focus.get("caveat") or focus.get("inspect") or "estado, historial y documentos"
+            return f"Yo empezaría por el {name} porque quedó arriba en tu ranking y combina bien con tu búsqueda. En esta unidad puedo sostener {grounded}. Antes de cerrar, todavía validaría {tail}."
+        if any(x in n for x in ("preocupa", "preocupar", "validar", "revisar antes", "que revisar")):
+            tail = focus.get("caveat") or focus.get("inspect") or "estado, historial, kilometraje y documentos"
+            return f"En el {name}, lo principal que validaría antes de avanzar es {tail}. No asumiría un problema por eso: simplemente es lo que falta confirmar sobre esta unidad."
+
+    if not refs and visible and any(x in n for x in ("cual comprarias", "cual elegirias", "por cual empezarias")):
+        top = visible[0]
+        name = _car_name(top)
+        reason = []
+        if top.get("monthly_est") is not None:
+            reason.append(f"~${float(top['monthly_est']):,.0f}/mes")
+        if top.get("value_label"):
+            reason.append(str(top["value_label"]))
+        suffix = " y ".join(reason[:2])
+        return f"Yo empezaría por el {name}" + (f": {suffix}." if suffix else ".") + " Es el que Carly tiene arriba del shortlist para tu búsqueda actual; después validaría la unidad antes de cerrar."
+    return None
 
 
 def _answer_followup_integrity(body):
     if not legacy._anthropic:
         return None
-    msgs, frontend_meta = guarded._clean_frontend_context_guarded(_compact_messages(body.messages))
+
     facts = extract_explicit_facts(body.messages)
-    visible = guarded._shown_car_payload(getattr(body, "shown_cars", None) or [])[:8]
+    all_visible = guarded._shown_car_payload(getattr(body, "shown_cars", None) or [])
     latest = guarded._latest_user_text(body)
-    refs = _referenced_cars(latest, visible)
-    system = guarded._FOLLOWUP_SYSTEM_PROMPT + "\n\n" + guarded.GUARDRAIL_PROMPT
-    system += "\n\n# GROUNDING\nUsa solo datos estructurados de las unidades visibles. Si falta un dato exacto, di que no está confirmado. Toma posición cuando compares opciones."
+    visible, refs = _focused_visible(latest, all_visible, limit=6)
+
+    deterministic = _deterministic_followup(latest, refs, visible, facts)
+    if deterministic:
+        return {"phase": "conversation", "reply": deterministic, "token_path": "deterministic"}
+
+    msgs, frontend_meta = guarded._clean_frontend_context_guarded(_compact_messages(body.messages))
+    system = _LOW_TOKEN_FOLLOWUP_PROMPT
     if refs:
         system += "\nFOCO:" + json.dumps(refs, ensure_ascii=False, separators=(",", ":"))
-    if getattr(body, "country", None): system += f"\nPais:{body.country}."
-    if frontend_meta: system += "\n" + "\n".join(frontend_meta)
+    if getattr(body, "country", None):
+        system += f"\nPais:{body.country}."
     canonical = canonical_context_line(facts)
-    if canonical: system += "\n" + canonical
+    if canonical:
+        system += "\n" + canonical
+    if frontend_meta:
+        system += "\n" + "\n".join(frontend_meta[-2:])
     system += "\nUNIDADES:" + json.dumps(visible, ensure_ascii=False, separators=(",", ":"))
 
-    # One paid attempt only. If guardrails reject it, use the deterministic
-    # fallback instead of paying for a second repair generation.
     resp = legacy._anthropic.messages.create(
         model=legacy.CARLY_MODEL,
-        max_tokens=550,
+        max_tokens=320,
         system=system,
         messages=msgs,
     )
     reply = "".join(block.text for block in resp.content if getattr(block, "type", "") == "text").strip()
     if reply and not _reply_violations(reply, latest, refs, visible):
-        return guarded._sanitize_buyer_reply({"phase": "conversation", "reply": reply})
-    return {"phase": "conversation", "reply": _fallback_followup(latest, refs, visible, facts)}
+        out = guarded._sanitize_buyer_reply({"phase": "conversation", "reply": reply})
+        out["token_path"] = "compact_llm"
+        return out
+    return {"phase": "conversation", "reply": _fallback_followup(latest, refs, visible, facts), "token_path": "deterministic_fallback"}
 
 
 def _apply_result_facts(result: Any, facts: dict) -> Any:
@@ -215,6 +299,7 @@ def _patch_decision_route():
         if endpoint is None or dependant is None:
             continue
         prior_endpoint = endpoint
+
         def decision_endpoint(*args: Any, __prior=prior_endpoint, **kwargs: Any):
             body = guarded._request_body(args, kwargs)
             facts = extract_explicit_facts(getattr(body, "messages", None) or []) if body is not None else {}
@@ -228,6 +313,7 @@ def _patch_decision_route():
                     legacy.log.exception("Carly integrity follow-up failed; using guarded fallback path")
             result = __prior(*args, **kwargs)
             return guarded._sanitize_buyer_reply(_apply_result_facts(result, facts))
+
         route.endpoint = decision_endpoint
         dependant.call = decision_endpoint
         break
