@@ -25,6 +25,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly production composition root. main_v7 adds stale-client-state recovery
-# above commercial, preview-first, Decision Room, grounding and quality layers.
-CMD uvicorn app.main_v7:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly production composition root. main_v8 makes deterministic intake parse
+# only buyer-visible text while preserving CarTrade runtime context downstream.
+CMD uvicorn app.main_v8:app --host 0.0.0.0 --port ${PORT:-8000}
