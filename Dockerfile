@@ -25,5 +25,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v17 exposes one coherent eligible recommendation set and truthful paging.
-CMD uvicorn app.main_v17:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v18 guards recurring state, count, paging and CarTrade-handoff failures.
+CMD uvicorn app.main_v18:app --host 0.0.0.0 --port ${PORT:-8000}
