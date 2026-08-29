@@ -1,10 +1,8 @@
-"""Carly v10 vehicle briefs.
+"""Deterministic, verification-aware vehicle briefs for Carly.
 
-A zero-token response layer for common vehicle enquiries. It combines listing
-facts, small model-family guidance, relative shortlist position and CarTrade's
-verification handoff into a scannable answer. Nothing here represents a completed
-verification: the copy explicitly distinguishes current facts from checks CarTrade
-must complete before closing.
+Common vehicle enquiries should feel like advice, not FAQ copy. This module keeps
+that path at zero LLM calls by combining listing facts, conservative model-family
+knowledge, shortlist position and CarTrade's verification handoff.
 """
 from __future__ import annotations
 
@@ -32,52 +30,52 @@ def _num(value: Any) -> float | None:
         return None
 
 
-# Compact, intentionally conservative model knowledge. These are broad ownership
-# tendencies, never claims about the condition or exact equipment of a unit.
+# Broad ownership tendencies only. Never use these as claims about the exact
+# equipment, condition or history of one listing.
 _MODEL_GUIDANCE = (
     (re.compile(r"\bmirage(?: g4)?\b", re.I), {
-        "pros": "muy compacto, sencillo y orientado a bajo costo de uso",
-        "cons": "prioriza economía sobre potencia, aislamiento y refinamiento",
+        "pros": "su tamaño, simplicidad y enfoque de bajo consumo tienen mucho sentido en ciudad",
+        "cons": "la contrapartida suele ser menos potencia, aislamiento y refinamiento que en un compacto mayor",
     }),
     (re.compile(r"\balto\b", re.I), {
-        "pros": "muy pequeño y fácil de mover/estacionar en ciudad",
-        "cons": "es una propuesta básica; equipamiento y confort dependen mucho de la versión",
+        "pros": "es de los formatos más pequeños y fáciles de estacionar, con una propuesta muy orientada a costo urbano",
+        "cons": "es un carro básico: confort, seguridad y equipamiento pueden variar bastante según la versión exacta",
     }),
     (re.compile(r"\bpicanto\b", re.I), {
-        "pros": "tamaño urbano, maniobrabilidad y una propuesta bastante equilibrada para ciudad",
-        "cons": "sacrifica espacio y desempeño frente a carros de un segmento mayor",
+        "pros": "combina huella urbana, maniobrabilidad y una cabina más utilizable que varios city cars muy pequeños",
+        "cons": "sigue siendo un city car; espacio, desempeño en carretera y aislamiento quedan por debajo de segmentos mayores",
     }),
     (re.compile(r"\bspark\b", re.I), {
-        "pros": "huella pequeña y enfoque urbano de bajo costo",
-        "cons": "es un city car; espacio, refinamiento y desempeño son más modestos que en un compacto mayor",
+        "pros": "su huella pequeña y costo de entrada lo hacen natural para trayectos urbanos",
+        "cons": "espacio, refinamiento y desempeño son modestos frente a hatchbacks de un segmento superior",
     }),
     (re.compile(r"\bswift\b", re.I), {
-        "pros": "ligero, compacto y muy natural para uso urbano",
-        "cons": "el espacio y aislamiento son más limitados que en sedanes o hatchbacks mayores",
+        "pros": "es ligero, compacto y suele sentirse muy natural para uso urbano sin ser tan espartano como un city car puro",
+        "cons": "espacio trasero y aislamiento siguen siendo más limitados que en alternativas de mayor tamaño",
     }),
     (re.compile(r"\bfit\b|\bjazz\b", re.I), {
-        "pros": "formato compacto con muy buen aprovechamiento práctico del espacio",
-        "cons": "en unidades más antiguas, año, historial y desgaste pesan más que la reputación general del modelo",
+        "pros": "aprovecha excepcionalmente bien el espacio para su tamaño y conserva una huella urbana",
+        "cons": "en unidades más antiguas, historial y desgaste de la unidad pesan más que la buena reputación general del modelo",
     }),
     (re.compile(r"\bfabia\b", re.I), {
-        "pros": "hatchback compacto con buen balance entre tamaño urbano y practicidad",
-        "cons": "en este mercado conviene confirmar soporte local, repuestos y mantenimiento de la versión exacta",
+        "pros": "ofrece un buen punto medio entre tamaño urbano, practicidad y sensación de carro más completo",
+        "cons": "conviene confirmar soporte local, repuestos y mantenimiento de la versión exacta antes de preferirlo a marcas más comunes",
     }),
     (re.compile(r"\brio\b", re.I), {
-        "pros": "equilibrio razonable entre tamaño, uso diario y practicidad",
-        "cons": "es menos pequeño que un city car puro, así que no gana automáticamente en facilidad de estacionamiento",
+        "pros": "es un hatch/sedán pequeño pero más versátil que un city car puro para uso mixto",
+        "cons": "esa versatilidad también significa más tamaño y normalmente más costo que Alto, Picanto o Mirage",
     }),
     (re.compile(r"\bforte\b|\bcerato\b", re.I), {
-        "pros": "sedán más amplio y cómodo para uso mixto",
-        "cons": "para una misión puramente urbana ocupa más espacio que los hatchbacks pequeños",
+        "pros": "aporta más espacio y comodidad si el uso se extiende más allá de trayectos urbanos cortos",
+        "cons": "para una misión centrada en economía y estacionamiento fácil, es más carro del que realmente necesitas",
     }),
     (re.compile(r"\bcivic\b", re.I), {
-        "pros": "compacto versátil con buen equilibrio general como plataforma",
-        "cons": "la unidad concreta importa muchísimo: precio, historial, reparaciones y condición deben pesar más que el nombre del modelo",
+        "pros": "es una plataforma compacta más completa para uso mixto, carretera y ciudad",
+        "cons": "en usados la unidad manda: kilometraje, reparaciones, historial y precio pueden convertir un buen modelo en una mala compra",
     }),
     (re.compile(r"\bjett?a\b", re.I), {
-        "pros": "sedán cómodo y usable fuera de ciudad además del día a día",
-        "cons": "es más grande y menos alineado con una búsqueda centrada en estacionamiento fácil",
+        "pros": "es cómodo y más apto para carretera o uso mixto que un city car",
+        "cons": "es sensiblemente más grande y menos alineado con una búsqueda cuyo norte es estacionar fácil y gastar poco",
     }),
 )
 
@@ -90,22 +88,22 @@ def model_guidance(car: dict) -> dict:
     body = _norm(car.get("body_type"))
     if body == "hatchback":
         return {
-            "pros": "formato compacto y práctico para ciudad",
-            "cons": "el valor real depende de la versión y del estado de esta unidad",
+            "pros": "el formato hatchback encaja bien con una misión urbana y aprovecha bien el espacio exterior",
+            "cons": "sin datos más específicos de la versión, la unidad debe ganar por precio, kilometraje y condición",
         }
     if body == "sedan":
         return {
-            "pros": "formato práctico para uso diario y trayectos mixtos",
-            "cons": "es menos compacto que un hatchback pequeño para estacionamiento urbano",
+            "pros": "puede aportar más comodidad y versatilidad para trayectos mixtos",
+            "cons": "cede frente a un hatchback pequeño cuando la prioridad es maniobrabilidad y estacionamiento",
         }
     return {
         "pros": "puede encajar por precio y disponibilidad",
-        "cons": "necesita más validación antes de saber si realmente supera a los finalistas",
+        "cons": "necesita más evidencia antes de saber si realmente supera a los finalistas",
     }
 
 
 def verification_plan(country: str | None = None) -> list[str]:
-    """Checks Carly can promise as a process, not as already-completed facts."""
+    """Checks Carly can promise as a process, never as already-completed facts."""
     return [
         "identidad y legitimidad del vendedor",
         "documentación de propiedad/registro y consistencia con la unidad",
@@ -140,7 +138,7 @@ def _unit_facts(car: dict, profile: Any) -> list[str]:
         facts.append(f"{km:,.0f} km reportados")
     if monthly is not None:
         if ceiling:
-            facts.append(f"~${monthly:,.0f}/mes, con ~${max(0.0, ceiling-monthly):,.0f}/mes de margen")
+            facts.append(f"~${monthly:,.0f}/mes y ~${max(0.0, ceiling-monthly):,.0f}/mes de margen")
         else:
             facts.append(f"~${monthly:,.0f}/mes")
     elif price is not None:
@@ -149,20 +147,22 @@ def _unit_facts(car: dict, profile: Any) -> list[str]:
 
 
 def build_vehicle_brief(latest: str, visible: list[dict], profile: Any, country: str | None = None) -> dict | None:
-    """Return a structured + plain-text brief for normal advisor enquiries."""
+    """Return a compact structured brief for normal advisor enquiries."""
     n = _norm(latest)
     triggers = (
-        "cuentame mas", "pros", "contras", "pros y contras", "que piensas", "que opinas",
-        "por que", "preocupa", "preocupar", "deberia saber", "vale la pena", "comprarias",
-        "elegirias", "revisar", "validar",
+        "cuentame", "hablame", "dime mas", "mas info", "informacion", "pros", "contras",
+        "que tal", "como lo ves", "que piensas", "que opinas", "por que", "preocupa",
+        "preocupar", "deberia saber", "vale la pena", "comprarias", "elegirias", "revisar",
+        "validar", "ventajas", "desventajas",
     )
-    if not any(t in n for t in triggers):
+    focus = _find_focus(latest, visible)
+    wants_choice = any(t in n for t in ("cual comprarias", "cual elegirias", "por cual"))
+    if not any(t in n for t in triggers) and not wants_choice:
         return None
 
     ranked = sorted(list(visible or []), key=lambda c: advisor_score(c, profile), reverse=True)
-    focus = _find_focus(latest, visible)
     if focus is None:
-        if any(t in n for t in ("cual comprarias", "cual elegirias", "por cual")) and ranked:
+        if wants_choice and ranked:
             focus = ranked[0]
         else:
             return None
@@ -173,11 +173,11 @@ def build_vehicle_brief(latest: str, visible: list[dict], profile: Any, country:
     pos = next((i + 1 for i, car in enumerate(ranked) if car is focus or (car.get("url") and car.get("url") == focus.get("url"))), None)
 
     if pos == 1:
-        reading = f"Sí. Entre las opciones visibles, el {name} es el que yo investigaría primero."
+        reading = f"El {name} es el que investigaría primero entre los que tienes visibles."
     elif pos and pos <= 3:
-        reading = f"Sí lo mantendría como finalista, aunque el {name} no es mi #1 en esta ronda."
+        reading = f"Mantendría el {name} como finalista, aunque no es mi #1 en esta ronda."
     else:
-        reading = f"Lo consideraría, pero no pondría al {name} por delante de los mejores finalistas que ya tienes."
+        reading = f"Mantendría el {name} como alternativa, no por delante de los mejores finalistas actuales."
 
     unit_facts = _unit_facts(focus, profile)
     reasons = list(snap.get("reasons") or [])
@@ -185,33 +185,38 @@ def build_vehicle_brief(latest: str, visible: list[dict], profile: Any, country:
     why = "; ".join(why_bits) or "sus números actuales encajan razonablemente con tu búsqueda"
 
     unit_tradeoffs = list(snap.get("tradeoffs") or [])
-    trade = guidance["cons"]
+    trade_parts = [guidance["cons"]]
     if unit_tradeoffs and "estado real" not in _norm(unit_tradeoffs[0]):
-        trade += f". En esta unidad además pesa que {unit_tradeoffs[0]}"
+        trade_parts.append(f"En esta unidad, {unit_tradeoffs[0]}")
 
     compare = ""
     if ranked:
         leader = ranked[0]
         same = leader is focus or (leader.get("url") and leader.get("url") == focus.get("url"))
         if not same:
-            compare = f"Yo pondría antes al {_name(leader)} por su mejor ajuste global a esta búsqueda."
+            compare = f"Pondría antes al {_name(leader)} por su mejor ajuste global a esta búsqueda."
         elif len(ranked) > 1:
             compare = f"Su rival más cercano aquí es el {_name(ranked[1])}."
+    if compare:
+        trade_parts.append(compare)
+    trade = ". ".join(part.rstrip(". ") for part in trade_parts if part) + "."
 
     verify = verification_plan(country)
-    verify_short = "; ".join(verify[:4])
     cartrade = (
-        "Esto todavía no significa que la unidad esté verificada. Antes de pasar al cierre, "
-        f"CarTrade se encarga de validar {verify_short}. Hasta completar ese proceso, Carly no lo trata como confirmado."
+        "Antes de avanzar, CarTrade valida identidad del vendedor, documentación de propiedad/registro, "
+        "consistencia de placa/VIN/chasis y restricciones relevantes de transferencia; después aplica la "
+        "verificación física/mecánica correspondiente. Hasta completar esos checks, Carly lo trata como pendiente, no como confirmado."
     )
 
     sections = [
         {"title": "Mi lectura", "text": reading},
-        {"title": "Por qué me gusta", "text": f"{why}. Como modelo, {guidance['pros']}."},
-        {"title": "Ojo con", "text": trade + (f" {compare}" if compare else "")},
+        {"title": "Por qué me gusta", "text": f"{why}. {guidance['pros'].capitalize()}."},
+        {"title": "Ojo con", "text": trade},
         {"title": "CarTrade lo verifica", "text": cartrade},
     ]
-    reply = "\n\n".join(f"{section['title'].upper()}\n{section['text']}" for section in sections)
+    # The current frontend may collapse whitespace. The centered dot keeps the
+    # hierarchy scannable even before it starts rendering response_sections natively.
+    reply = "\n\n".join(f"{section['title'].upper()} · {section['text']}" for section in sections)
     return {
         "reply": reply,
         "sections": sections,

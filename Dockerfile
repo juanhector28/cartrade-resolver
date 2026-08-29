@@ -25,6 +25,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v10 preserves the zero-token intake/ranking path, tightens Explore and
-# adds scannable CarTrade-verification vehicle briefs for normal enquiries.
-CMD uvicorn app.main_v10:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v11 keeps normal search/advice deterministic, enforces a truly empty
+# fresh-intake state and routes focused vehicle questions to sectioned briefs.
+CMD uvicorn app.main_v11:app --host 0.0.0.0 --port ${PORT:-8000}
