@@ -25,6 +25,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly production composition root. main_v8 makes deterministic intake parse
-# only buyer-visible text while preserving CarTrade runtime context downstream.
-CMD uvicorn app.main_v8:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v9 keeps v8 intake intact and adds zero-token mission-relative curation
+# plus deterministic comparative vehicle briefs.
+CMD uvicorn app.main_v9:app --host 0.0.0.0 --port ${PORT:-8000}
