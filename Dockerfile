@@ -25,5 +25,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v16 keeps preference mutation, reranking and availability semantics zero-token.
-CMD uvicorn app.main_v16:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v17 exposes one coherent eligible recommendation set and truthful paging.
+CMD uvicorn app.main_v17:app --host 0.0.0.0 --port ${PORT:-8000}
