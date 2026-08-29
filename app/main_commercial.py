@@ -1,6 +1,6 @@
 """Production commercial-advisory layer for Carly.
 
-This is the outermost /carly/chat wrapper.  Routine intake is intercepted before
+This is the outermost /carly/chat wrapper. Routine intake is intercepted before
 any paid model call, and recommendation quality is enforced deterministically
 before the response reaches the UI.
 """
@@ -20,9 +20,8 @@ guarded = preview.guarded
 RUNTIME_COMPOSITION = "commercial-v4-p0-quality"
 
 # Make the quality gate authoritative for every ranking call made by the legacy
-# chat path, preview fastpath, and Decision Room refresh.  The wrapper is idempotent.
+# chat path, preview fastpath, and Decision Room refresh. The wrapper is idempotent.
 legacy.rank_cars = install_rank_quality(legacy.rank_cars)
-
 
 try:
     if COMMERCIAL_PROMPT.strip() not in str(legacy.CARLY_SYSTEM_PROMPT):
@@ -38,7 +37,6 @@ except Exception:
 
 @app.get("/carly/runtime")
 def carly_runtime():
-    """Cheap deploy marker used before any paid LLM smoke calls."""
     return {
         "ok": True,
         "composition": RUNTIME_COMPOSITION,
@@ -84,9 +82,6 @@ def _final_quality_gate(result: Any) -> Any:
     result["recommendation_count"] = len(cards)
     result["recommendation_quality_policy"] = "quality_over_quota"
 
-    # Explore remains visibly a lower-confidence pool, but it must still satisfy
-    # the buyer's hard/semantic fit.  Never let raw DB order reintroduce pickups,
-    # commercial trucks or visibly damaged inventory into a compact-city journey.
     curated_urls = {c.get("url") for c in cards if c.get("url")}
     explore = filter_cards(list(result.get("explore") or []), profile, limit=18)
     result["explore"] = [c for c in explore if c.get("url") not in curated_urls][:12]
@@ -124,8 +119,6 @@ def _deterministic_outer_fastpath(body, messages: list[Any]) -> dict | None:
 
     blocker = preview.deterministic_intake_reply(messages, country=country)
     if blocker:
-        # One budget question only.  Do not ask the buyer to choose a budgeting
-        # mode; whatever they answer (total or monthly) is parsed deterministically.
         if "cuota mensual te queda cómoda" in blocker:
             blocker = "Entendido. ¿Cuál es tu presupuesto? Puedes decirme precio total o cuota máxima."
         return {
@@ -152,7 +145,13 @@ def _patch_commercial_route() -> None:
 
             direct = _deterministic_outer_fastpath(body, messages)
             if direct is not None:
-                return commercialize_response(_final_quality_gate(direct), messages=messages)
+                direct = _final_quality_gate(direct)
+                # A deterministic intake question is already product-approved.
+                # Do not run it through legacy budget-question rewriting, which was
+                # the source of the duplicated question seen in production.
+                if direct.get("phase") == "conversation":
+                    return direct
+                return commercialize_response(direct, messages=messages)
 
             result = __prior(*args, **kwargs)
             result = _final_quality_gate(result)
