@@ -25,6 +25,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v12 keeps v11 deterministic and adds two final invariants: obvious
-# pickups never survive a city shortlist, and advisor brief labels render bold.
-CMD uvicorn app.main_v12:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v13 keeps routine paths deterministic, strengthens city incompatibility
+# filtering, and gives all replies compact scan-friendly presentation metadata.
+CMD uvicorn app.main_v13:app --host 0.0.0.0 --port ${PORT:-8000}
