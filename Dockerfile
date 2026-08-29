@@ -25,6 +25,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v11 keeps normal search/advice deterministic, enforces a truly empty
-# fresh-intake state and routes focused vehicle questions to sectioned briefs.
-CMD uvicorn app.main_v11:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v12 keeps v11 deterministic and adds two final invariants: obvious
+# pickups never survive a city shortlist, and advisor brief labels render bold.
+CMD uvicorn app.main_v12:app --host 0.0.0.0 --port ${PORT:-8000}
