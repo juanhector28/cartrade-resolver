@@ -25,5 +25,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v15 keeps continuation/pagination deterministic and zero-token.
-CMD uvicorn app.main_v15:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v16 keeps preference mutation, reranking and availability semantics zero-token.
+CMD uvicorn app.main_v16:app --host 0.0.0.0 --port ${PORT:-8000}
