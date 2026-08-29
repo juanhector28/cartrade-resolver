@@ -25,5 +25,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v18 guards recurring state, count, paging and CarTrade-handoff failures.
-CMD uvicorn app.main_v18:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v19 exposes a stable six-card initial eligible set and truthful paging.
+CMD uvicorn app.main_v19:app --host 0.0.0.0 --port ${PORT:-8000}
