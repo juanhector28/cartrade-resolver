@@ -119,8 +119,8 @@ def _deterministic_outer_fastpath(body, messages: list[Any]) -> dict | None:
 
     blocker = preview.deterministic_intake_reply(messages, country=country)
     if blocker:
-        if "cuota mensual te queda cómoda" in blocker:
-            blocker = "Entendido. ¿Cuál es tu presupuesto? Puedes decirme precio total o cuota máxima."
+        # Keep the one-question fastpath exactly as designed. Do not expand a
+        # concise budget question into a price-vs-payment explanation.
         return {
             "phase": "conversation",
             "reply": blocker,
@@ -147,8 +147,7 @@ def _patch_commercial_route() -> None:
             if direct is not None:
                 direct = _final_quality_gate(direct)
                 # A deterministic intake question is already product-approved.
-                # Do not run it through legacy budget-question rewriting, which was
-                # the source of the duplicated question seen in production.
+                # Do not run it through legacy budget-question rewriting.
                 if direct.get("phase") == "conversation":
                     return direct
                 return commercialize_response(direct, messages=messages)
