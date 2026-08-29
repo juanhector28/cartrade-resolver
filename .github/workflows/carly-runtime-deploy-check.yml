@@ -1,0 +1,47 @@
+name: Carly runtime deploy check
+
+# ZERO Anthropic calls.  This only polls the cheap runtime marker so we know the
+# exact backend commit is live before asking a human to test Carly.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: carly-runtime-deploy-check
+  cancel-in-progress: true
+
+jobs:
+  verify-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Wait for Render to serve this commit
+        env:
+          CARLY_BASE_URL: https://cartrade-resolver.onrender.com
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import json, os, time, urllib.request
+
+          base = os.environ["CARLY_BASE_URL"]
+          expected = os.environ["EXPECTED_SHA"]
+          for attempt in range(1, 37):
+              try:
+                  with urllib.request.urlopen(base + "/carly/runtime", timeout=10) as r:
+                      data = json.loads(r.read().decode("utf-8"))
+                  deployed = data.get("git_commit")
+                  composition = data.get("composition")
+                  ok = composition == "commercial-v4-p0-quality" and deployed == expected
+                  print({"attempt": attempt, "composition": composition,
+                         "deployed": deployed, "expected": expected, "ready": ok})
+                  if ok:
+                      raise SystemExit(0)
+              except Exception as exc:
+                  print(f"attempt {attempt}: {exc}")
+              time.sleep(10)
+          raise SystemExit("Render did not expose the expected Carly runtime in time")
+          PY

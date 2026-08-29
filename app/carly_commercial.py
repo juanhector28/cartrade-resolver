@@ -17,8 +17,11 @@ Ayuda al comprador a avanzar hacia una buena compra con criterio y claridad.
 Financiamiento es una herramienta, nunca una meta. No recomiendes un peor auto
 para empujar credito.
 
-- Si falta capacidad de pago, prioriza cuota mensual comoda.
-- Si ya dio una cuota mensual, NO vuelvas a preguntar si prefiere cuota o precio.
+- Si falta presupuesto, haz UNA sola pregunta abierta de presupuesto. No le pidas
+  elegir entre "precio total" y "cuota": interpreta la forma en que responda.
+- Si ya dio una cuota mensual, NO vuelvas a preguntar si prefiere cuota o precio
+  ni si esa cifra es un "techo duro" antes del primer shortlist. Usala como limite
+  de trabajo y deja que el usuario la cambie despues.
 - Si tiene efectivo para prima, no asumas que debe usarlo todo. Explica el trade-off
   entre bajar cuota/interes y conservar liquidez.
 - Toma posicion: cuando haya shortlist, di cual elegirias y por que.
@@ -27,12 +30,17 @@ para empujar credito.
 
 
 _BUDGET_QUESTION_PATTERNS = (
-    re.compile(r"cu[aá]nto\s+(?:puedes|podr[ií]as)\s+(?:destinar|pagar).{0,60}(?:mes|cuota|precio)", re.I | re.S),
-    re.compile(r"(?:cuota|presupuesto).{0,40}(?:m[aá]xim[oa]|mensual|total)", re.I | re.S),
+    re.compile(r"cu[aá]nto\s+(?:puedes|podr[ií]as)\s+(?:destinar|pagar).{0,80}(?:mes|cuota|precio|presupuesto)", re.I | re.S),
+    re.compile(r"(?:cuota|presupuesto|precio).{0,60}(?:m[aá]xim[oa]|mensual|total|mente)", re.I | re.S),
+    re.compile(r"prefieres\s+pensar\s+en\s+precio\s+total.{0,50}cuota", re.I | re.S),
 )
 _MONTHLY_SIGNAL_RE = re.compile(
     r"(?:\$\s*)?\d[\d.,]*\s*(?:/\s*mes|al\s+mes|mensuales?|por\s+mes)|"
     r"(?:cuota|mensual).{0,30}(?:\$\s*)?\d",
+    re.I,
+)
+_OLD_BUDGET_MODE_RE = re.compile(
+    r"\s*¿?prefieres\s+pensar\s+en\s+precio\s+total\s+o\s+en\s+una\s+cuota\s+mensual\s+c[oó]moda\??",
     re.I,
 )
 _DOWN_PAYMENT_SIGNAL_RE = re.compile(
@@ -59,19 +67,21 @@ def has_monthly_signal(messages: list[Any] | None) -> bool:
 
 
 def preferred_budget_question(reply: str) -> str:
-    """Normalize the first affordability question into a low-friction choice."""
+    """Collapse budget interrogation into one mode-agnostic question."""
     text = (reply or "").strip()
     if not text:
         return text
     if any(p.search(text) for p in _BUDGET_QUESTION_PATTERNS) and "?" in text:
-        prefix = text.split("?", 1)[0]
-        if len(prefix) > 120 or "cuánto" in prefix.lower() or "cuanto" in prefix.lower():
+        # If the old binary question itself is present, remove it rather than
+        # preserving it as a prefix and appending yet another question.
+        text = _OLD_BUDGET_MODE_RE.sub("", text).strip()
+        prefix = text.split("?", 1)[0].strip() if "?" in text else text
+        if len(prefix) > 90 or "cuánto" in prefix.lower() or "cuanto" in prefix.lower():
             prefix = ""
-        prefix = prefix.strip()
         if prefix and not prefix.endswith((".", "!", ":")):
             prefix += "."
-        q = "¿Prefieres pensar en precio total o en una cuota mensual cómoda?"
-        return (prefix + " " + q).strip()
+        question = "¿Cuál es tu presupuesto? Puedes decirme precio total o cuota máxima."
+        return (prefix + " " + question).strip()
     return text
 
 
@@ -105,7 +115,6 @@ def financing_for_car(car: dict) -> dict:
 
 
 def monthly_payment(principal: float, apr: float, months: int) -> float:
-    """Deterministic amortization helper. Zero token cost."""
     principal = max(0.0, float(principal or 0))
     months = max(1, int(months or 1))
     rate = max(0.0, float(apr or 0)) / 12.0
@@ -115,7 +124,6 @@ def monthly_payment(principal: float, apr: float, months: int) -> float:
 
 
 def financing_scenarios(price: float, cash_available: float, apr: float = 0.12, months: int = 60) -> list[dict]:
-    """Compare a few useful down-payment levels without an LLM."""
     price = max(0.0, float(price or 0))
     cash = max(0.0, min(float(cash_available or 0), price))
     candidates = sorted({0.0, min(2500.0, cash), min(5000.0, cash), cash})
@@ -137,7 +145,6 @@ def financing_scenarios(price: float, cash_available: float, apr: float = 0.12, 
 def _top_pick(cards: list[dict]) -> dict | None:
     if not cards:
         return None
-    # Upstream ranking is authoritative. Do not spend tokens re-ranking it.
     return cards[0] if isinstance(cards[0], dict) else None
 
 
@@ -167,7 +174,6 @@ def _advisor_metadata(result: dict) -> None:
         ],
         "recommendation_policy": "quality_over_quota",
     }
-    # Frontend can ask once before expanding. 3 is the product-recommended default.
     result["recommendation_depth"] = {
         "default": 3,
         "choices": [3, 5, 10],
@@ -210,16 +216,11 @@ def commercialize_response(result: Any, messages: list[Any] | None = None) -> An
         return result
     if isinstance(result.get("reply"), str):
         reply = result["reply"]
-        # If the buyer already supplied a monthly number, never regress to the
-        # generic price-vs-payment question. This is deterministic state reuse.
-        if not has_monthly_signal(messages):
-            reply = preferred_budget_question(reply)
+        if has_monthly_signal(messages):
+            # Budget is already known. Strip the old mode question and do not
+            # replace it with another budget question.
+            reply = _OLD_BUDGET_MODE_RE.sub("", reply).strip()
         else:
-            reply = re.sub(
-                r"¿Prefieres pensar en precio total o en una cuota mensual cómoda\?",
-                "",
-                reply,
-                flags=re.I,
-            ).strip()
+            reply = preferred_budget_question(reply)
         result["reply"] = soften_advisory_tone(reply)
     return decorate_financing(result)

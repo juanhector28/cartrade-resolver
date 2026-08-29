@@ -34,7 +34,7 @@ jobs:
                   data = json.loads(r.read().decode("utf-8"))
               expected = os.environ.get("GITHUB_SHA")
               deployed = data.get("git_commit")
-              ok = data.get("composition") == "commercial-v3-token-fastpath" and (not deployed or deployed == expected)
+              ok = data.get("composition") == "commercial-v4-p0-quality" and (not deployed or deployed == expected)
               print({"composition": data.get("composition"), "deployed": deployed, "expected": expected, "ready": ok})
               raise SystemExit(0 if ok else 1)
           except Exception as exc:
