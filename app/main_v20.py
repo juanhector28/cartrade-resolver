@@ -1,8 +1,10 @@
-"""Carly v20: intake state hardening for rural/finca journeys.
+"""Carly v20: deterministic intake-state hardening.
 
-The existing fastpath correctly persists budget and known usage across turns, but
-'finca' / rural-access language was not classified as intent. That left Carly in
-a loop asking the same primary-use question even after the buyer answered it.
+The intake state must never ask again for a field the buyer already answered in
+an earlier turn. The inherited fastpath already persists history, but its intent
+vocabulary missed common natural-language answers such as finca, carro familiar,
+and trips to the beach. Those misses made a known primary use look unknown and
+caused Carly to repeat the same question.
 
 This patch extends the deterministic intent vocabulary before the inherited app
 serves requests. No extra LLM calls are introduced.
@@ -14,9 +16,20 @@ import re
 from . import carly_fastpath
 from . import main_v19 as v19
 
-# A buyer saying they need the vehicle to reach/use a finca, farm, rural property,
-# dirt road, or countryside has already answered the primary-use question. Treat
-# this conservatively as a work/rural vehicle so the state machine advances.
+# Common answers that semantically satisfy "¿para qué usarías el carro?".
+# These are deliberately broad enough to capture normal buyer language while
+# remaining useful for ranking. Earlier user turns remain part of the state, so a
+# later "ya te lo dije" cannot erase an already-known intent.
+_FAMILY_LEISURE_INTENT = (
+    "family_transport",
+    re.compile(
+        r"\b(?:carro|auto|veh[ií]culo)?\s*familiar\b|"
+        r"\b(?:familia|familias|playa|vacaciones|paseos? familiares?|viajes? familiares?)\b",
+        re.I,
+    ),
+    "familia",
+)
+
 _RURAL_INTENT = (
     "work_vehicle",
     re.compile(
@@ -27,9 +40,10 @@ _RURAL_INTENT = (
     "trabajo",
 )
 
-if not any(getattr(p, "pattern", "") == _RURAL_INTENT[1].pattern for _, p, _ in carly_fastpath._JOB_PATTERNS):
-    carly_fastpath._JOB_PATTERNS = (_RURAL_INTENT,) + tuple(carly_fastpath._JOB_PATTERNS)
+for intent in (_FAMILY_LEISURE_INTENT, _RURAL_INTENT):
+    if not any(getattr(p, "pattern", "") == intent[1].pattern for _, p, _ in carly_fastpath._JOB_PATTERNS):
+        carly_fastpath._JOB_PATTERNS = (intent,) + tuple(carly_fastpath._JOB_PATTERNS)
 
 app = v19.app
 commercial = v19.commercial
-commercial.RUNTIME_COMPOSITION = "commercial-v20-intake-state-rural"
+commercial.RUNTIME_COMPOSITION = "commercial-v20-intake-state-memory"
