@@ -1,6 +1,6 @@
 name: Carly runtime deploy check
 
-# ZERO model calls. Poll only the runtime marker.
+# ZERO model calls. Poll runtime identity plus read-only financing readiness.
 on:
   push:
     branches: [main]
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Wait for Render to serve this commit
+      - name: Wait for Render to serve this commit and financing bridge
         env:
           CARLY_BASE_URL: https://cartrade-resolver.onrender.com
           EXPECTED_SHA: ${{ github.sha }}
@@ -30,16 +30,38 @@ jobs:
           for attempt in range(1, 37):
               try:
                   with urllib.request.urlopen(base + "/carly/runtime", timeout=10) as r:
-                      data = json.loads(r.read().decode("utf-8"))
-                  deployed = data.get("git_commit")
-                  composition = data.get("composition")
-                  ok = composition == "commercial-v20-financing-bridge" and deployed == expected
-                  print({"attempt": attempt, "composition": composition,
-                         "deployed": deployed, "expected": expected, "ready": ok})
-                  if ok:
+                      runtime = json.loads(r.read().decode("utf-8"))
+                  deployed = runtime.get("git_commit")
+                  composition = runtime.get("composition")
+                  runtime_ok = composition == "commercial-v20-financing-bridge" and deployed == expected
+
+                  financing = {}
+                  financing_ok = False
+                  if runtime_ok:
+                      with urllib.request.urlopen(base + "/financing/readiness", timeout=10) as r:
+                          financing = json.loads(r.read().decode("utf-8"))
+                      financing_ok = (
+                          financing.get("status") == "ready"
+                          and financing.get("financing_bridge") == "v20"
+                          and financing.get("integration_mode") == "SHADOW"
+                          and financing.get("transactions_configured") is True
+                          and financing.get("transactions_authenticated") is True
+                          and financing.get("requires_authenticated_user") is True
+                      )
+
+                  print({
+                      "attempt": attempt,
+                      "composition": composition,
+                      "deployed": deployed,
+                      "expected": expected,
+                      "runtime_ready": runtime_ok,
+                      "financing_ready": financing_ok,
+                      "financing": financing,
+                  })
+                  if runtime_ok and financing_ok:
                       raise SystemExit(0)
               except Exception as exc:
                   print(f"attempt {attempt}: {exc}")
               time.sleep(10)
-          raise SystemExit("Render did not expose the expected Carly runtime in time")
+          raise SystemExit("Render did not expose the expected Carly runtime and authenticated financing bridge in time")
           PY
