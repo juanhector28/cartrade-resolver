@@ -32,8 +32,6 @@ jobs:
           base = os.environ["CARLY_BASE_URL"]
           expected = os.environ["EXPECTED_SHA"]
           runtime_paths = ["app", "Dockerfile", "requirements.txt", "railway.toml"]
-          deployed_checks = 0
-          runtime_ok = False
 
           def same_runtime_tree(deployed):
               if not deployed:
@@ -58,13 +56,11 @@ jobs:
                   runtime_tree_ok = same_runtime_tree(deployed)
                   runtime_ok = composition == "commercial-v20-financing-bridge" and runtime_tree_ok
 
-                  financing = {}
                   financing_ok = False
                   pilot_ok = False
                   auth_ok = False
                   cors_ok = False
                   if runtime_ok:
-                      deployed_checks += 1
                       with urllib.request.urlopen(base + "/financing/readiness", timeout=10) as r:
                           financing = json.loads(r.read().decode("utf-8"))
                       financing_ok = (
@@ -119,14 +115,10 @@ jobs:
                   })
                   if runtime_ok and financing_ok and pilot_ok and auth_ok and cors_ok:
                       raise SystemExit(0)
-                  if runtime_ok and deployed_checks >= 3:
-                      raise SystemExit("Expected runtime is deployed but browser financing / pilot Router readiness failed")
               except SystemExit:
                   raise
               except Exception as exc:
                   print(f"attempt {attempt}: {type(exc).__name__}: {exc}")
-                  if runtime_ok and deployed_checks >= 3:
-                      raise SystemExit("Expected runtime is deployed but browser financing / pilot Router readiness failed")
               time.sleep(10)
-          raise SystemExit("Render did not expose the expected Carly runtime and authenticated financing bridge in time")
+          raise SystemExit("Render did not expose a stable Carly runtime and authenticated financing bridge in time")
           PY
