@@ -16,6 +16,7 @@ import os
 from fastapi import Header, HTTPException
 from fastapi.responses import JSONResponse
 
+from . import carly_commercial as commercial_helpers
 from . import main as legacy
 from . import main_v19 as v19
 from .financing_bridge import (
@@ -36,6 +37,55 @@ from .public_auth import PublicAuthConfigError, public_supabase_config
 app = v19.app
 commercial = v19.commercial
 commercial.RUNTIME_COMPOSITION = "commercial-v20-financing-bridge"
+
+
+def _install_financing_action_contract() -> None:
+    if getattr(commercial_helpers, "_v20_financing_action_installed", False):
+        return
+    prior = commercial_helpers.financing_for_car
+
+    def financing_with_action(car: dict) -> dict:
+        result = prior(car)
+        vehicle_ref = car.get("id") or car.get("url")
+        price = car.get("price_usd")
+        year = car.get("year")
+        ready = bool(vehicle_ref and year and price)
+        result["action"] = {
+            "id": "start_financing_intake",
+            "label": "Ver financiamiento",
+            "method": "POST",
+            "endpoint": "/financing/intake",
+            "requires_auth": True,
+            "integration_mode": "SHADOW",
+            "ready_to_start": ready,
+            "prefill": {
+                "vehicle": {
+                    "vehicle_ref": vehicle_ref,
+                    "make": car.get("make"),
+                    "model": car.get("model"),
+                    "year": year,
+                    "purchase_price": price,
+                    "market_value": car.get("market_value"),
+                }
+            },
+            "collect": [
+                "borrower.full_name",
+                "borrower.monthly_income_reported",
+                "borrower.monthly_debt",
+                "financing.down_payment",
+                "financing.term_months",
+            ],
+            "result_state": "CHECKS_PENDING",
+            "status_endpoint_template": "/financing/intakes/{financing_intake_id}",
+        }
+        return result
+
+    commercial_helpers.financing_for_car = financing_with_action
+    commercial_helpers._v20_financing_action_installed = True
+    globals()["_financing_with_action"] = financing_with_action
+
+
+_install_financing_action_contract()
 
 
 def _authenticated_user_id(authorization: str | None) -> str:

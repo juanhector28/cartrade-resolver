@@ -8,6 +8,7 @@ from app.financing_intake_bridge import (
     FinancingIntakeBridgeError,
     FinancingIntakeNotFound,
 )
+from app.main_v20 import _financing_with_action
 
 
 PAYLOAD = {
@@ -139,6 +140,26 @@ class FinancingIntakeBridgeTests(unittest.TestCase):
         bridge = FinancingIntakeBridge(api_key="x" * 40, client=FakeClient(response))
         with self.assertRaises(FinancingIntakeNotFound):
             bridge.get(user_id="supabase-user-1", intake_id="ct_int_1")
+
+    def test_recommendation_financing_has_executable_intake_contract(self):
+        financing = _financing_with_action({
+            "id": "inventory:demo-001",
+            "make": "Toyota",
+            "model": "Corolla",
+            "year": 2021,
+            "price_usd": 11200,
+            "monthly_est": 245,
+        })
+        action = financing["action"]
+        self.assertEqual(action["id"], "start_financing_intake")
+        self.assertEqual(action["endpoint"], "/financing/intake")
+        self.assertEqual(action["method"], "POST")
+        self.assertTrue(action["requires_auth"])
+        self.assertEqual(action["integration_mode"], "SHADOW")
+        self.assertEqual(action["prefill"]["vehicle"]["vehicle_ref"], "inventory:demo-001")
+        self.assertEqual(action["prefill"]["vehicle"]["purchase_price"], 11200)
+        self.assertEqual(action["result_state"], "CHECKS_PENDING")
+        self.assertIn("{financing_intake_id}", action["status_endpoint_template"])
 
     def test_rejects_any_response_that_crosses_router_boundary(self):
         response = FakeResponse(payload={
