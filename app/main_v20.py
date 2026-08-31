@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 
 from fastapi import Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import carly_commercial as commercial_helpers
@@ -37,6 +38,39 @@ from .public_auth import PublicAuthConfigError, public_supabase_config
 app = v19.app
 commercial = v19.commercial
 commercial.RUNTIME_COMPOSITION = "commercial-v20-financing-bridge"
+
+
+def _install_financing_cors() -> None:
+    """Allow browser financing requests without broadening trusted origins.
+
+    The legacy resolver CORS policy predates authenticated financing and only
+    permits Content-Type. Financing needs the standard Authorization header for
+    Supabase bearer sessions. A second, outer CORS layer keeps the same origin
+    allowlist while adding only that header.
+    """
+    if getattr(app.state, "_v20_financing_cors_installed", False):
+        return
+    origins = [
+        item.strip()
+        for item in os.getenv(
+            "CORS_ORIGINS",
+            "https://cartrade.live,https://www.cartrade.live",
+        ).split(",")
+        if item.strip()
+    ]
+    if os.getenv("RESOLVER_DEV") == "1":
+        origins = ["*"]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=False,
+        allow_methods=["POST", "GET", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization"],
+    )
+    app.state._v20_financing_cors_installed = True
+
+
+_install_financing_cors()
 
 
 def _install_financing_action_contract() -> None:
