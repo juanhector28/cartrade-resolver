@@ -1,0 +1,32 @@
+name: Public auth config probe
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/auth-config-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe production auth config without printing key
+        run: |
+          python - <<'PY'
+          import json, urllib.error, urllib.request
+          url='https://cartrade-resolver.onrender.com/auth/config'
+          try:
+              with urllib.request.urlopen(url, timeout=15) as r:
+                  data=json.loads(r.read().decode())
+                  safe={
+                    'http': r.status,
+                    'provider': data.get('provider'),
+                    'url_configured': bool(data.get('url')),
+                    'publishable_key_configured': bool(data.get('publishable_key')),
+                  }
+                  print(safe)
+          except urllib.error.HTTPError as e:
+              print({'http':e.code,'configured':False})
+          PY
