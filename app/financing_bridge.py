@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 SUPPORTED_COUNTRIES = {"SV", "GT", "CR", "PA"}
+_READINESS_REQUEST_ID = "__cartrade_readiness_probe__"
 
 
 class BorrowerInput(BaseModel):
@@ -109,6 +110,38 @@ class FinancingBridge:
         raw = f"{user_id}|{journey_id}|{vehicle_ref}".encode("utf-8")
         return "webfin:" + hashlib.sha256(raw).hexdigest()[:48]
 
+    def _auth_headers(self) -> dict[str, str]:
+        if not self.api_key:
+            raise FinancingBridgeNotConfigured("transactions credential is not configured")
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Accept": "application/json",
+        }
+
+    def check_authenticated_access(self) -> bool:
+        """Prove the server-side Transactions credential without creating data.
+
+        Transactions authenticates GET requests before looking up the request ID.
+        A 404 for this deliberately impossible ID therefore proves that the
+        credential was accepted while keeping the probe read-only.
+        """
+        headers = self._auth_headers()
+        path = f"/v1/financing/requests/{_READINESS_REQUEST_ID}"
+        try:
+            if self._client is not None:
+                response = self._client.get(path, headers=headers)
+            else:
+                with httpx.Client(base_url=self.base_url, timeout=min(self.timeout, 6.0)) as client:
+                    response = client.get(path, headers=headers)
+        except httpx.HTTPError as exc:
+            raise FinancingBridgeError("transactions service unavailable") from exc
+
+        if response.status_code == 404:
+            return True
+        if response.status_code in {401, 403}:
+            raise FinancingBridgeError("transactions credential rejected")
+        raise FinancingBridgeError(f"transactions readiness returned HTTP {response.status_code}")
+
     def build_payload(self, body: FinancingJourneyInput) -> dict[str, Any]:
         institution, product = self._route()
         vehicle = body.vehicle.model_dump(exclude={"vehicle_ref"})
@@ -126,15 +159,12 @@ class FinancingBridge:
         }
 
     def submit(self, *, user_id: str, body: FinancingJourneyInput) -> dict[str, Any]:
-        if not self.api_key:
-            raise FinancingBridgeNotConfigured("transactions credential is not configured")
         payload = self.build_payload(body)
         idem = self.idempotency_key(user_id, body.journey_id, body.vehicle.vehicle_ref)
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            **self._auth_headers(),
             "Idempotency-Key": idem,
             "Content-Type": "application/json",
-            "Accept": "application/json",
         }
         try:
             if self._client is not None:
