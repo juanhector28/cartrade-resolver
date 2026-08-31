@@ -25,5 +25,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v20 keeps v19 recommendations and adds an authenticated SHADOW financing BFF.
-CMD uvicorn app.main_v20:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v25 keeps the authenticated production bridge and adds a PII-free,
+# rate-limited Router SHADOW pilot plus field-work intake repair.
+CMD uvicorn app.main_v25:app --host 0.0.0.0 --port ${PORT:-8000}
