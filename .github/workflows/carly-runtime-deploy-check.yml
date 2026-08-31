@@ -28,6 +28,7 @@ jobs:
           base = os.environ["CARLY_BASE_URL"]
           expected = os.environ["EXPECTED_SHA"]
           deployed_checks = 0
+          runtime_ok = False
           for attempt in range(1, 37):
               try:
                   with urllib.request.urlopen(base + "/carly/runtime", timeout=10) as r:
@@ -38,6 +39,7 @@ jobs:
 
                   financing = {}
                   financing_ok = False
+                  pilot_ok = False
                   auth_ok = False
                   cors_ok = False
                   if runtime_ok:
@@ -51,6 +53,10 @@ jobs:
                           and financing.get("transactions_configured") is True
                           and financing.get("transactions_authenticated") is True
                           and financing.get("requires_authenticated_user") is True
+                      )
+                      pilot_ok = (
+                          financing.get("pilot_router_autopromote") is True
+                          and financing.get("pilot_evidence_mode") == "synthetic_shadow"
                       )
 
                       with urllib.request.urlopen(base + "/auth/config", timeout=10) as r:
@@ -85,19 +91,20 @@ jobs:
                       "expected": expected,
                       "runtime_ready": runtime_ok,
                       "financing_ready": financing_ok,
+                      "pilot_router_ready": pilot_ok,
                       "public_auth_ready": auth_ok,
                       "browser_cors_ready": cors_ok,
                   })
-                  if runtime_ok and financing_ok and auth_ok and cors_ok:
+                  if runtime_ok and financing_ok and pilot_ok and auth_ok and cors_ok:
                       raise SystemExit(0)
                   if runtime_ok and deployed_checks >= 3:
-                      raise SystemExit("Expected runtime is deployed but browser financing readiness failed")
+                      raise SystemExit("Expected runtime is deployed but browser financing / pilot Router readiness failed")
               except SystemExit:
                   raise
               except Exception as exc:
                   print(f"attempt {attempt}: {type(exc).__name__}: {exc}")
                   if runtime_ok and deployed_checks >= 3:
-                      raise SystemExit("Expected runtime is deployed but browser financing readiness failed")
+                      raise SystemExit("Expected runtime is deployed but browser financing / pilot Router readiness failed")
               time.sleep(10)
           raise SystemExit("Render did not expose the expected Carly runtime and authenticated financing bridge in time")
           PY
