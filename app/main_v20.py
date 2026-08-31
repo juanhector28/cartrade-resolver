@@ -1,12 +1,13 @@
 """Carly v20: authenticated server-side financing handoff.
 
-This layer leaves recommendation logic untouched. It exposes two financing
+This layer leaves recommendation logic untouched. It exposes three financing
 boundaries:
 - /financing/intake captures customer facts and stops at CHECKS_PENDING.
+- /financing/intakes/{id} returns owner-bound customer-safe status.
 - /financing/start accepts evidence-complete facts and may reach Router SHADOW.
 
-The downstream Transactions credential never reaches the browser and neither
-path can produce a contractual borrower approval.
+The downstream Transactions credential never reaches the browser and no path can
+produce a contractual borrower approval.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ from .financing_intake_bridge import (
     CustomerFinancingIntake,
     FinancingIntakeBridge,
     FinancingIntakeBridgeError,
+    FinancingIntakeNotFound,
 )
 from .public_auth import PublicAuthConfigError, public_supabase_config
 
@@ -95,6 +97,20 @@ def financing_intake(
     user_id = _authenticated_user_id(authorization)
     try:
         return FinancingIntakeBridge().submit(user_id=user_id, body=body)
+    except FinancingIntakeBridgeError as exc:
+        raise HTTPException(status_code=502, detail="financing intake unavailable") from exc
+
+
+@app.get("/financing/intakes/{intake_id}")
+def financing_intake_status(
+    intake_id: str,
+    authorization: str | None = Header(default=None),
+):
+    user_id = _authenticated_user_id(authorization)
+    try:
+        return FinancingIntakeBridge().get(user_id=user_id, intake_id=intake_id)
+    except FinancingIntakeNotFound as exc:
+        raise HTTPException(status_code=404, detail="financing intake not found") from exc
     except FinancingIntakeBridgeError as exc:
         raise HTTPException(status_code=502, detail="financing intake unavailable") from exc
 
