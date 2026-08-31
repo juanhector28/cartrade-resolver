@@ -51,7 +51,11 @@ class FakeClient:
         self.calls = []
 
     def post(self, path, **kwargs):
-        self.calls.append((path, kwargs))
+        self.calls.append(("POST", path, kwargs))
+        return self.response
+
+    def get(self, path, **kwargs):
+        self.calls.append(("GET", path, kwargs))
         return self.response
 
 
@@ -82,6 +86,21 @@ class FinancingBridgeTests(unittest.TestCase):
         self.assertNotEqual(first, other)
         self.assertTrue(first.startswith("webfin:"))
 
+    def test_readiness_uses_read_only_authenticated_lookup(self):
+        client = FakeClient(FakeResponse(status_code=404))
+        bridge = FinancingBridge(api_key="x" * 40, client=client)
+        self.assertTrue(bridge.check_authenticated_access())
+        self.assertEqual(len(client.calls), 1)
+        method, path, call = client.calls[0]
+        self.assertEqual(method, "GET")
+        self.assertIn("__cartrade_readiness_probe__", path)
+        self.assertIn("Authorization", call["headers"])
+
+    def test_readiness_rejects_bad_transactions_credential(self):
+        bridge = FinancingBridge(api_key="x" * 40, client=FakeClient(FakeResponse(status_code=401)))
+        with self.assertRaises(FinancingBridgeError):
+            bridge.check_authenticated_access()
+
     def test_submit_returns_safe_shadow_envelope(self):
         response = FakeResponse(payload={
             "state": "ROUTER_SHADOW_READY",
@@ -103,7 +122,8 @@ class FinancingBridgeTests(unittest.TestCase):
         self.assertFalse(result["displayable_approval"])
         self.assertIsNone(result["borrower_approval"])
         self.assertEqual(len(client.calls), 1)
-        _, call = client.calls[0]
+        method, _, call = client.calls[0]
+        self.assertEqual(method, "POST")
         self.assertIn("Authorization", call["headers"])
         self.assertIn("Idempotency-Key", call["headers"])
 

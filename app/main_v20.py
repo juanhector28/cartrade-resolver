@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 
 from fastapi import Header, HTTPException
+from fastapi.responses import JSONResponse
 
 from . import main as legacy
 from . import main_v19 as v19
@@ -48,14 +49,25 @@ def _authenticated_user_id(authorization: str | None) -> str:
 @app.get("/financing/readiness")
 def financing_readiness():
     configured = bool(os.getenv("CARTRADE_TRANSACTIONS_API_KEY", "").strip())
-    return {
-        "status": "ready" if configured else "not_configured",
+    payload = {
+        "status": "not_ready",
         "service": "cartrade-resolver",
         "financing_bridge": "v20",
         "integration_mode": "SHADOW",
         "transactions_configured": configured,
+        "transactions_authenticated": False,
         "requires_authenticated_user": True,
     }
+    if not configured:
+        payload["status"] = "not_configured"
+        return JSONResponse(status_code=503, content=payload)
+    try:
+        FinancingBridge().check_authenticated_access()
+    except (FinancingBridgeNotConfigured, FinancingBridgeError):
+        return JSONResponse(status_code=503, content=payload)
+    payload["status"] = "ready"
+    payload["transactions_authenticated"] = True
+    return payload
 
 
 @app.post("/financing/start")
