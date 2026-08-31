@@ -18,11 +18,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Wait for Render to serve this commit and financing bridge
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Wait for Render to serve latest runtime code and financing bridge
         env:
           CARLY_BASE_URL: https://cartrade-resolver.onrender.com
-          EXPECTED_SHA: ${{ github.sha }}
         run: |
+          EXPECTED_SHA="$(git log -1 --format=%H -- app Dockerfile requirements.txt railway.toml)"
+          export EXPECTED_SHA
           python - <<'PY'
           import json, os, time, urllib.request
           base = os.environ["CARLY_BASE_URL"]
@@ -88,7 +92,7 @@ jobs:
                       "attempt": attempt,
                       "composition": composition,
                       "deployed": deployed,
-                      "expected": expected,
+                      "expected_runtime_sha": expected,
                       "runtime_ready": runtime_ok,
                       "financing_ready": financing_ok,
                       "pilot_router_ready": pilot_ok,
