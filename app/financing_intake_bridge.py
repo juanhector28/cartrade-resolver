@@ -7,6 +7,7 @@ Verified income, bureau/fraud results and lender pricing belong to later stages.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 from typing import Any
 
@@ -70,6 +71,10 @@ class FinancingIntakeBridgeError(RuntimeError):
     pass
 
 
+class FinancingIntakeNotFound(FinancingIntakeBridgeError):
+    pass
+
+
 class FinancingIntakeBridge:
     def __init__(self, *, base_url: str | None = None, api_key: str | None = None, timeout: float = 12.0, client=None):
         self.base_url = (base_url or os.getenv("CARTRADE_TRANSACTIONS_URL", "https://cartrade-transactions.vercel.app")).rstrip("/")
@@ -90,44 +95,17 @@ class FinancingIntakeBridge:
         raw = f"{user_id}|{journey_id}|{vehicle_ref}".encode("utf-8")
         return "webint:" + hashlib.sha256(raw).hexdigest()[:48]
 
-    def submit(self, *, user_id: str, body: CustomerFinancingIntake) -> dict[str, Any]:
-        payload = body.model_dump()
-        payload["user_subject"] = user_id
-        payload["source_channel"] = "cartrade_web"
-        idem = self.idempotency_key(user_id, body.journey_id, body.vehicle.vehicle_ref)
-        headers = {
-            **self._auth_headers(),
-            "Idempotency-Key": idem,
-            "Content-Type": "application/json",
-        }
-        try:
-            if self._client is not None:
-                response = self._client.post("/v1/financing/intakes", json=payload, headers=headers)
-            else:
-                with httpx.Client(base_url=self.base_url, timeout=self.timeout) as client:
-                    response = client.post("/v1/financing/intakes", json=payload, headers=headers)
-        except httpx.HTTPError as exc:
-            raise FinancingIntakeBridgeError("transactions service unavailable") from exc
+    @staticmethod
+    def owner_subject_hash(user_id: str) -> str:
+        return hashlib.sha256(user_id.encode("utf-8")).hexdigest()
 
-        if response.status_code >= 400:
-            raise FinancingIntakeBridgeError(f"transactions intake returned HTTP {response.status_code}")
-        try:
-            result = response.json()
-        except ValueError as exc:
-            raise FinancingIntakeBridgeError("transactions intake returned invalid JSON") from exc
-
-        if result.get("state") != "CHECKS_PENDING":
-            raise FinancingIntakeBridgeError("transactions intake returned unexpected state")
-        if result.get("router_submitted") is not False:
-            raise FinancingIntakeBridgeError("customer intake crossed Router boundary")
-        if result.get("contractual") is not False or result.get("integration_mode") != "SHADOW":
-            raise FinancingIntakeBridgeError("customer intake violated SHADOW boundary")
-
+    @staticmethod
+    def _customer_view(result: dict[str, Any]) -> dict[str, Any]:
         return {
             "financing_intake_id": result.get("financing_intake_id"),
             "journey_id": result.get("journey_id"),
             "vehicle_ref": result.get("vehicle_ref"),
-            "status": "CHECKS_PENDING",
+            "status": result.get("state") or "CHECKS_PENDING",
             "requested_amount": result.get("requested_amount"),
             "currency": result.get("currency", "USD"),
             "next_required": result.get("next_required") or [],
@@ -136,3 +114,59 @@ class FinancingIntakeBridge:
             "router_submitted": False,
             "displayable_approval": False,
         }
+
+    def _request(self, method: str, path: str, **kwargs):
+        headers = {**self._auth_headers(), **kwargs.pop("headers", {})}
+        try:
+            if self._client is not None:
+                return self._client.request(method, path, headers=headers, **kwargs)
+            with httpx.Client(base_url=self.base_url, timeout=self.timeout) as client:
+                return client.request(method, path, headers=headers, **kwargs)
+        except httpx.HTTPError as exc:
+            raise FinancingIntakeBridgeError("transactions service unavailable") from exc
+
+    def submit(self, *, user_id: str, body: CustomerFinancingIntake) -> dict[str, Any]:
+        payload = body.model_dump()
+        payload["user_subject"] = user_id
+        payload["source_channel"] = "cartrade_web"
+        idem = self.idempotency_key(user_id, body.journey_id, body.vehicle.vehicle_ref)
+        response = self._request(
+            "POST",
+            "/v1/financing/intakes",
+            json=payload,
+            headers={"Idempotency-Key": idem, "Content-Type": "application/json"},
+        )
+        if response.status_code >= 400:
+            raise FinancingIntakeBridgeError(f"transactions intake returned HTTP {response.status_code}")
+        try:
+            result = response.json()
+        except ValueError as exc:
+            raise FinancingIntakeBridgeError("transactions intake returned invalid JSON") from exc
+        self._validate_shadow(result)
+        return self._customer_view(result)
+
+    def get(self, *, user_id: str, intake_id: str) -> dict[str, Any]:
+        response = self._request("GET", f"/v1/financing/intakes/{intake_id}")
+        if response.status_code == 404:
+            raise FinancingIntakeNotFound("financing intake not found")
+        if response.status_code >= 400:
+            raise FinancingIntakeBridgeError(f"transactions intake lookup returned HTTP {response.status_code}")
+        try:
+            result = response.json()
+        except ValueError as exc:
+            raise FinancingIntakeBridgeError("transactions intake lookup returned invalid JSON") from exc
+        expected = self.owner_subject_hash(user_id)
+        actual = str(result.get("owner_subject_hash") or "")
+        if not actual or not hmac.compare_digest(actual, expected):
+            raise FinancingIntakeNotFound("financing intake not found")
+        self._validate_shadow(result)
+        return self._customer_view(result)
+
+    @staticmethod
+    def _validate_shadow(result: dict[str, Any]) -> None:
+        if result.get("state") != "CHECKS_PENDING":
+            raise FinancingIntakeBridgeError("transactions intake returned unexpected state")
+        if result.get("router_submitted") is not False:
+            raise FinancingIntakeBridgeError("customer intake crossed Router boundary")
+        if result.get("contractual") is not False or result.get("integration_mode") != "SHADOW":
+            raise FinancingIntakeBridgeError("customer intake violated SHADOW boundary")
