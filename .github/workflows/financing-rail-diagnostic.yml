@@ -1,0 +1,37 @@
+name: Financing rail diagnostic
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Probe public financing rail
+        run: |
+          python - <<'PY'
+          import urllib.error, urllib.request
+
+          urls = [
+              "https://cartrade-resolver.onrender.com/carly/runtime",
+              "https://cartrade-resolver.onrender.com/financing/readiness",
+              "https://cartrade-transactions.vercel.app/",
+              "https://cartrade-transactions.vercel.app/v1/financing/requests/__cartrade_readiness_probe__",
+          ]
+          for url in urls:
+              try:
+                  with urllib.request.urlopen(url, timeout=15) as r:
+                      body = r.read().decode("utf-8", "replace")[:1200]
+                      print("PROBE", url, "STATUS", r.status, "BODY", body)
+              except urllib.error.HTTPError as e:
+                  body = e.read().decode("utf-8", "replace")[:1200]
+                  print("PROBE", url, "STATUS", e.code, "BODY", body)
+              except Exception as e:
+                  print("PROBE", url, "ERROR", type(e).__name__, str(e))
+          PY
