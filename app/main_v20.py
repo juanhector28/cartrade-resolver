@@ -37,6 +37,47 @@ app = v19.app
 commercial = v19.commercial
 commercial.RUNTIME_COMPOSITION = "commercial-v20-financing-bridge"
 
+_prior_financing_for_car = commercial.financing_for_car
+
+
+def _financing_with_action(car: dict) -> dict:
+    result = _prior_financing_for_car(car)
+    vehicle_ref = car.get("id") or car.get("url")
+    price = car.get("price_usd")
+    year = car.get("year")
+    prefill = {
+        "vehicle": {
+            "vehicle_ref": vehicle_ref,
+            "make": car.get("make"),
+            "model": car.get("model"),
+            "year": year,
+            "purchase_price": price,
+            "market_value": car.get("market_value"),
+        }
+    }
+    result["action"] = {
+        "id": "start_financing_intake",
+        "label": "Ver financiamiento",
+        "method": "POST",
+        "endpoint": "/financing/intake",
+        "requires_auth": True,
+        "integration_mode": "SHADOW",
+        "prefill": prefill,
+        "collect": [
+            "borrower.full_name",
+            "borrower.monthly_income_reported",
+            "borrower.monthly_debt",
+            "financing.down_payment",
+            "financing.term_months",
+        ],
+        "result_state": "CHECKS_PENDING",
+        "status_endpoint_template": "/financing/intakes/{financing_intake_id}",
+    }
+    return result
+
+
+commercial.financing_for_car = _financing_with_action
+
 
 def _authenticated_user_id(authorization: str | None) -> str:
     if not authorization or not authorization.startswith("Bearer "):
