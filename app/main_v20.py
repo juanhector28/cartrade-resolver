@@ -2,15 +2,21 @@
 
 This layer leaves recommendation logic untouched. It exposes three financing
 boundaries:
-- /financing/intake captures customer facts and stops at CHECKS_PENDING.
+- /financing/intake captures customer facts and persists CHECKS_PENDING.
 - /financing/intakes/{id} returns owner-bound customer-safe status.
 - /financing/start accepts evidence-complete facts and may reach Router SHADOW.
+
+While the financing route is the sandbox lender, a pilot-only synthetic evidence
+adapter mirrors new intakes through the existing evidence-complete rail so the
+CarTrade -> Transactions -> Router path can be exercised end to end. That mirror
+is always SHADOW / non-contractual and automatically disables for real lenders.
 
 The downstream Transactions credential never reaches the browser and no path can
 produce a contractual borrower approval.
 """
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import Header, HTTPException
@@ -32,9 +38,15 @@ from .financing_intake_bridge import (
     FinancingIntakeBridgeError,
     FinancingIntakeNotFound,
 )
+from .pilot_financing_promoter import (
+    PILOT_EVIDENCE_MODE,
+    mirror_intake_to_router_shadow,
+    pilot_autopromote_enabled,
+)
 from .public_auth import PublicAuthConfigError, public_supabase_config
 
 
+logger = logging.getLogger(__name__)
 app = v19.app
 commercial = v19.commercial
 commercial.RUNTIME_COMPOSITION = "commercial-v20-financing-bridge"
@@ -152,6 +164,7 @@ def auth_config():
 @app.get("/financing/readiness")
 def financing_readiness():
     configured = bool(os.getenv("CARTRADE_TRANSACTIONS_API_KEY", "").strip())
+    pilot_enabled = pilot_autopromote_enabled()
     payload = {
         "status": "not_ready",
         "service": "cartrade-resolver",
@@ -160,6 +173,8 @@ def financing_readiness():
         "transactions_configured": configured,
         "transactions_authenticated": False,
         "requires_authenticated_user": True,
+        "pilot_router_autopromote": pilot_enabled,
+        "pilot_evidence_mode": PILOT_EVIDENCE_MODE if pilot_enabled else "disabled",
     }
     if not configured:
         payload["status"] = "not_configured"
@@ -180,9 +195,30 @@ def financing_intake(
 ):
     user_id = _authenticated_user_id(authorization)
     try:
-        return FinancingIntakeBridge().submit(user_id=user_id, body=body)
+        result = FinancingIntakeBridge().submit(user_id=user_id, body=body)
     except FinancingIntakeBridgeError as exc:
         raise HTTPException(status_code=502, detail="financing intake unavailable") from exc
+
+    # The intake is already durable at this point. The sandbox mirror is best
+    # effort and can never make a valid customer intake fail. It exists only to
+    # validate the SHADOW rail before real evidence providers are wired.
+    if pilot_autopromote_enabled():
+        try:
+            pilot = mirror_intake_to_router_shadow(user_id=user_id, body=body)
+            if pilot is not None:
+                result = {**result, "pilot_router": pilot}
+        except Exception as exc:  # preserve CHECKS_PENDING even if the pilot rail is down
+            logger.warning("sandbox Router mirror failed: %s", type(exc).__name__)
+            result = {
+                **result,
+                "pilot_router": {
+                    "status": "ROUTER_SHADOW_PENDING",
+                    "evidence_mode": PILOT_EVIDENCE_MODE,
+                    "integration_mode": "SHADOW",
+                    "contractual": False,
+                },
+            }
+    return result
 
 
 @app.get("/financing/intakes/{intake_id}")
