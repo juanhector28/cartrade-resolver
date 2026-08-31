@@ -1,6 +1,6 @@
 name: Carly runtime deploy check
 
-# ZERO model calls. Poll runtime identity plus read-only financing readiness.
+# ZERO model calls. Poll runtime identity plus read-only financing/browser readiness.
 on:
   push:
     branches: [main]
@@ -27,6 +27,7 @@ jobs:
           import json, os, time, urllib.request
           base = os.environ["CARLY_BASE_URL"]
           expected = os.environ["EXPECTED_SHA"]
+          deployed_checks = 0
           for attempt in range(1, 37):
               try:
                   with urllib.request.urlopen(base + "/carly/runtime", timeout=10) as r:
@@ -37,7 +38,10 @@ jobs:
 
                   financing = {}
                   financing_ok = False
+                  auth_ok = False
+                  cors_ok = False
                   if runtime_ok:
+                      deployed_checks += 1
                       with urllib.request.urlopen(base + "/financing/readiness", timeout=10) as r:
                           financing = json.loads(r.read().decode("utf-8"))
                       financing_ok = (
@@ -49,6 +53,31 @@ jobs:
                           and financing.get("requires_authenticated_user") is True
                       )
 
+                      with urllib.request.urlopen(base + "/auth/config", timeout=10) as r:
+                          auth = json.loads(r.read().decode("utf-8"))
+                      auth_ok = (
+                          auth.get("provider") == "supabase"
+                          and bool(auth.get("url"))
+                          and bool(auth.get("publishable_key"))
+                      )
+
+                      req = urllib.request.Request(
+                          base + "/financing/intake",
+                          method="OPTIONS",
+                          headers={
+                              "Origin": "https://cartrade.live",
+                              "Access-Control-Request-Method": "POST",
+                              "Access-Control-Request-Headers": "authorization,content-type",
+                          },
+                      )
+                      with urllib.request.urlopen(req, timeout=10) as r:
+                          allow_origin = r.headers.get("Access-Control-Allow-Origin", "")
+                          allow_headers = r.headers.get("Access-Control-Allow-Headers", "").lower()
+                      cors_ok = (
+                          allow_origin == "https://cartrade.live"
+                          and "authorization" in allow_headers
+                      )
+
                   print({
                       "attempt": attempt,
                       "composition": composition,
@@ -56,12 +85,19 @@ jobs:
                       "expected": expected,
                       "runtime_ready": runtime_ok,
                       "financing_ready": financing_ok,
-                      "financing": financing,
+                      "public_auth_ready": auth_ok,
+                      "browser_cors_ready": cors_ok,
                   })
-                  if runtime_ok and financing_ok:
+                  if runtime_ok and financing_ok and auth_ok and cors_ok:
                       raise SystemExit(0)
+                  if runtime_ok and deployed_checks >= 3:
+                      raise SystemExit("Expected runtime is deployed but browser financing readiness failed")
+              except SystemExit:
+                  raise
               except Exception as exc:
-                  print(f"attempt {attempt}: {exc}")
+                  print(f"attempt {attempt}: {type(exc).__name__}: {exc}")
+                  if runtime_ok and deployed_checks >= 3:
+                      raise SystemExit("Expected runtime is deployed but browser financing readiness failed")
               time.sleep(10)
           raise SystemExit("Render did not expose the expected Carly runtime and authenticated financing bridge in time")
           PY
