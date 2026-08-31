@@ -25,6 +25,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v25 keeps the authenticated production bridge and adds a PII-free,
-# rate-limited Router SHADOW pilot plus field-work intake repair.
-CMD uvicorn app.main_v25:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v26 keeps Router SHADOW safety and fixes live intake range/work parsing.
+CMD uvicorn app.main_v26:app --host 0.0.0.0 --port ${PORT:-8000}
