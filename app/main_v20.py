@@ -28,6 +28,7 @@ from .financing_intake_bridge import (
     FinancingIntakeBridge,
     FinancingIntakeBridgeError,
 )
+from .public_auth import PublicAuthConfigError, public_supabase_config
 
 
 app = v19.app
@@ -52,6 +53,14 @@ def _authenticated_user_id(authorization: str | None) -> str:
     if not user_id:
         raise HTTPException(status_code=401, detail="invalid session")
     return user_id
+
+
+@app.get("/auth/config")
+def auth_config():
+    try:
+        return public_supabase_config()
+    except PublicAuthConfigError as exc:
+        raise HTTPException(status_code=503, detail="public authentication not configured") from exc
 
 
 @app.get("/financing/readiness")
