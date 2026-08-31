@@ -1,9 +1,12 @@
 """Carly v20: authenticated server-side financing handoff.
 
-This layer leaves recommendation logic untouched. It adds a narrow BFF endpoint
-that forwards an authenticated CarTrade financing journey to the isolated
-cartrade-transactions service. The downstream credential never reaches the
-browser and every result remains SHADOW/non-contractual.
+This layer leaves recommendation logic untouched. It exposes two financing
+boundaries:
+- /financing/intake captures customer facts and stops at CHECKS_PENDING.
+- /financing/start accepts evidence-complete facts and may reach Router SHADOW.
+
+The downstream Transactions credential never reaches the browser and neither
+path can produce a contractual borrower approval.
 """
 from __future__ import annotations
 
@@ -19,6 +22,11 @@ from .financing_bridge import (
     FinancingBridgeError,
     FinancingBridgeNotConfigured,
     FinancingJourneyInput,
+)
+from .financing_intake_bridge import (
+    CustomerFinancingIntake,
+    FinancingIntakeBridge,
+    FinancingIntakeBridgeError,
 )
 
 
@@ -68,6 +76,18 @@ def financing_readiness():
     payload["status"] = "ready"
     payload["transactions_authenticated"] = True
     return payload
+
+
+@app.post("/financing/intake")
+def financing_intake(
+    body: CustomerFinancingIntake,
+    authorization: str | None = Header(default=None),
+):
+    user_id = _authenticated_user_id(authorization)
+    try:
+        return FinancingIntakeBridge().submit(user_id=user_id, body=body)
+    except FinancingIntakeBridgeError as exc:
+        raise HTTPException(status_code=502, detail="financing intake unavailable") from exc
 
 
 @app.post("/financing/start")
