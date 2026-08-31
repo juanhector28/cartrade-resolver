@@ -1,8 +1,9 @@
 """Sandbox-only SHADOW mirror from financing intake to Router.
 
-This module exists to validate the CarTrade -> Transactions -> Router rail before
-real evidence providers are connected. It must never be treated as underwriting.
-Synthetic evidence is allowed only for the sandbox lender and every downstream
+This module validates the CarTrade -> Transactions -> Router rail before real
+evidence providers are connected. It must never be treated as underwriting.
+Synthetic evidence is always routed to a dedicated sandbox lender, regardless of
+the lender configured for the normal financing path, and every downstream
 response is required to remain SHADOW / non-contractual.
 
 When real identity, income, bureau, fraud and valuation checks exist, the trigger
@@ -18,19 +19,27 @@ from .financing_intake_bridge import CustomerFinancingIntake
 
 
 PILOT_EVIDENCE_MODE = "synthetic_shadow"
+PILOT_INSTITUTION_ID = "sandbox_lender"
+PILOT_PRODUCT_ID = "used_vehicle_standard"
+
+
+class SandboxPilotFinancingBridge(FinancingBridge):
+    """Financing bridge whose lender route cannot escape the sandbox."""
+
+    def _route(self) -> tuple[str, str]:
+        return PILOT_INSTITUTION_ID, PILOT_PRODUCT_ID
 
 
 def pilot_autopromote_enabled() -> bool:
-    """Enable by default only while the route is the sandbox lender.
+    """Pilot is on by default and can be explicitly disabled.
 
-    An explicit environment value always wins. This makes the demo rail usable
-    today while failing closed automatically when a real lender route is selected.
+    This is safe with respect to lender routing because the pilot bridge is pinned
+    to sandbox_lender and cannot inherit the production financing institution.
     """
     explicit = os.getenv("CARTRADE_PILOT_ROUTER_AUTOPROMOTE", "").strip().lower()
-    if explicit:
-        return explicit in {"1", "true", "yes", "on"}
-    institution = os.getenv("CARTRADE_FINANCING_INSTITUTION_ID", "sandbox_lender").strip()
-    return institution == "sandbox_lender"
+    if not explicit:
+        return True
+    return explicit in {"1", "true", "yes", "on"}
 
 
 def _float_env(name: str, default: float) -> float:
@@ -124,12 +133,15 @@ def mirror_intake_to_router_shadow(
     if not pilot_autopromote_enabled():
         return None
     journey = build_synthetic_shadow_journey(body)
-    result = (bridge or FinancingBridge()).submit(user_id=user_id, body=journey)
+    pilot_bridge = bridge or SandboxPilotFinancingBridge()
+    result = pilot_bridge.submit(user_id=user_id, body=journey)
     if result.get("integration_mode") != "SHADOW" or result.get("contractual") is not False:
         raise RuntimeError("pilot financing mirror escaped SHADOW boundary")
     return {
         "status": "ROUTER_SHADOW_SUBMITTED",
         "evidence_mode": PILOT_EVIDENCE_MODE,
+        "institution_id": PILOT_INSTITUTION_ID,
+        "product_id": PILOT_PRODUCT_ID,
         "router_application_id": result.get("router_application_id"),
         "financing_request_id": result.get("financing_request_id"),
         "shadow_recommendation": result.get("shadow_recommendation"),
