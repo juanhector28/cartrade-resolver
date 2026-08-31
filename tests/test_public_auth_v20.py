@@ -2,6 +2,9 @@ import os
 import unittest
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+
+from app.main_v20 import app
 from app.public_auth import PublicAuthConfigError, public_supabase_config
 
 
@@ -45,6 +48,24 @@ class PublicAuthConfigTests(unittest.TestCase):
         }, clear=False):
             with self.assertRaises(PublicAuthConfigError):
                 public_supabase_config()
+
+    def test_financing_cors_allows_authorization_for_cartrade_origin(self):
+        client = TestClient(app)
+        response = client.options(
+            "/financing/intake",
+            headers={
+                "Origin": "https://cartrade.live",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"),
+            "https://cartrade.live",
+        )
+        allowed = response.headers.get("access-control-allow-headers", "").lower()
+        self.assertIn("authorization", allowed)
 
 
 if __name__ == "__main__":
