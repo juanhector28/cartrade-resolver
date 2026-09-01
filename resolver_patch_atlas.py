@@ -14,6 +14,37 @@ rs = rs.replace(
     '"status": "atlas_shadow",'
 )
 
+# P0-0: shadow writes must never mutate a pre-existing production row. The
+# shared table still has URL uniqueness, so a shadow run first inspects any
+# existing owner. It may refresh only its own atlas_shadow row. Production rows
+# and shadow rows owned by another source are immutable from this path.
+_shadow_saved_anchor = '''        saved = 0\n        save_errors: list[str] = []\n'''
+if _shadow_saved_anchor not in rs:
+    raise RuntimeError('P0-0 saved-counter anchor missing')
+rs = rs.replace(
+    _shadow_saved_anchor,
+    '''        saved = 0\n        protected_shadow_collisions = 0\n        protected_shadow_collision_urls: list[str] = []\n        save_errors: list[str] = []\n''',
+    1,
+)
+
+_shadow_upsert_anchor = '''                    record = self._db_record(source_id, country, domain, manifest_version, item)\n                    self.supabase.table("scraped_listings").upsert(record, on_conflict="url").execute()\n                    saved += 1\n'''
+if _shadow_upsert_anchor not in rs:
+    raise RuntimeError('P0-0 shadow upsert anchor missing')
+rs = rs.replace(
+    _shadow_upsert_anchor,
+    '''                    record = self._db_record(source_id, country, domain, manifest_version, item)\n                    existing = (\n                        self.supabase.table("scraped_listings")\n                        .select("status,raw_payload")\n                        .eq("url", record.get("url"))\n                        .limit(1)\n                        .execute().data or []\n                    )\n                    if existing:\n                        current = existing[0] or {}\n                        atlas_meta = ((current.get("raw_payload") or {}).get("atlas") or {})\n                        same_shadow_owner = bool(\n                            current.get("status") == "atlas_shadow"\n                            and atlas_meta.get("source_id") == source_id\n                        )\n                        if not same_shadow_owner:\n                            protected_shadow_collisions += 1\n                            if len(protected_shadow_collision_urls) < 10:\n                                protected_shadow_collision_urls.append(str(record.get("url") or ""))\n                            continue\n                    self.supabase.table("scraped_listings").upsert(record, on_conflict="url").execute()\n                    saved += 1\n''',
+    1,
+)
+
+_shadow_return_anchor = '''            "saved_shadow": saved,\n            "required_success_pct": required_success_pct,\n'''
+if _shadow_return_anchor not in rs:
+    raise RuntimeError('P0-0 runner response anchor missing')
+rs = rs.replace(
+    _shadow_return_anchor,
+    '''            "saved_shadow": saved,\n            "protected_shadow_collisions": protected_shadow_collisions,\n            "protected_shadow_collision_urls": protected_shadow_collision_urls,\n            "required_success_pct": required_success_pct,\n''',
+    1,
+)
+
 # Runtime extraction success is not the same as activation quality. Attach a
 # conservative semantic gate to every runner response so Atlas can keep a
 # technically healthy source in shadow until its data is publication-safe.
@@ -186,6 +217,7 @@ def atlas_runner_status():
         "shadow_addressable": False,
         "generated_columns_safe": True,
         "semantic_activation_gate": True,
+        "shadow_collision_protection": True,
     }
 
 
@@ -230,6 +262,11 @@ else:
             '"generated_columns_safe": True,',
             '"generated_columns_safe": True,\n        "semantic_activation_gate": True,'
         )
+    if '"shadow_collision_protection": True' not in s:
+        s = s.replace(
+            '"semantic_activation_gate": True,',
+            '"semantic_activation_gate": True,\n        "shadow_collision_protection": True,'
+        )
 
 # Resolver metadata bump only. Do not rewrite unrelated business logic.
 for old in ('1.5.0', '1.6.0'):
@@ -237,4 +274,4 @@ for old in ('1.5.0', '1.6.0'):
     s = s.replace(f'"version": "{old}"', '"version": "1.7.0"')
 
 p.write_text(s, encoding='utf-8')
-print('Applied Atlas Manifest Runner bridge; resolver version=1.7.0; semantic gate=v1')
+print('Applied Atlas Manifest Runner bridge; resolver version=1.7.0; semantic gate=v1; P0-0 protected')
