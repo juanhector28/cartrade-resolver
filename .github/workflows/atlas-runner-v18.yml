@@ -1,0 +1,114 @@
+name: Atlas Runner v18 Candidate Gate
+
+on:
+  pull_request:
+    paths:
+      - "app/atlas_candidate_gate_v18.py"
+      - "app/atlas_manifest_runner.py"
+      - "resolver_patch_atlas_v18.py"
+      - "Dockerfile"
+      - ".github/workflows/atlas-runner-v18.yml"
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Prove fail-closed URL decisions
+        run: |
+          python -m py_compile app/atlas_candidate_gate_v18.py resolver_patch_atlas_v18.py
+          python - <<'PY'
+          from app.atlas_candidate_gate_v18 import candidate_decision, filter_candidate_urls
+
+          bad = [
+              'https://seminuevos.kia.com.pa/cdn-cgi/l/email-protection',
+              'https://seminuevos.kia.com.pa/campana.html',
+              'https://seminuevos.kia.com.pa/discover-kia.html',
+              'https://seminuevos.kia.com.pa/forte-sedan.html',
+              'https://autoxperiencecr.com/compramos-tu-auto',
+              'https://autoxperiencecr.com/encontra-tu-auto',
+              'https://autoxperiencecr.com/financiamiento',
+              'https://enterprise.gt/alquiler-de-autos',
+          ]
+          good = [
+              'https://dealer.test/vehiculos/123456-toyota-corolla-2022',
+              'https://dealer.test/autos/toyota-corolla-m2024-automatico',
+              'https://dealer.test/detalle/toyota-corolla-full-equipo',
+          ]
+          for url in bad:
+              d=candidate_decision(url,{})
+              assert d['accept'] is False, (url,d)
+          for url in good:
+              d=candidate_decision(url,{})
+              assert d['accept'] is True, (url,d)
+          kept, diag=filter_candidate_urls(bad+good,{},50)
+          assert kept == good, (kept,diag)
+          assert diag['candidate_urls_before_filter']==len(bad)+len(good), diag
+          assert diag['candidate_urls_rejected']==len(bad), diag
+          print('GATE='+str(diag))
+          PY
+      - name: Apply patch to checkout and verify source wiring
+        run: |
+          RESOLVER_ROOT="$PWD" python resolver_patch_atlas_v18.py
+          python -m py_compile app/atlas_manifest_runner.py app/main.py
+          grep -q 'ATLAS_FINAL_CANDIDATE_GATE_V18' app/atlas_manifest_runner.py
+          grep -q 'candidate_urls_before_filter' app/atlas_manifest_runner.py
+          grep -q '/atlas/v18-ready' app/main.py
+      - name: Build production image
+        run: docker build -t cartrade-resolver-v18 .
+      - name: Execute readiness contract from production image
+        run: |
+          docker run --rm -i cartrade-resolver-v18 python - <<'PY'
+          import asyncio
+          import app.main_v26 as m
+          paths={getattr(r,'path',None) for r in m.app.routes}
+          assert '/atlas/v18-ready' in paths, sorted(x for x in paths if x and x.startswith('/atlas'))
+          route=next(r for r in m.app.routes if getattr(r,'path',None)=='/atlas/v18-ready')
+          out=route.endpoint()
+          if asyncio.iscoroutine(out): out=asyncio.run(out)
+          assert out['ok'] is True and out['version']==18, out
+          assert out['final_gate_before_fetch'] is True
+          assert out['marketing_fail_closed'] is True
+          assert out['asset_noise_fail_closed'] is True
+          assert out['rental_fail_closed'] is True
+          assert out['shadow_only'] is True
+          print('READY='+str(out))
+          PY
+
+  production-readiness:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for live resolver v18
+        env:
+          BASE_URL: https://cartrade-resolver.onrender.com
+        run: |
+          python - <<'PY'
+          import json, os, time, urllib.request
+          base=os.environ['BASE_URL']
+          for attempt in range(1,61):
+              try:
+                  with urllib.request.urlopen(base+'/atlas/v18-ready',timeout=10) as r:
+                      out=json.loads(r.read().decode('utf-8'))
+                  ok=(out.get('ok') is True and out.get('version')==18
+                      and out.get('contract')=='final_candidate_gate_v18'
+                      and out.get('final_gate_before_fetch') is True
+                      and out.get('marketing_fail_closed') is True
+                      and out.get('asset_noise_fail_closed') is True
+                      and out.get('rental_fail_closed') is True
+                      and out.get('shadow_only') is True)
+                  print({'attempt':attempt,'ready':ok,'payload':out})
+                  if ok: raise SystemExit(0)
+              except SystemExit:
+                  raise
+              except Exception as exc:
+                  print(f'attempt={attempt}: {type(exc).__name__}: {exc}')
+              time.sleep(10)
+          raise SystemExit('Resolver v18 did not become live')
+          PY
