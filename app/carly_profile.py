@@ -1,14 +1,34 @@
 """
-carly_profile.py — Conversacion -> CarlyProfile (Intelligence Layer v3)
+carly_profile.py — Conversacion -> CarlyProfile (Intelligence Layer v4)
 
-Principio:
-  El LLM NO decide pesos numericos. Clasifica hechos del usuario en categorias
-  cerradas. El codigo traduce esos hechos a un Need Vector deterministico.
+Cambios v3 -> v4 (objetivo: recomendaciones exquisitas con <=2 preguntas y costo ~0):
 
-  conversacion --LLM--> facts JSON --Need Translator--> CarlyProfile --ranking--> top
+  1. FAST PATH DETERMINISTICO (extract_facts_regex): un extractor de regex corre
+     ANTES del LLM y llena facts desde el texto crudo (presupuesto, km/dia,
+     pasajeros, bebe, job, marca, transmision, carroceria). Si el primer mensaje
+     ya trae job + techo de presupuesto, se recomienda SIN llamar al LLM para
+     razonar la conversacion: solo se necesita (opcionalmente) una frase de
+     presentacion, que puede ser plantilla. Costo LLM: 0 tokens en ese caso.
 
-El objetivo es que Carly traduzca la VIDA del comprador a metricas automotrices,
-no que le pregunte al comprador cuales metricas quiere optimizar.
+  2. PRESUPUESTO DURO DE PREGUNTAS (conversation_policy): el codigo, no el LLM,
+     decide si se pregunta o se recomienda. Maximo 2 preguntas por conversacion
+     (MAX_QUESTIONS). A la tercera oportunidad se recomienda con lo que haya,
+     usando defaults razonables por job. El LLM recibe la decision ya tomada
+     via directiva inyectada ("RECOMIENDA AHORA" / "puedes hacer 1 pregunta").
+
+  3. PROMPT COMPRIMIDO + CACHE: CARLY_SYSTEM_PROMPT bajo de ~2,400 a ~800
+     tokens sin perder reglas operativas (los ejemplos largos se convirtieron
+     en reglas). Marcado para prompt caching de Anthropic (cache_control en
+     main.py): tras el primer turno, el prompt cacheado cuesta ~10% del precio.
+     Turno tipico: ~80-150 tokens no cacheados.
+
+  4. FACTS PRE-LLENADOS SE INYECTAN al LLM como "HECHOS YA CONOCIDOS" para que
+     jamas repregunte algo que el regex ya capturo (la causa #1 de preguntas
+     desperdiciadas en v3).
+
+La matematica (Need Library, ranking) no cambia: ya era deterministica y buena.
+Pipeline: texto --regex--> facts --(LLM solo si falta algo)--> facts completos
+          --Need Translator--> CarlyProfile --ranking--> top
 """
 
 from __future__ import annotations
@@ -19,192 +39,337 @@ from typing import Optional
 
 from .carly_ranking import CarlyProfile
 
+MAX_QUESTIONS = 2          # techo duro de preguntas por conversacion
+MIN_FACTS_TO_RECOMMEND = 2 # job/usage + presupuesto
+
 
 # ════════════════════════════════════════════════════════════════════
-# SYSTEM PROMPT
+# 1) FAST PATH: regex extractor (0 tokens)
+# ════════════════════════════════════════════════════════════════════
+
+def _n(s: str) -> str:
+    s = (s or "").lower()
+    for a, b in (("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ñ","n")):
+        s = s.replace(a, b)
+    return s
+
+_JOB_PATTERNS = [
+    # (job, patrones). Orden importa: lo mas especifico primero.
+    ("rideshare",        r"\buber\b|\bindriver\b|in ?driver|didi|para trabajar en apps"),
+    ("delivery",         r"\bdelivery\b|repartir|entregas|reparto"),
+    ("work_vehicle",     r"mi negocio|para el negocio|(?:pickup|picap|palangana).{0,35}para trabajar|cargar (?:herramient|material|mercader)|carga(?:s)? pesada(?:s)?|ripio|para trabajo de campo|finca|construccion"),
+    ("family_transport", r"mi (?:esposa|esposo|familia)|toda la familia|los ninos|mis hijos|la bebe|el bebe|somos (?:cuatro|cinco|seis|[4-9])"),
+    ("daily_commute",    r"para (ir al|el) trabajo|para la oficina|commute|ir a trabajar"),
+    ("first_car",        r"mi primer carro|primer auto|primer vehiculo|estoy aprendiendo"),
+    ("long_distance",    r"viajes largos|carretera seguido|interdepartamental|viajar entre"),
+    ("city_runabout",    r"solo ciudad|para la ciudad|mandados|vueltas"),
+    ("weekend_adventure",r"montana|playa seguido|camping|aventura|off ?road"),
+    ("status_lifestyle", r"algo de lujo|que se vea bien|elegante|premium"),
+]
+
+_NUM = r"\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?"
+
+def _to_num(s: str) -> Optional[float]:
+    """Parsea montos LATAM/US sin confundir miles con decimales."""
+    raw = re.sub(r"[^\d.,]", "", str(s or ""))
+    if not raw:
+        return None
+    try:
+        if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", raw):
+            return float(re.sub(r"[.,]", "", raw))
+        if "," in raw and "." in raw:
+            decimal = "," if raw.rfind(",") > raw.rfind(".") else "."
+            thousands = "." if decimal == "," else ","
+            return float(raw.replace(thousands, "").replace(decimal, "."))
+        if raw.count(",") == 1:
+            left, right = raw.split(",")
+            return float(left + right) if len(right) == 3 else float(left + "." + right)
+        if raw.count(".") == 1:
+            left, right = raw.split(".")
+            return float(left + right) if len(right) == 3 else float(raw)
+        return float(raw.replace(",", "").replace(".", ""))
+    except (TypeError, ValueError):
+        return None
+
+def extract_facts_regex(text: str) -> dict:
+    """Extrae hechos del texto crudo del usuario. Determinista, 0 tokens.
+    Devuelve solo claves con evidencia; nunca inventa. Conservador a proposito:
+    ante ambiguedad no emite (el LLM o una pregunta lo resuelven)."""
+    t = " " + _n(text) + " "
+    f: dict = {}
+
+    # ── presupuesto ──────────────────────────────────────────────
+    # "ideal 250, llego a 450" es un rango de cuota cuando ambos son montos
+    # mensuales plausibles. Se evalua antes que los patrones individuales.
+    rng = re.search(
+        rf"ideal(?:mente)?(?:\s+de)?\s*\$?\s*(?P<target>{_NUM}).{{0,50}}?"
+        rf"(?:maximo|llegar(?:ia)?\s+a|llego\s+a|puedo\s+llegar\s+a|tope)\s*"
+        rf"\$?\s*(?P<ceiling>{_NUM})(?:\s*(?:al mes|mensual(?:es)?|por mes))?",
+        t,
+    )
+    target_range = _to_num(rng.group("target")) if rng else None
+    max_range = _to_num(rng.group("ceiling")) if rng else None
+    if target_range is not None and max_range is not None and 25 <= target_range <= max_range <= 2000:
+        f["target_monthly"] = target_range
+        f["max_monthly"] = max_range
+
+    # Cuota mensual: acepta el calificador antes del monto ("maximo 300 al
+    # mes"), despues del monto y la forma "cuota de 350".
+    m = re.search(
+        rf"(?:(?P<qual>hasta|maximo|\bmax\b|tope|no mas de)\s+)?"
+        rf"(?:cuota(?:\s+de)?\s+)?\$?\s*(?P<amount>{_NUM})\s*"
+        rf"(?:al mes|mensual(?:es)?|por mes|de cuota)",
+        t,
+    )
+    if not m:
+        m = re.search(
+            rf"(?:cuota|mensualidad)\s*(?:maxima|ideal)?\s*(?:de|es)?\s*"
+            rf"\$?\s*(?P<amount>{_NUM})",
+            t,
+        )
+    monthly = _to_num(m.group("amount")) if m else None
+    monthly_is_max = bool(
+        m and re.search(
+            r"maximo|hasta|\bmax\b|tope|no mas de",
+            t[max(0, m.start() - 30):m.end() + 15],
+        )
+    )
+
+    # Precio total: "hasta 15000", "$12,500", "presupuesto de 10 mil".
+    # Un monto explicitamente mensual nunca cae en esta rama.
+    m2 = re.search(
+        rf"(?:hasta|maximo|\bmax\b|tope|presupuesto\s+(?:de|es))\s*\$?\s*"
+        rf"(?P<amount>{_NUM})\s*(?P<scale>mil|k)?\b",
+        t,
+    )
+    total = _to_num(m2.group("amount")) if m2 else None
+    if total is not None and m2 and m2.group("scale") in {"mil", "k"}:
+        total *= 1000
+    if monthly is not None and monthly <= 2000:
+        if "max_monthly" in f:
+            pass
+        elif monthly_is_max:
+            f["max_monthly"] = monthly
+        else:
+            f["target_monthly"] = monthly
+    elif total is not None and total >= 2500 and not re.search(r"al mes|mensual|por mes|de cuota", m2.group(0) if m2 else ""):
+        f["max_price"] = total
+
+    # ── uso ──────────────────────────────────────────────────────
+    jobs = [j for j, pat in _JOB_PATTERNS if re.search(pat, t)]
+    if jobs:
+        f["primary_job"] = jobs[0]
+        if len(jobs) > 1 and jobs[1] != jobs[0]:
+            f["secondary_job"] = jobs[1]
+
+    m = re.search(
+        rf"(?P<lo>{_NUM})(?:\s*(?:-|a|hasta)\s*(?P<hi>{_NUM}))?\s*"
+        rf"(?:km|kms|kilometros)\s*(?:al dia|por dia|diarios)?",
+        t,
+    )
+    if m:
+        lo = _to_num(m.group("lo"))
+        hi = _to_num(m.group("hi")) if m.group("hi") else lo
+        if lo is not None and hi is not None and 0 < lo <= hi <= 500:
+            f["daily_km"] = round((lo + hi) / 2, 1)
+
+    m = re.search(r"somos\s+(dos|tres|cuatro|cinco|seis|siete|\d)", t)
+    if m:
+        w = {"dos":2,"tres":3,"cuatro":4,"cinco":5,"seis":6,"siete":7}
+        f["passengers"] = w.get(m.group(1)) or int(m.group(1))
+    if re.search(r"\bbebe\b|sillita|carseat|ninos pequenos|hijos pequenos", t):
+        f["small_children"] = True
+
+    if re.search(r"economic|barato de (usar|mantener)|no gastar|gaste poco|ahorr", t):
+        f["cost_sensitivity"] = "high"
+    if re.search(r"solo (en la )?ciudad|puro trafico", t):
+        f["road_mix"] = "city"
+    elif re.search(r"pura carretera|solo carretera", t):
+        f["road_mix"] = "highway"
+
+    # ── hard vs soft (misma semantica que v3) ────────────────────
+    m = re.search(r"(?:solo|tiene que ser|unicamente)\s+(toyota|honda|mazda|hyundai|kia|nissan|mitsubishi|suzuki)", t)
+    if m:
+        f["require_brands"] = [m.group(1)]
+    else:
+        m = re.search(r"(?:me gustaria|de preferencia|si se puede)\s+(?:un[a]? )?(toyota|honda|mazda|hyundai|kia|nissan|mitsubishi|suzuki)", t)
+        if not m:
+            m = re.search(r"(toyota|honda|mazda|hyundai|kia|nissan|mitsubishi|suzuki)\s+si se puede", t)
+        if m:
+            f["prefer_brands"] = [m.group(1)]
+    if re.search(r"no (?:se )?manejo? manual|solo automatic|no manual", t):
+        f["avoid_transmission"] = "manual"
+    if re.search(r"\bpickup\b|palangana|para cargar material", t) and "work_vehicle" in jobs:
+        f["require_body"] = ["pickup"]
+
+    return f
+
+
+# ════════════════════════════════════════════════════════════════════
+# 2) POLITICA DE CONVERSACION: el codigo decide preguntar vs recomendar
+# ════════════════════════════════════════════════════════════════════
+
+def merge_facts(known: dict, new: dict) -> dict:
+    """Combina turnos; una correccion explicita posterior reemplaza lo previo."""
+    out = dict(known or {})
+    for k, v in (new or {}).items():
+        if v not in (None, [], ""):
+            out[k] = v
+    return out
+
+
+def _has_budget(f: dict) -> bool:
+    return any(f.get(k) is not None for k in ("max_monthly", "max_price", "target_monthly", "target_price"))
+
+
+def _has_use(f: dict) -> bool:
+    return bool(f.get("primary_job") or f.get("usage"))
+
+
+def next_question(f: dict) -> Optional[str]:
+    """LA pregunta de mayor valor (Importance x Uncertainty x Variance,
+    resuelto en codigo por prioridad). None = nada que valga la pena preguntar."""
+    if not _has_use(f):
+        return "¿Para que lo vas a usar principalmente? (trabajo diario, familia, negocio...)"
+    if not _has_budget(f):
+        return "¿Que cuota mensual te queda comoda, y hasta donde llegarias si algo realmente lo vale?"
+    job = f.get("primary_job")
+    if job == "daily_commute" and f.get("daily_km") is None:
+        return "¿Como cuantos kilometros haces en un dia normal?"
+    if job == "family_transport" and f.get("passengers") is None:
+        return "¿Cuantos viajan normalmente en el carro?"
+    if job in ("work_vehicle", "delivery") and not f.get("cargo_level"):
+        return "¿Que tanto cargas: cosas ligeras o carga pesada seguido?"
+    return None
+
+
+def conversation_policy(facts: dict, questions_asked: int) -> dict:
+    """Decision del turno. Devuelve:
+    {"action": "recommend"} o
+    {"action": "ask", "question": "..."}.
+    Regla: recomendar en cuanto haya uso + presupuesto, o al agotar el cupo."""
+    if questions_asked >= MAX_QUESTIONS:
+        return {"action": "recommend"}
+    if _has_use(facts) and _has_budget(facts):
+        q = next_question(facts)
+        # Con uso + presupuesto ya se puede ordenar bien. Solo gastamos la
+        # pregunta contextual si aun queda cupo Y reordenaria el top (km/pasajeros).
+        if q and questions_asked < MAX_QUESTIONS - 1:
+            return {"action": "ask", "question": q}
+        return {"action": "recommend"}
+    q = next_question(facts)
+    if q:
+        return {"action": "ask", "question": q}
+    return {"action": "recommend"}
+
+
+def apply_job_defaults(f: dict) -> dict:
+    """Defaults razonables cuando se recomienda con cupo agotado. No pisan nada
+    declarado; solo evitan un Need Vector vacio."""
+    out = dict(f)
+    if not _has_use(out):
+        out["primary_job"] = "daily_commute"     # el caso base del mercado
+    if out.get("primary_job") == "family_transport" and out.get("passengers") is None:
+        out["passengers"] = 4
+    return out
+
+
+# ════════════════════════════════════════════════════════════════════
+# 3) SYSTEM PROMPT v4 (compacto; ~800 tokens; cachear con cache_control)
+#    El bloque {DIRECTIVE} y {KNOWN_FACTS} se inyectan por turno (no cacheados).
 # ════════════════════════════════════════════════════════════════════
 
 CARLY_SYSTEM_PROMPT = r"""
-Eres Carly, la asesora de compra de CarTrade. Tu trabajo no es hacer que la
-persona llene filtros: es entender que necesita resolver con el carro, traducir
-eso a criterios automotrices y ayudarla a decidir con tranquilidad.
+Eres Carly, asesora de compra de CarTrade. Entiendes que necesita resolver la
+persona con el carro y lo traduces a criterios automotrices. Tuteo neutro
+latinoamericano, directo, calido, sin voseo.
 
-# PRINCIPIO CENTRAL
-NO le preguntes al usuario que metricas automotrices le importan si puedes
-inferirlas razonablemente de su vida y uso.
+REGLA MADRE: pregunta HECHOS DE LA VIDA (km/dia, quien viaja, que carga),
+NUNCA metricas de carro ("¿prefieres espacio o economia?" esta prohibido).
+Infieres las metricas tu.
 
-Ejemplos:
-- "economico para ir al trabajo" -> infiere costo de uso, confiabilidad,
-  mantenimiento y consumo como importantes.
-- "mi esposa, bebe y yo, principalmente ciudad" -> infiere seguridad practica,
-  confiabilidad, facilidad de uso urbano y espacio suficiente; NO preguntes si
-  "prefiere espacio o reventa".
-- "somos seis" -> infiere necesidad de capacidad para todos; si dice que debe
-  moverlos a todos, trata 7 plazas como requisito, no preguntes si quiere espacio.
-- "pickup para mi negocio, cargo herramientas" -> infiere aptitud de trabajo,
-  confiabilidad y costo operativo.
+FORMATO DE TURNO (el sistema te dira cual aplica en DIRECTIVA):
+A) PREGUNTAR: 1 frase que demuestre que entendiste + LA pregunta indicada.
+   Nada mas. Sin <PROFILE>.
+B) RECOMENDAR: 1-2 frases de sintesis + bloque <PROFILE>. Sin pregunta final.
 
-Carly pregunta HECHOS SOBRE LA VIDA. Carly infiere las preferencias del carro.
+Si el primer mensaje ya trae una necesidad, no te presentes: demuestra que
+entendiste. Solo saludas si el usuario entro sin necesidad concreta.
 
-# COMO DECIDIR LA SIGUIENTE PREGUNTA
-Haz como maximo UNA pregunta por turno. No existe una secuencia fija ni una
-"pregunta de prioridad" obligatoria.
+PRESUPUESTO: "ideal X, llego a Y" -> target=X, max=Y. Target es comodidad,
+max es techo duro. Estar bajo el target nunca es malo.
 
-Pregunta solo si la respuesta puede cambiar materialmente que carros pondrias
-arriba. Prioriza, en este orden:
-1) Si todavia no entiendes para que se usara el carro, pregunta por el uso real.
-2) Si es commute y la distancia diaria puede cambiar mucho la economia, pregunta
-   cuantos km hace por dia SOLO si no lo dijo ya.
-3) Si es familia y no sabes cuantas personas deben caber normalmente, pregunta
-   eso SOLO si no se puede inferir.
-4) Si es trabajo/carga y no sabes la intensidad de carga, pregunta por el uso o
-   carga SOLO si cambia el tipo de vehiculo.
-5) Cuando el contexto de uso ya es suficiente, pregunta presupuesto si falta.
-6) Si contexto + presupuesto ya permiten ordenar bien, RECOMIENDA. No inventes
-   una pregunta adicional para completar un formulario.
+HARD vs SOFT: "solo Toyota" -> require_brands. "me gustaria Toyota" ->
+prefer_brands. Jamas conviertas preferencia blanda en filtro duro.
 
-Preguntas malas (evitalas antes de mostrar mercado):
-- "¿Que te importa mas: consumo, taller, comodidad o reventa?"
-- "¿Prefieres espacio o economia?" cuando la vida ya te lo dijo.
-- "¿Que prioridad tienes?"
+JOBS: daily_commute, family_transport, first_car, work_vehicle, delivery,
+long_distance, city_runabout, upgrade, status_lifestyle, weekend_adventure,
+rideshare. Puede haber primary y secondary.
 
-Preguntas buenas:
-- "¿Cuantos kilometros haces normalmente en un dia de trabajo?"
-- "¿Viajan los seis normalmente o solo en ocasiones?" (solo si es ambiguo)
-- "¿Que cuota te queda comoda y hasta donde llegarias si realmente vale la pena?"
+HONESTIDAD: distingue reportado por anuncio / inferido por Carly / verificado
+por CarTrade. Precio bajo no es buen valor; anomalia = "a verificar". El cierre
+siempre via CarTrade (Ver detalles, Iniciar compra verificada); nunca mandes al
+usuario a contactar vendedores ni buscar mecanico aparte.
 
-# APERTURA
-Si el primer mensaje YA describe una necesidad, NO vuelvas a presentarte ni
-expliques CarTrade. Empieza demostrando que entendiste: una frase corta de
-inferencia + la unica pregunta que de verdad falta.
-Solo si la persona entra con un saludo o mensaje sin necesidad concreta puedes
-presentarte en una frase breve.
-
-# PRESUPUESTO: OBJETIVO != TECHO
-Si la persona dice "ideal 250, puedo llegar a 450", conserva ambos:
-- target_monthly = 250
-- max_monthly = 450
-El target es comodidad; el maximo es techo duro. Estar por debajo del target no
-es malo. Carly evalua si pagar mas compra suficiente valor adicional.
-Lo mismo aplica a precio total (target_price / max_price).
-
-# HARD VS SOFT
-Distingue requisitos de preferencias:
-- "solo Toyota", "tiene que ser Toyota" -> require_brands
-- "me gustaria Toyota", "Toyota si se puede" -> prefer_brands
-- "pickup para cargar materiales" cuando pickup es explicitamente necesario -> require_body
-- "me gustan las SUV" -> prefer_body, no requisito
-Nunca conviertas una preferencia blanda en filtro duro.
-
-# NECESIDADES COMPUESTAS
-Una persona puede tener primary_job y secondary_job. Ejemplo: commute diario +
-familia. Captura ambos. No obligues a elegir uno antes de ver trade-offs reales.
-
-Jobs permitidos:
-- daily_commute
-- family_transport
-- first_car
-- work_vehicle
-- delivery
-- long_distance
-- city_runabout
-- upgrade
-- status_lifestyle
-- weekend_adventure
-- rideshare
-
-# TONO Y CONFIANZA
-- Conversacional, directo, tuteo neutro latinoamericano. Nunca voseo.
-- Criterio propio, pero anclado en datos.
-- No digas "esta unidad esta en buen estado" si CarTrade no la ha verificado.
-- Diferencia siempre: reportado por anuncio / inferido por Carly / verificado por CarTrade.
-- Precio bajo NO equivale a buen valor. Si hay anomalia, dilo como algo a verificar.
-- Posible daño por foto es probabilistico: "posible daño visible; requiere verificacion".
-- La inspeccion de CarTrade confirma condicion mecanica, kilometraje y documentos
-  segun el proceso disponible; nunca mandes al usuario a buscar un mecanico aparte.
-
-# CARTRADE COMO CIERRE
-Cuando toque explicar el siguiente paso: el usuario abre "Ver detalles" e
-"Iniciar compra verificada"; CarTrade gestiona contacto con vendedor,
-verificacion, inspeccion, custodia del pago y proceso de cierre segun corresponda.
-No lo mandes a otra plataforma ni a contactar al vendedor por su cuenta.
-
-# SEGUIMIENTO DE CARROS EN PANTALLA
-Si el sistema te da carros que la persona tiene en pantalla, puedes hablar de
-ellos. Estar en pantalla NO significa necesariamente que fue tu shortlist #1;
-no inventes que "lo recomendaste" si solo era una opcion de exploracion.
-
-# REGLA DE SALIDA
-En cada turno haces una sola cosa:
-A) PREGUNTAR: respuesta visible, UNA pregunta, sin <PROFILE>.
-B) RECOMENDAR: respuesta visible breve + UN bloque <PROFILE>; no termines con
-   una nueva pregunta abierta.
-
-# CUANDO RECOMENDAR
-No hay numero fijo de preguntas. Recomienda cuando:
-- pais esta confirmado por sistema o conversacion; Y
-- hay presupuesto (techo de cuota o precio total); Y
-- entiendes suficientemente el job/contexto como para construir el Need Vector.
-
-La "prioridad" NO es requisito. Se infiere del job y los hechos. Si el usuario
-la declara espontaneamente, capturala, pero nunca hagas una pregunta solo para
-obtenerla.
-
-# SALIDA ESTRUCTURADA AL RECOMENDAR
-El LLM CLASIFICA hechos; NO emite pesos numericos ni ideal_vector. Los numeros los
-calcula el codigo de forma deterministica.
-
-<PROFILE>
-{
-  "country": "<sv|cr|gt|hn|ni|pa|null>",
-  "target_monthly": <numero o null>,
-  "max_monthly": <numero o null>,
-  "target_price": <numero o null>,
-  "max_price": <numero o null>,
-  "min_year": <numero o null>,
-
-  "primary_job": "<job permitido|null>",
-  "secondary_job": "<job permitido|null>",
-  "usage": "<familia|trabajo|ciudad|carretera|mixto|null>",
-
-  "daily_km": <numero o null>,
-  "passengers": <entero o null>,
-  "small_children": <true|false|null>,
-  "road_mix": "<city|highway|mixed|null>",
-  "cargo_level": "<none|light|medium|heavy|null>",
-  "holding_period": "<short|medium|long|null>",
-  "cost_sensitivity": "<low|medium|high|null>",
-
-  "priority": "<confiabilidad|economia|espacio|apariencia|reventa|balance|null>",
-  "secondary": "<confiabilidad|economia|espacio|apariencia|reventa|null>",
-
-  "avoid_body": [],
-  "require_body": [],
-  "prefer_body": [],
-  "intent_segment": "<deportivo|lujo|7_plazas|convertible|off_road|electrico|hibrido|null>",
-  "avoid_transmission": "<manual|automatica|null>",
-  "avoid_brands": [],
-  "prefer_brands": [],
-  "require_brands": [],
-  "open_to_surprise": <true|false>
-}
-</PROFILE>
-
-Reglas de extraccion:
-- Si dicen "ideal X, maximo Y", guarda X como target y Y como max.
-- Si dan solo un monto como "maximo", va en max. Si dicen "quiero pagar X" sin
-  aclarar maximo, usa X como target y deja max null SOLO si el contexto sugiere
-  que no era techo; si necesitas techo para buscar, pregunta una vez.
-- "economico", "barato de mantener", "no gastar" -> cost_sensitivity high.
-- "70 km diarios" -> daily_km 70.
-- familia de seis / movernos todos -> passengers 6 e intent_segment 7_plazas.
-- hijos/bebe -> small_children true.
-- No emitas ideal_vector ni ideal_weights. Nunca pongas pesos 0..1 en el JSON.
+<PROFILE> emite SOLO clasificaciones, jamas pesos numericos:
+{"country":"sv|cr|gt|hn|ni|pa|null","target_monthly":n,"max_monthly":n,
+"target_price":n,"max_price":n,"min_year":n,"primary_job":"...","secondary_job":null,
+"usage":"familia|trabajo|ciudad|carretera|mixto|null","daily_km":n,"passengers":n,
+"small_children":bool,"road_mix":"city|highway|mixed|null",
+"cargo_level":"none|light|medium|heavy|null","holding_period":"short|medium|long|null",
+"cost_sensitivity":"low|medium|high|null","priority":null,"secondary":null,
+"avoid_body":[],"require_body":[],"prefer_body":[],
+"intent_segment":"deportivo|lujo|7_plazas|convertible|off_road|electrico|hibrido|null",
+"avoid_transmission":null,"avoid_brands":[],"prefer_brands":[],"require_brands":[],
+"open_to_surprise":bool}
+Campos sin evidencia: null/[]. "economico" -> cost_sensitivity high. familia de
+seis -> passengers 6 + intent_segment 7_plazas. bebe -> small_children true.
 """
 
 
+def build_turn_directive(facts: dict, decision: dict) -> str:
+    """Bloque por-turno que se inyecta DESPUES del system prompt cacheado.
+    Es lo unico no cacheado: ~60-120 tokens."""
+    known = {k: v for k, v in facts.items() if v not in (None, [], "")}
+    lines = ["HECHOS YA CONOCIDOS (no los repreguntes): " + (json.dumps(known, ensure_ascii=False) if known else "ninguno")]
+    if decision["action"] == "recommend":
+        lines.append("DIRECTIVA: RECOMIENDA AHORA (formato B). Emite <PROFILE> con los hechos conocidos + lo nuevo de este mensaje.")
+    else:
+        lines.append(f'DIRECTIVA: formato A. Haz exactamente esta pregunta (puedes reformularla natural): "{decision["question"]}"')
+    return "\n".join(lines)
+
+
 # ════════════════════════════════════════════════════════════════════
-# NEED LIBRARY: facts -> ideal vector + weights (deterministico)
+# 4) TURNO COMPLETO (orquestador que main.py llama)
+# ════════════════════════════════════════════════════════════════════
+
+def plan_turn(user_text: str, known_facts: dict, questions_asked: int) -> dict:
+    """Corre el fast path y la politica. Devuelve todo lo que main.py necesita:
+    {"facts": dict actualizado,
+     "decision": {"action": ...},
+     "needs_llm": bool,          # False = se puede responder con plantilla
+     "directive": str}           # bloque a inyectar si se llama al LLM
+    """
+    facts = merge_facts(known_facts, extract_facts_regex(user_text))
+    decision = conversation_policy(facts, questions_asked)
+    # Las preguntas de intake ya vienen redactadas por la politica, por lo que
+    # nunca necesitan LLM. Una recomendacion solo puede saltarlo cuando uso y
+    # presupuesto quedaron resueltos deterministicamente.
+    needs_llm = decision["action"] == "recommend" and not (
+        _has_use(facts) and _has_budget(facts)
+    )
+    if decision["action"] == "recommend":
+        facts = apply_job_defaults(facts)
+    return {
+        "facts": facts,
+        "decision": decision,
+        "needs_llm": needs_llm,
+        "directive": build_turn_directive(facts, decision),
+    }
+
+
+# ════════════════════════════════════════════════════════════════════
+# NEED LIBRARY (sin cambios funcionales vs v3)
 # ════════════════════════════════════════════════════════════════════
 
 _DIMS = (
@@ -212,7 +377,6 @@ _DIMS = (
     "lujo", "reventa", "modernidad", "aptitud_trabajo",
 )
 
-# target = que nivel del atributo encaja con ese job; importance = cuanto importa
 _JOB_LIBRARY = {
     "daily_commute": {
         "target": {"deportividad": .20, "espacio": .35, "confiabilidad": .92,
@@ -328,12 +492,6 @@ def _clamp01(v: float) -> float:
 
 
 def _derive_need_vector(data: dict):
-    """Traduce hechos cerrados a (ideal_vector, ideal_weights, evidence).
-
-    Los numeros viven aqui, no en el LLM. primary_job pesa 1.0 y secondary 0.55.
-    Los modificadores de contexto (km/dia, pasajeros, carga...) pueden dominar un
-    prior cuando son hechos mas concretos.
-    """
     accum = {d: 0.5 * 0.05 for d in _DIMS}
     weight_acc = {d: 0.05 for d in _DIMS}
     evidence = []
@@ -360,7 +518,6 @@ def _derive_need_vector(data: dict):
             imp = spec["importance"].get(d, 0.15) * strength
             add(d, target, imp, job)
 
-    # Hechos de vida mas concretos que el job general.
     daily_km = _num(data.get("daily_km"))
     if daily_km is not None:
         evidence.append(f"daily_km:{round(daily_km)}")
@@ -368,7 +525,6 @@ def _derive_need_vector(data: dict):
             add("economia", .97, 1.15, "high_daily_km")
             add("confiabilidad", .95, .85, "high_daily_km")
         elif daily_km <= 15:
-            # Sigue importando ser economico, pero el consumo deja de dominar.
             add("economia", .78, .35, "low_daily_km")
             add("confiabilidad", .90, .55, "low_daily_km")
         else:
@@ -426,7 +582,6 @@ def _derive_need_vector(data: dict):
     elif cost == "low":
         add("economia", .55, .20, "low_cost_sensitivity")
 
-    # Solo si el usuario lo declaro espontaneamente. Nunca hace falta preguntarlo.
     for key, strength in (("priority", 1.10), ("secondary", .55)):
         dim = _PRIORITY_TO_DIM.get((data.get(key) or "").lower())
         if dim:
@@ -457,16 +612,10 @@ def _need_confidence(data: dict, evidence: list[str]) -> float:
 
 
 # ════════════════════════════════════════════════════════════════════
-# PROFILE CONSTRUCTION
+# PROFILE CONSTRUCTION (sin cambios vs v3)
 # ════════════════════════════════════════════════════════════════════
 
-
 def profile_from_extraction(data: dict) -> CarlyProfile:
-    """Facts JSON -> CarlyProfile deterministico.
-
-    Compatibilidad: acepta campos viejos (usage/priority/secondary), pero IGNORA
-    cualquier ideal_vector numerico que pudiera mandar un prompt viejo.
-    """
     ideal, ideal_weights, evidence = _derive_need_vector(data)
 
     passengers = _int(data.get("passengers"))
@@ -474,18 +623,11 @@ def profile_from_extraction(data: dict) -> CarlyProfile:
     if passengers is not None and passengers >= 6:
         intent_segment = "7_plazas"
 
-    max_monthly = _num(data.get("max_monthly"))
-    target_monthly = _num(data.get("target_monthly"))
-    max_price = _num(data.get("max_price"))
-    target_price = _num(data.get("target_price"))
-
-    # Si solo hubo target, no lo convertimos silenciosamente en hard ceiling.
-    # El prompt debe preguntar techo antes de recomendar; este fallback evita crash.
     p = CarlyProfile(
-        max_monthly=max_monthly,
-        max_price=max_price,
-        target_monthly=target_monthly,
-        target_price=target_price,
+        max_monthly=_num(data.get("max_monthly")),
+        max_price=_num(data.get("max_price")),
+        target_monthly=_num(data.get("target_monthly")),
+        target_price=_num(data.get("target_price")),
         min_year=_int(data.get("min_year")),
         exclude_body=data.get("avoid_body") or [],
         require_body=data.get("require_body") or [],
@@ -506,7 +648,6 @@ def profile_from_extraction(data: dict) -> CarlyProfile:
         surprise=bool(data.get("open_to_surprise")),
     )
 
-    # Fallback weights para rutas sin similarity; se derivan del mismo need vector.
     iw = ideal_weights
     p.w_reliability = round(.20 + .80 * iw.get("confiabilidad", .5), 3)
     p.w_economy = round(.20 + .80 * iw.get("economia", .5), 3)
@@ -519,14 +660,13 @@ def profile_from_extraction(data: dict) -> CarlyProfile:
 
 
 # ════════════════════════════════════════════════════════════════════
-# PROFILE BLOCK PARSER
+# PROFILE BLOCK PARSER (sin cambios)
 # ════════════════════════════════════════════════════════════════════
 
 _PROFILE_RE = re.compile(r"<PROFILE>\s*(\{.*?\})\s*</PROFILE>", re.S)
 
 
 def extract_profile_json(llm_text: str):
-    """Extrae el dict del bloque <PROFILE>; None = seguir conversando."""
     m = _PROFILE_RE.search(llm_text or "")
     if not m:
         return None

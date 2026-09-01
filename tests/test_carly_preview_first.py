@@ -43,10 +43,10 @@ def test_two_questions_is_target_when_budget_and_use_are_known():
     policy = preview_policy(messages)
     assert policy["questions"] == 2
     assert policy["force_preview"] is True
-    assert policy["reason"] == "target_two_questions"
+    assert policy["reason"] == "hard_cap_two_questions"
 
 
-def test_third_question_is_allowed_only_while_material_blocker_remains():
+def test_third_question_is_never_allowed_even_when_a_blocker_remains():
     messages = [
         m("user", "Estoy viendo opciones."),
         m("assistant", "¿Qué necesitas resolver con el carro?"),
@@ -56,11 +56,11 @@ def test_third_question_is_allowed_only_while_material_blocker_remains():
     ]
     policy = preview_policy(messages)
     assert policy["questions"] == 2
-    assert policy["force_preview"] is False
-    assert policy["reason"] == "one_blocker_may_remain"
+    assert policy["force_preview"] is True
+    assert policy["reason"] == "hard_cap_two_questions"
 
 
-def test_never_allow_fourth_pre_preview_question():
+def test_existing_three_question_history_is_forced_immediately():
     messages = [
         m("user", "Estoy viendo opciones."),
         m("assistant", "¿Uso?"), m("user", "No sé."),
@@ -70,7 +70,7 @@ def test_never_allow_fourth_pre_preview_question():
     policy = preview_policy(messages)
     assert policy["questions"] == 3
     assert policy["force_preview"] is True
-    assert policy["reason"] == "hard_cap_three_questions"
+    assert policy["reason"] == "hard_cap_two_questions"
 
 
 def test_visible_market_disables_pre_preview_cap():

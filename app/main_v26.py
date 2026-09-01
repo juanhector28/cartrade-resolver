@@ -23,7 +23,7 @@ from . import main_preview as preview
 
 
 app = v25.app
-v25.v20.commercial.RUNTIME_COMPOSITION = "commercial-v26-intake-mission-quality"
+v25.v20.commercial.RUNTIME_COMPOSITION = "commercial-v26-intelligence-v4"
 
 
 def _role(message: Any) -> str:
