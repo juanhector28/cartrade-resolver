@@ -18,6 +18,8 @@ COPY resolver_patch_atlas_v16.py /tmp/resolver_patch_atlas_v16.py
 RUN python /tmp/resolver_patch_atlas_v16.py && rm /tmp/resolver_patch_atlas_v16.py
 COPY resolver_patch_atlas_v17.py /tmp/resolver_patch_atlas_v17.py
 RUN python /tmp/resolver_patch_atlas_v17.py && rm /tmp/resolver_patch_atlas_v17.py
+COPY resolver_patch_factory_harness.py /tmp/resolver_patch_factory_harness.py
+RUN python /tmp/resolver_patch_factory_harness.py && rm /tmp/resolver_patch_factory_harness.py
 
 RUN mkdir -p /data
 ENV CACHE_DB=/data/resolver_cache.db
