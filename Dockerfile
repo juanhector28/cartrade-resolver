@@ -18,6 +18,8 @@ COPY resolver_patch_atlas_v16.py /tmp/resolver_patch_atlas_v16.py
 RUN python /tmp/resolver_patch_atlas_v16.py && rm /tmp/resolver_patch_atlas_v16.py
 COPY resolver_patch_atlas_v17.py /tmp/resolver_patch_atlas_v17.py
 RUN python /tmp/resolver_patch_atlas_v17.py && rm /tmp/resolver_patch_atlas_v17.py
+COPY resolver_patch_atlas_v18.py /tmp/resolver_patch_atlas_v18.py
+RUN python /tmp/resolver_patch_atlas_v18.py && rm /tmp/resolver_patch_atlas_v18.py
 
 RUN mkdir -p /data
 ENV CACHE_DB=/data/resolver_cache.db
@@ -26,4 +28,5 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 # Carly v26 keeps Router SHADOW safety and fixes live intake range/work parsing.
+# Atlas v18 adds a fail-closed final URL gate before candidate fetch.
 CMD uvicorn app.main_v26:app --host 0.0.0.0 --port ${PORT:-8000}
