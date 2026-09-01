@@ -8,6 +8,8 @@ from typing import Any
 from fastapi import Header, HTTPException
 from pydantic import BaseModel, Field
 
+from .atlas_listing_validity import listing_validity
+
 
 class AtlasPublishRequest(BaseModel):
     source_id: str = Field(min_length=3, max_length=240)
@@ -57,7 +59,7 @@ def _exact_rows(
 ) -> list[dict[str, Any]]:
     rows = (
         supabase.table("scraped_listings")
-        .select("id,url,status,source,raw_payload,is_addressable,updated_at")
+        .select("id,url,status,source,raw_payload,is_addressable,updated_at,make,model,year,price_usd")
         .eq("status", status)
         .contains("raw_payload", {"atlas": {"source_id": source_id}})
         .limit(limit)
@@ -73,12 +75,18 @@ def _exact_rows(
 def _existing_by_id(supabase: Any, row_id: Any) -> dict[str, Any] | None:
     rows = (
         supabase.table("scraped_listings")
-        .select("id,url,status,source,raw_payload,is_addressable,updated_at")
+        .select("id,url,status,source,raw_payload,is_addressable,updated_at,make,model,year,price_usd")
         .eq("id", row_id)
         .limit(1)
         .execute().data or []
     )
     return rows[0] if rows else None
+
+
+def _validity_payload(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    result = listing_validity(rows)
+    valid_rows = list(result.pop("valid_rows"))
+    return result, valid_rows
 
 
 def _inject_test_publish_collision(
@@ -88,13 +96,7 @@ def _inject_test_publish_collision(
     manifest_version: int,
     candidates: list[dict[str, Any]],
 ) -> None:
-    """Deterministic race used only by the isolated Factory harness.
-
-    It simulates a manual/production row claiming one URL after Publisher has
-    snapshotted trusted shadow inventory but before conditional promotion. The
-    real publisher path must preserve that production row and report a protected
-    collision rather than overwrite or duplicate it.
-    """
+    """Deterministic race used only by the isolated Factory harness."""
     if os.getenv("ATLAS_TEST_ENV") != "1":
         return
     target = (os.getenv("ATLAS_TEST_PUBLISH_COLLISION_URL") or "").strip()
@@ -173,64 +175,74 @@ def publish_source(
     )
     existing_addressable = [row for row in existing if row.get("is_addressable") is True]
 
-    # A clean first publish requires at least min_listings trusted shadow rows.
-    # An idempotent retry may have already promoted some rows, so combined exact
-    # provenance can satisfy the precondition without re-creating inventory.
-    exact_total = len(candidates) + len(existing_addressable)
+    exact_rows = candidates + existing_addressable
+    exact_validity, _ = _validity_payload(exact_rows)
+    candidate_validity, valid_candidates = _validity_payload(candidates)
+    existing_validity, valid_existing = _validity_payload(existing_addressable)
+
     ready = bool(
-        len(candidates) >= body.min_listings
-        or (existing_addressable and exact_total >= body.min_listings)
+        exact_validity["passes_threshold"]
+        and exact_validity["valid_count"] >= body.min_listings
     )
+    common = {
+        "source_id": source_id,
+        "manifest_version": manifest_version,
+        "idempotency_key": body.idempotency_key,
+        "started_at": started_at,
+        "shadow_candidate_count": len(candidates),
+        "valid_shadow_candidate_count": candidate_validity["valid_count"],
+        "existing_addressable_count": len(existing_addressable),
+        "valid_existing_addressable_count": existing_validity["valid_count"],
+        "valid_listing_count": exact_validity["valid_count"],
+        "valid_listing_coverage_pct": exact_validity["valid_coverage_pct"],
+        "valid_listing_threshold_pct": exact_validity["threshold_pct"],
+        "min_listings": body.min_listings,
+    }
+
     if not ready:
+        reason = (
+            "core_listing_coverage_below_80"
+            if not exact_validity["passes_threshold"]
+            else "insufficient_valid_exact_inventory"
+        )
         return {
+            **common,
             "result": "rejected_precondition",
-            "reason": "insufficient_exact_shadow_inventory",
-            "source_id": source_id,
-            "manifest_version": manifest_version,
-            "idempotency_key": body.idempotency_key,
-            "started_at": started_at,
+            "reason": reason,
             "completed_at": _now_iso(),
-            "shadow_candidate_count": len(candidates),
-            "existing_addressable_count": len(existing_addressable),
-            "final_addressable_count": len(existing_addressable),
+            "final_addressable_count": len(valid_existing),
             "promoted_count": 0,
             "protected_collision_count": 0,
             "protected_collision_urls": [],
-            "min_listings": body.min_listings,
             "dry_run": body.dry_run,
         }
 
     if body.dry_run:
         return {
+            **common,
             "result": "ready",
-            "source_id": source_id,
-            "manifest_version": manifest_version,
-            "idempotency_key": body.idempotency_key,
-            "started_at": started_at,
             "completed_at": _now_iso(),
-            "shadow_candidate_count": len(candidates),
-            "existing_addressable_count": len(existing_addressable),
-            "final_addressable_count": len(existing_addressable),
+            "final_addressable_count": len(valid_existing),
             "promoted_count": 0,
             "protected_collision_count": 0,
             "protected_collision_urls": [],
-            "min_listings": body.min_listings,
             "dry_run": True,
         }
 
     # Snapshot is fixed above. Any ownership/status change from this point is a
-    # publish collision and must fail closed for that URL.
+    # publish collision and must fail closed for that URL. Invalid rows are never
+    # promoted, even when source-level coverage remains above the 80% gate.
     _inject_test_publish_collision(
         supabase,
         source_id=source_id,
         manifest_version=manifest_version,
-        candidates=candidates,
+        candidates=valid_candidates,
     )
 
     promoted = 0
     collisions: list[dict[str, Any]] = []
     now = _now_iso()
-    for candidate in candidates:
+    for candidate in valid_candidates:
         current = _existing_by_id(supabase, candidate.get("id"))
         meta = _atlas_meta(current)
         if not current:
@@ -282,24 +294,24 @@ def publish_source(
         manifest_version=manifest_version,
     )
     final_addressable = [row for row in final_rows if row.get("is_addressable") is True]
-    result = "published" if len(final_addressable) >= body.min_listings else "insufficient_after_collisions"
+    final_validity, valid_final = _validity_payload(final_addressable)
+    result = (
+        "published"
+        if final_validity["passes_threshold"] and len(valid_final) >= body.min_listings
+        else "insufficient_after_collisions"
+    )
     collision_urls = [str(item.get("url") or "") for item in collisions if item.get("url")]
 
     return {
+        **common,
         "result": result,
-        "source_id": source_id,
-        "manifest_version": manifest_version,
-        "idempotency_key": body.idempotency_key,
-        "started_at": started_at,
         "completed_at": _now_iso(),
-        "shadow_candidate_count": len(candidates),
-        "existing_addressable_count": len(existing_addressable),
         "promoted_count": promoted,
         "protected_collision_count": len(collisions),
         "protected_collision_urls": collision_urls[:100],
         "protected_collisions": collisions[:100],
-        "final_addressable_count": len(final_addressable),
-        "min_listings": body.min_listings,
+        "final_addressable_count": len(valid_final),
+        "final_valid_listing_coverage_pct": final_validity["valid_coverage_pct"],
         "dry_run": False,
     }
 
