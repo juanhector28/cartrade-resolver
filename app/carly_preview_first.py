@@ -93,8 +93,8 @@ def preview_policy(messages: list[Any] | None, has_visible_cars: bool = False) -
 
     Target behavior:
     - prefer 0-2 questions before showing market;
-    - a third question is allowed only when budget or use/intent is still missing;
-    - a fourth pre-preview question is never allowed.
+    - two questions is the hard pre-preview ceiling;
+    - after the ceiling, compact extraction/defaults produce the first preview.
     """
     questions = assistant_question_turns(messages)
     budget = has_budget_signal(messages)
@@ -109,10 +109,8 @@ def preview_policy(messages: list[Any] | None, has_visible_cars: bool = False) -
             "intent_signal": intent,
         }
 
-    if questions >= 3:
-        force, reason = True, "hard_cap_three_questions"
-    elif questions >= 2 and budget and intent:
-        force, reason = True, "target_two_questions"
+    if questions >= 2:
+        force, reason = True, "hard_cap_two_questions"
     elif questions >= 1 and budget and intent:
         force, reason = True, "enough_information_early"
     else:
