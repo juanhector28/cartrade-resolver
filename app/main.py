@@ -1986,7 +1986,12 @@ def crautos_status():
 from .carly_ranking import rank_cars, best_for_label, import_status as _import_status
 from .vision_damage import enrich_listing_vision as _enrich_vision
 from .carly_profile import (
-    CARLY_SYSTEM_PROMPT, extract_profile_json, profile_from_extraction,
+    CARLY_SYSTEM_PROMPT,
+    extract_facts_regex,
+    extract_profile_json,
+    merge_facts,
+    plan_turn,
+    profile_from_extraction,
 )
 
 try:
@@ -2507,6 +2512,52 @@ def _clean_frontend_context(messages):
     return cleaned, list(dict.fromkeys(trusted_meta))
 
 
+def _carly_turn_plan(messages, country: str | None = None) -> dict | None:
+    """Rebuild compact structured state from the conversation without storage.
+
+    The browser already sends the complete conversation, so persisting another
+    server-side session is unnecessary. Later explicit facts overwrite earlier
+    ones, which keeps corrections such as a new budget authoritative.
+    """
+    user_texts: list[str] = []
+    questions_asked = 0
+    for message in messages or []:
+        role = str(getattr(message, "role", "") or "").lower()
+        content = str(getattr(message, "content", "") or "").strip()
+        if role == "user" and content:
+            user_texts.append(content)
+        elif role == "assistant" and ("?" in content or "¿" in content):
+            questions_asked += 1
+    if not user_texts:
+        return None
+
+    known: dict = {}
+    if country:
+        known["country"] = str(country).lower().strip()
+    for text in user_texts[:-1]:
+        known = merge_facts(known, extract_facts_regex(text))
+    return plan_turn(user_texts[-1], known, questions_asked)
+
+
+def _cached_carly_system(full_prompt: str):
+    """Cache the process-static Carly policy while keeping request facts fresh."""
+    static_prompt = str(CARLY_SYSTEM_PROMPT or "").strip()
+    full = str(full_prompt or "")
+    if not static_prompt or not full.startswith(str(CARLY_SYSTEM_PROMPT or "")):
+        return full_prompt
+    dynamic = full[len(str(CARLY_SYSTEM_PROMPT or "")):].strip()
+    blocks = [
+        {
+            "type": "text",
+            "text": static_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    if dynamic:
+        blocks.append({"type": "text", "text": dynamic})
+    return blocks
+
+
 @app.post("/carly/chat")
 def carly_chat(body: CarlyChatRequest):
     if not supabase:
@@ -2524,6 +2575,10 @@ def carly_chat(body: CarlyChatRequest):
                           f"Pais/codigo seleccionado: {body.country}. No lo vuelvas a preguntar.")
     if frontend_meta:
         system_prompt += ("\n" + "\n".join(frontend_meta))
+
+    turn_plan = _carly_turn_plan(body.messages, country=body.country)
+    if turn_plan:
+        system_prompt += "\n\n# POLITICA DETERMINISTICA DEL TURNO\n" + turn_plan["directive"]
 
     # On-screen context: if the person already has recommendation cards visible
     # (frontend echoes them back), tell Carly exactly which cars they are so she
@@ -2561,8 +2616,8 @@ def carly_chat(body: CarlyChatRequest):
     try:
         resp = _anthropic.messages.create(
             model=CARLY_MODEL,
-            max_tokens=2048,
-            system=system_prompt,
+            max_tokens=900,
+            system=_cached_carly_system(system_prompt),
             messages=msgs,
         )
     except Exception as e:
@@ -2750,7 +2805,8 @@ def carly_chat(body: CarlyChatRequest):
                 )
         try:
             resp2 = _anthropic.messages.create(
-                model=CARLY_MODEL, max_tokens=400, system=system_prompt,
+                model=CARLY_MODEL, max_tokens=400,
+                system=_cached_carly_system(system_prompt),
                 messages=msgs + [
                     {"role": "assistant", "content": visible or "Tengo tus opciones."},
                     {"role": "user", "content": closing_prompt},
