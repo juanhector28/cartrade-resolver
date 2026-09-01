@@ -2,6 +2,17 @@ from pathlib import Path
 
 p = Path('/app/app/main.py')
 s = p.read_text(encoding='utf-8')
+
+# The branch-only v1.1 test routes use bare Depends while production main does
+# not import that symbol. Add it only to the derived harness image.
+if 'from fastapi import Depends\n' not in s and 'from fastapi import Depends,' not in s:
+    future = 'from __future__ import annotations\n'
+    line = 'from fastapi import Depends\n'
+    if s.startswith(future):
+        s = future + line + s[len(future):]
+    else:
+        s = line + s
+
 marker = '# ATLAS_RESOLVER_RED_HARNESS_V12'
 if marker not in s:
     old_num = '    m_num = re.search(r"\\$?\\s*(\\d{4,6})", t)\n'
