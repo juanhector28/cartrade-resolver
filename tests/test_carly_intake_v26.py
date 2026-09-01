@@ -11,6 +11,10 @@ def _a(text):
     return {"role": "assistant", "content": text}
 
 
+def test_runtime_identifies_intelligence_v4_deploy():
+    assert v26.v25.v20.commercial.RUNTIME_COMPOSITION == "commercial-v26-intelligence-v4"
+
+
 def test_work_pickup_language_is_normalized_without_llm():
     cases = [
         "Necesito una pickup potente y confiable para trabajar",
