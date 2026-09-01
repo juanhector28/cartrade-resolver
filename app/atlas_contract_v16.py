@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .atlas_listing_validity import listing_validity
+
 
 _ALLOWED_FUEL = {
     "gasolina": "Gasolina",
@@ -105,6 +107,7 @@ def install(ns: dict[str, Any]) -> None:
             rows = list(sample or [])[:5]
             invalid_fuel = 0
             invalid_transmission = 0
+            validity_rows: list[dict[str, Any]] = []
             for item in rows:
                 if item.get("fuel_type") not in (None, "", []):
                     if _normalize_fuel(item.get("fuel_type")) is None:
@@ -112,15 +115,31 @@ def install(ns: dict[str, Any]) -> None:
                 if item.get("transmission") not in (None, "", []):
                     if _normalize_transmission(item.get("transmission")) is None:
                         invalid_transmission += 1
+
+                normalized = dict(item)
+                raw_price = normalized.get("price_native", normalized.get("price_usd"))
+                raw_currency = normalized.get("currency_native", normalized.get("currency"))
+                normalized["price_usd"] = money_usd(raw_price, raw_currency)
+                validity_rows.append(normalized)
+
+            validity = listing_validity(validity_rows)
             out["field_contract_v16"] = True
             out["invalid_fuel_values"] = invalid_fuel
             out["invalid_transmission_values"] = invalid_transmission
+            out["core_listing_validity"] = {
+                key: value for key, value in validity.items() if key != "valid_rows"
+            }
+
+            issues = list(out.get("issues") or [])
             if invalid_fuel or invalid_transmission:
-                issues = list(out.get("issues") or [])
                 if "invalid_vehicle_field_values" not in issues:
                     issues.append("invalid_vehicle_field_values")
-                out["issues"] = issues
                 out["eligible"] = False
+            if not validity["passes_threshold"]:
+                if "core_listing_coverage_below_80" not in issues:
+                    issues.append("core_listing_coverage_below_80")
+                out["eligible"] = False
+            out["issues"] = issues
             return out
 
         ns["_atlas_activation_quality"] = quality_with_field_contract
@@ -140,6 +159,10 @@ def install(ns: dict[str, Any]) -> None:
             normalized_sample.append(row)
         result["sample"] = normalized_sample
         result["sample_price_contract"] = "native_plus_usd_v1"
+        validity = listing_validity(normalized_sample)
+        result["core_listing_validity"] = {
+            key: value for key, value in validity.items() if key != "valid_rows"
+        }
         return result
 
     ns["AtlasManifestRunner"].run = run_with_sample_contract
