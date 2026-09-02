@@ -33,5 +33,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v35 retains explicit session facts and disambiguates mixed budget replies.
-CMD uvicorn app.main_v35:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v36 adds a bounded, cached visual-damage gate to finalist recommendations.
+CMD uvicorn app.main_v36:app --host 0.0.0.0 --port ${PORT:-8000}
