@@ -12,7 +12,7 @@ jobs:
       - name: Run exact prompts against production
         shell: python
         run: |
-          import json, time, urllib.request, urllib.error
+          import json, time, urllib.request
 
           BASE = "https://cartrade-resolver.onrender.com"
           prompts = [
@@ -28,23 +28,16 @@ jobs:
               return r.status, json.loads(r.read().decode())
 
           def post(prompt):
-            payload = json.dumps({
-              "messages": [{"role": "user", "content": prompt}],
-              "country": "sv",
-              "top_n": 30,
-            }).encode()
+            payload = json.dumps({"messages":[{"role":"user","content":prompt}],"country":"sv","top_n":30}).encode()
             req = urllib.request.Request(BASE + "/carly/chat", data=payload, headers={"Content-Type":"application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=120) as r:
               return r.status, json.loads(r.read().decode())
 
-          # Wait for v38 explicitly.
           for attempt in range(30):
             try:
               status, runtime = get("/carly/runtime")
-              text = json.dumps(runtime).lower()
               print("RUNTIME", status, json.dumps(runtime, ensure_ascii=False))
-              if "v38" in text:
-                break
+              if "v38" in json.dumps(runtime).lower(): break
             except Exception as e:
               print("RUNTIME_WAIT", repr(e))
             time.sleep(10)
@@ -53,23 +46,13 @@ jobs:
 
           def slim(card):
             if not isinstance(card, dict): return card
-            return {k: card.get(k) for k in ["id","make","model","year","price_usd","monthly_est","monthly_payment","km","body_type","transmission","location","match","match_score","url","vision_checked_at","visible_damage_risk"] if k in card}
+            keys=["id","make","model","year","price_usd","monthly_est","monthly_payment","km","body_type","transmission","location","match","match_score","url","vision_checked_at","visible_damage_risk"]
+            return {k:card.get(k) for k in keys if k in card}
 
           for i,prompt in enumerate(prompts,1):
             try:
-              status, data = post(prompt)
-              out = {
-                "case": i,
-                "http": status,
-                "prompt": prompt,
-                "phase": data.get("phase"),
-                "reply": data.get("reply"),
-                "advisor_mode": data.get("advisor_mode"),
-                "profile": data.get("profile"),
-                "recommendation_brain": data.get("recommendation_brain"),
-                "recommendations": [slim(x) for x in (data.get("recommendations") or [])],
-                "explore": [slim(x) for x in (data.get("explore") or [])],
-              }
-              print("CARLY_CASE", i, json.dumps(out, ensure_ascii=False, separators=(",",":")))
+              status,data=post(prompt)
+              out={"case":i,"http":status,"prompt":prompt,"phase":data.get("phase"),"reply":data.get("reply"),"advisor_mode":data.get("advisor_mode"),"profile":data.get("profile"),"recommendation_brain":data.get("recommendation_brain"),"recommendations":[slim(x) for x in (data.get("recommendations") or [])],"explore":[slim(x) for x in (data.get("explore") or [])]}
+              print("CARLY_CASE",i,json.dumps(out,ensure_ascii=False,separators=(",",":")))
             except Exception as e:
-              print("CARLY_CASE", i, json.dumps({"case":i,"error":repr(e)}, ensure_ascii=False))
+              print("CARLY_CASE",i,json.dumps({"case":i,"error":repr(e)},ensure_ascii=False))
