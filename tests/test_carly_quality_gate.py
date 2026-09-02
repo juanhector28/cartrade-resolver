@@ -95,5 +95,17 @@ def test_one_off_live_carly_comparison_probe():
     )
     with urllib.request.urlopen(req, timeout=60) as response:
         data = json.loads(response.read().decode("utf-8"))
-    print("CARLY_COMPARE_RESULT=" + json.dumps(data, ensure_ascii=False))
-    assert isinstance(data, dict)
+
+    def slim(car):
+        return {k: car.get(k) for k in ("make", "model", "year", "price_usd", "km", "monthly_payment", "match_pct", "fit_score") if car.get(k) is not None}
+
+    summary = {
+        "prompt": prompt,
+        "reply": data.get("reply"),
+        "phase": data.get("phase"),
+        "profile": data.get("profile"),
+        "recommendations": [slim(c) for c in (data.get("recommendations") or [])],
+        "explore": [slim(c) for c in (data.get("explore") or [])],
+        "pool_size": data.get("pool_size"),
+    }
+    raise AssertionError("CARLY_COMPARE_RESULT=" + json.dumps(summary, ensure_ascii=False))
