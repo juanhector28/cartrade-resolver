@@ -1,10 +1,11 @@
 """Carly v33: explicit transmission + total-budget parser hardening.
 
-v32 remains the recommendation/quality engine. v33 fixes two natural-language
+v32 remains the recommendation/quality engine. v33 fixes natural-language
 constraint gaps found by adversarial tests:
-1) explicitly stated transmission is hard unless the user clearly softens it;
-2) normal cash/total-budget phrasing such as "Tengo hasta US$12,000" is parsed
-   as a total purchase ceiling rather than ignored.
+1) explicit transmission is hard unless the user clearly softens it;
+2) explicit rejection of one transmission can resolve the other;
+3) normal cash/total-budget phrasing is parsed as a purchase-price ceiling;
+4) mixed total + monthly budgets do not contaminate each other.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ app = v32.app
 v31 = v32.v31
 v28 = v31.v28
 
-# Compatibility aliases used by the regression suites and debugging helpers.
+# Compatibility aliases used by regression suites and debugging helpers.
 _body = v32._body
 _price_anomaly = v32._price_anomaly
 _effective_constraints = v32._effective_constraints
@@ -45,11 +46,12 @@ _TOTAL_CUE = re.compile(
     r"no quiero pasar de|no pasar de|no m[aá]s de|como m[aá]ximo|hasta)\b",
     re.I,
 )
+_CASH_AFTER = re.compile(r"\b(?:de contado|al contado)\b", re.I)
 _MONEY = re.compile(
     r"(?:(?:US\$|USD|\$)\s*)?([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,6}|[0-9]+(?:[.,][0-9]+)?)\s*(k|mil)?\b",
     re.I,
 )
-_MONTHLY_NEAR = re.compile(r"\b(?:al mes|mensual(?:es)?|por mes|cuota(?: mensual)?)\b", re.I)
+_MONTHLY_AFTER = re.compile(r"^\s*(?:al mes|mensual(?:es)?|por mes|de cuota(?: mensual)?|cuota mensual)\b", re.I)
 
 
 def _money_number(raw: str, suffix: str | None = None) -> float | None:
@@ -69,18 +71,31 @@ def _money_number(raw: str, suffix: str | None = None) -> float | None:
 
 
 def _explicit_total_budget(text: str) -> float | None:
-    """Extract a purchase-price ceiling only when total/cash language is present."""
-    if not _TOTAL_CUE.search(text or ""):
+    """Extract an actual purchase-price ceiling without stealing years/monthly figures."""
+    text = text or ""
+    if not _TOTAL_CUE.search(text):
         return None
 
     candidates: list[tuple[int, float]] = []
-    for match in _MONEY.finditer(text or ""):
+    for match in _MONEY.finditer(text):
         value = _money_number(match.group(1), match.group(2))
         if value is None or value < 2000 or value > 500000:
             continue
-        # Do not steal a monthly figure from a mixed sentence.
-        tail = (text or "")[match.end(): match.end() + 28]
-        if _MONTHLY_NEAR.search(tail):
+
+        raw_match = match.group(0)
+        has_currency = bool(re.search(r"US\$|USD|\$", raw_match, re.I))
+        has_suffix = bool(match.group(2))
+        # Bare four-digit years are not budgets.
+        if 1980 <= value <= 2100 and not has_currency and not has_suffix:
+            continue
+
+        prefix = text[max(0, match.start() - 60):match.start()]
+        suffix = text[match.end():match.end() + 36]
+        cue_before = bool(_TOTAL_CUE.search(prefix))
+        cash_after = bool(_CASH_AFTER.search(suffix))
+        if not cue_before and not cash_after:
+            continue
+        if _MONTHLY_AFTER.search(suffix):
             continue
         candidates.append((match.start(), value))
 
@@ -90,42 +105,55 @@ def _explicit_total_budget(text: str) -> float | None:
 
 
 def _transmission_is_soft(text: str, token_match: re.Match[str]) -> bool:
-    start = max(0, token_match.start() - 48)
-    end = min(len(text), token_match.end() + 38)
+    start = max(0, token_match.start() - 52)
+    end = min(len(text), token_match.end() + 42)
     return bool(_SOFT_TRANSMISSION.search(text[start:end]))
 
 
 def _transmission_is_negated(text: str, token_match: re.Match[str]) -> bool:
-    start = max(0, token_match.start() - 24)
+    start = max(0, token_match.start() - 28)
     prefix = text[start:token_match.start()]
     return bool(re.search(r"\b(?:no|sin)\s+(?:(?:quiero|quisiera)\s+|(?:que\s+)?sea\s+)?$", prefix, re.I))
+
+
+def _semantic_transmission(text: str) -> str | None:
+    auto = _AUTO.search(text)
+    manual = _MANUAL.search(text)
+    auto_neg = bool(auto and _transmission_is_negated(text, auto))
+    manual_neg = bool(manual and _transmission_is_negated(text, manual))
+
+    if auto and manual:
+        if auto_neg and not manual_neg:
+            return "manual"
+        if manual_neg and not auto_neg:
+            return "automatic"
+        # Both positive means the user allowed both or expressed an unresolved choice.
+        return None
+    if auto:
+        if auto_neg or _transmission_is_soft(text, auto):
+            return None
+        return "automatic"
+    if manual:
+        if manual_neg or _transmission_is_soft(text, manual):
+            return None
+        return "manual"
+    return None
 
 
 def _constraints(body: Any) -> dict[str, Any]:
     c = dict(_ORIG_CONSTRAINTS(body))
     text = str(c.get("text") or "")
 
-    if not c.get("require_transmission"):
-        auto = _AUTO.search(text)
-        manual = _MANUAL.search(text)
-        auto_neg = bool(auto and _transmission_is_negated(text, auto))
-        manual_neg = bool(manual and _transmission_is_negated(text, manual))
+    # Recompute from semantic wording so legacy false positives (e.g. "No quiero automática")
+    # cannot survive into the hard-filter layer.
+    if _AUTO.search(text) or _MANUAL.search(text):
+        c["require_transmission"] = _semantic_transmission(text)
 
-        # If both appear, only infer a hard choice when one side is explicitly rejected.
-        if auto and manual:
-            if auto_neg and not manual_neg:
-                c["require_transmission"] = "manual"
-            elif manual_neg and not auto_neg:
-                c["require_transmission"] = "automatic"
-        elif auto and not auto_neg and not _transmission_is_soft(text, auto):
-            c["require_transmission"] = "automatic"
-        elif manual and not manual_neg and not _transmission_is_soft(text, manual):
-            c["require_transmission"] = "manual"
-
-    if not c.get("total_budget"):
-        total = _explicit_total_budget(text)
-        if total is not None:
-            c["total_budget"] = total
+    # Prefer the explicit v33 total parser over legacy extraction, which can mistake a year
+    # for a budget in mixed exact-model prompts.
+    total = _explicit_total_budget(text)
+    if total is not None:
+        c["total_budget"] = total
 
     return c
 
