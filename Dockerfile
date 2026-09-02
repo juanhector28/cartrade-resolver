@@ -29,5 +29,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v33 hardens explicit transmission and total-purchase-budget parsing.
-CMD uvicorn app.main_v33:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v34 closes exact-model, URL risk-text, and empty-result demo gaps.
+CMD uvicorn app.main_v34:app --host 0.0.0.0 --port ${PORT:-8000}
