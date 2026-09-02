@@ -29,5 +29,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v29 applies the final eligibility hotfix after v28's recommendation brain.
-CMD uvicorn app.main_v29:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v30 fixes explicit-use intake recognition after v29's final eligibility gate.
+CMD uvicorn app.main_v30:app --host 0.0.0.0 --port ${PORT:-8000}
