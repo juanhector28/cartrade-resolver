@@ -1,0 +1,42 @@
+name: Atlas v21 Encuentra24 car-route gate
+
+on:
+  pull_request:
+    paths:
+      - "resolver_patch_atlas_v21.py"
+      - "Dockerfile"
+      - ".github/workflows/atlas-encuentra24-car-route-v21-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "resolver_patch_atlas_v21.py"
+      - "Dockerfile"
+      - ".github/workflows/atlas-encuentra24-car-route-v21-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  route-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install runner import dependencies
+        run: python -m pip install httpx beautifulsoup4 lxml
+      - name: Apply v21 build patch in checkout
+        run: python resolver_patch_atlas_v21.py
+      - name: Verify Encuentra24 car-only route contract
+        run: |
+          python - <<'PY'
+          from app.atlas_manifest_runner import _clean_url
+
+          base = "https://www.encuentra24.com/"
+          assert _clean_url(base, "https://www.encuentra24.com/panama-es/autos-motos/bmw-r1250/123") is None
+          assert _clean_url(base, "https://www.encuentra24.com/panama-es/autos-usados/bmw-x5/456") == "https://www.encuentra24.com/panama-es/autos-usados/bmw-x5/456"
+          assert _clean_url("https://example.com/", "https://example.com/autos-motos/toyota-corolla") == "https://example.com/autos-motos/toyota-corolla"
+          print("ATLAS_ENCUENTRA24_CAR_ROUTE_V21=PASS")
+          PY
