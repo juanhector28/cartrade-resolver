@@ -19,30 +19,19 @@ from . import cache
 router = APIRouter(prefix="/lending", tags=["lending-requirements"])
 
 SUPPORTED_CLAIMS = {
-    "employment_status",
-    "position",
-    "start_date",
-    "employment_type",
-    "pay_frequency",
-    "monthly_gross_income",
-    "monthly_net_income",
-    "active_oid_count",
-    "monthly_oid_deductions",
-    "other_monthly_payroll_deductions",
+    "employment_status", "position", "start_date", "employment_type", "pay_frequency",
+    "monthly_gross_income", "monthly_net_income", "active_oid_count",
+    "monthly_oid_deductions", "other_monthly_payroll_deductions",
 }
 MONETARY_CLAIMS = {
-    "monthly_gross_income",
-    "monthly_net_income",
-    "monthly_oid_deductions",
+    "monthly_gross_income", "monthly_net_income", "monthly_oid_deductions",
     "other_monthly_payroll_deductions",
 }
 
 TRUSTPLUS_API_BASE = os.environ.get("TRUSTPLUS_API_BASE", "").rstrip("/")
 TRUSTPLUS_API_KEY = os.environ.get("TRUSTPLUS_API_KEY", "")
 TRUSTPLUS_WEBHOOK_SECRET = os.environ.get("TRUSTPLUS_WEBHOOK_SECRET", "")
-TRUSTPLUS_WEBHOOK_URL = os.environ.get(
-    "TRUSTPLUS_WEBHOOK_URL", "https://resolver.cartrade.live/hooks/trustplus"
-)
+TRUSTPLUS_WEBHOOK_URL = os.environ.get("TRUSTPLUS_WEBHOOK_URL", "https://resolver.cartrade.live/hooks/trustplus")
 TRUSTPLUS_DEMO_URL = os.environ.get("TRUSTPLUS_DEMO_URL", "")
 ATLAS_REQUIREMENTS_TOKEN = os.environ.get("ATLAS_REQUIREMENTS_TOKEN", "")
 
@@ -70,8 +59,7 @@ def _conn():
 
 def init_db() -> None:
     with _conn() as con:
-        con.execute(
-            """
+        con.execute("""
             CREATE TABLE IF NOT EXISTS lender_requirements (
                 id TEXT PRIMARY KEY,
                 application_ref TEXT NOT NULL,
@@ -87,14 +75,9 @@ def init_db() -> None:
                 result_json TEXT,
                 last_error TEXT
             )
-            """
-        )
-        con.execute(
-            "CREATE INDEX IF NOT EXISTS idx_lr_app ON lender_requirements(application_ref, requested_at DESC)"
-        )
-        con.execute(
-            "CREATE INDEX IF NOT EXISTS idx_lr_verification ON lender_requirements(verification_id)"
-        )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_lr_app ON lender_requirements(application_ref, requested_at DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_lr_verification ON lender_requirements(verification_id)")
 
 
 class RequirementCreate(BaseModel):
@@ -128,35 +111,29 @@ def _serialize(row: sqlite3.Row) -> dict:
 
 
 def _require_atlas_token(x_atlas_token: Optional[str]) -> None:
-    if ATLAS_REQUIREMENTS_TOKEN and not (
-        x_atlas_token and secrets.compare_digest(x_atlas_token, ATLAS_REQUIREMENTS_TOKEN)
-    ):
+    if not ATLAS_REQUIREMENTS_TOKEN:
+        raise HTTPException(503, "Atlas requirement bridge is not configured")
+    if not (x_atlas_token and secrets.compare_digest(x_atlas_token, ATLAS_REQUIREMENTS_TOKEN)):
         raise HTTPException(401, "invalid Atlas requirements token")
 
 
 @router.post("/requirements")
 def create_requirement(body: RequirementCreate, x_atlas_token: str | None = Header(None)):
     _require_atlas_token(x_atlas_token)
-    claims = []
-    seen = set()
+    claims, seen = [], set()
     for claim in body.claims:
         claim = str(claim).strip()
         if claim not in SUPPORTED_CLAIMS:
             raise HTTPException(422, f"unsupported claim: {claim}")
-        if claim in seen:
-            continue
-        seen.add(claim)
-        claims.append(claim)
-    rid = "req_" + secrets.token_hex(6)
-    at = _now()
+        if claim not in seen:
+            seen.add(claim); claims.append(claim)
+    rid, at = "req_" + secrets.token_hex(6), _now()
     with _conn() as con:
-        con.execute(
-            """INSERT INTO lender_requirements
-               (id,application_ref,lender,claims_json,status,requested_by,requested_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
+        con.execute("""INSERT INTO lender_requirements
+            (id,application_ref,lender,claims_json,status,requested_by,requested_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?)""",
             (rid, body.application_ref.strip(), body.lender.strip(), json.dumps(claims),
-             "awaiting_customer", body.requested_by, at, at),
-        )
+             "awaiting_customer", body.requested_by, at, at))
         row = con.execute("SELECT * FROM lender_requirements WHERE id=?", (rid,)).fetchone()
     return _serialize(row)
 
@@ -166,14 +143,9 @@ def list_requirements(application_ref: str | None = None, limit: int = 20):
     limit = max(1, min(100, int(limit)))
     with _conn() as con:
         if application_ref:
-            rows = con.execute(
-                "SELECT * FROM lender_requirements WHERE application_ref=? ORDER BY requested_at DESC LIMIT ?",
-                (application_ref, limit),
-            ).fetchall()
+            rows = con.execute("SELECT * FROM lender_requirements WHERE application_ref=? ORDER BY requested_at DESC LIMIT ?", (application_ref, limit)).fetchall()
         else:
-            rows = con.execute(
-                "SELECT * FROM lender_requirements ORDER BY requested_at DESC LIMIT ?", (limit,)
-            ).fetchall()
+            rows = con.execute("SELECT * FROM lender_requirements ORDER BY requested_at DESC LIMIT ?", (limit,)).fetchall()
     return {"requirements": [_serialize(r) for r in rows]}
 
 
@@ -205,8 +177,7 @@ def launch_requirement(requirement_id: str, body: RequirementLaunch):
     if missing:
         raise HTTPException(422, {"message": "missing asserted values", "claims": missing})
 
-    launch = body.model_dump()
-    launch["currency"] = body.currency.upper()
+    launch = body.model_dump(); launch["currency"] = body.currency.upper()
     payload = {
         "requester": "Atlas Capital",
         "purpose": "credit_underwriting",
@@ -217,55 +188,42 @@ def launch_requirement(requirement_id: str, body: RequirementLaunch):
         "webhook_url": TRUSTPLUS_WEBHOOK_URL,
     }
 
-    verification_id = None
-    consent_url = None
-    status = "awaiting_consent"
-    last_error = None
-
+    verification_id = consent_url = None
+    status, last_error = "awaiting_consent", None
     if TRUSTPLUS_API_BASE and TRUSTPLUS_API_KEY:
         idem = f"atlas-{row['application_ref']}-{requirement_id}"
         try:
             with httpx.Client(timeout=12.0) as client:
-                resp = client.post(
-                    f"{TRUSTPLUS_API_BASE}/v1/verifications",
-                    headers={"X-API-Key": TRUSTPLUS_API_KEY, "Idempotency-Key": idem},
-                    json=payload,
-                )
+                resp = client.post(f"{TRUSTPLUS_API_BASE}/v1/verifications",
+                    headers={"X-API-Key": TRUSTPLUS_API_KEY, "Idempotency-Key": idem}, json=payload)
             if resp.status_code >= 400:
                 raise RuntimeError(f"Trust+ HTTP {resp.status_code}: {resp.text[:300]}")
             data = resp.json()
-            verification_id = data.get("verification_id")
-            consent_url = data.get("consent_url")
+            verification_id, consent_url = data.get("verification_id"), data.get("consent_url")
             status = data.get("status") or status
         except Exception as exc:
-            status = "launch_error"
-            last_error = str(exc)[:500]
+            status, last_error = "launch_error", str(exc)[:500]
     elif TRUSTPLUS_DEMO_URL:
-        consent_url = TRUSTPLUS_DEMO_URL
-        status = "awaiting_consent"
+        consent_url, status = TRUSTPLUS_DEMO_URL, "awaiting_consent"
     else:
-        status = "ready_to_launch"
-        last_error = "Trust+ transport is not configured"
+        status, last_error = "ready_to_launch", "Trust+ transport is not configured"
 
     at = _now()
     with _conn() as con:
-        con.execute(
-            """UPDATE lender_requirements
-               SET status=?, updated_at=?, launch_json=?, verification_id=?, consent_url=?, last_error=?
-               WHERE id=?""",
-            (status, at, json.dumps(launch), verification_id, consent_url, last_error, requirement_id),
-        )
+        con.execute("""UPDATE lender_requirements SET status=?,updated_at=?,launch_json=?,verification_id=?,consent_url=?,last_error=? WHERE id=?""",
+                    (status, at, json.dumps(launch), verification_id, consent_url, last_error, requirement_id))
         updated = con.execute("SELECT * FROM lender_requirements WHERE id=?", (requirement_id,)).fetchone()
     return _serialize(updated)
 
 
 async def trustplus_webhook(request: Request):
     raw = await request.body()
-    if TRUSTPLUS_WEBHOOK_SECRET:
-        signature = request.headers.get("X-Trustplus-Signature", "")
-        expected = hmac.new(TRUSTPLUS_WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
-        if not signature or not hmac.compare_digest(signature, expected):
-            raise HTTPException(401, "invalid Trust+ signature")
+    if not TRUSTPLUS_WEBHOOK_SECRET:
+        raise HTTPException(503, "Trust+ webhook verification is not configured")
+    signature = request.headers.get("X-Trustplus-Signature", "")
+    expected = hmac.new(TRUSTPLUS_WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
+    if not signature or not hmac.compare_digest(signature, expected):
+        raise HTTPException(401, "invalid Trust+ signature")
     try:
         event = json.loads(raw or b"{}")
     except json.JSONDecodeError:
@@ -274,23 +232,12 @@ async def trustplus_webhook(request: Request):
     if not vid:
         raise HTTPException(422, "verification_id is required")
     name = str(event.get("event") or "")
-    status_map = {
-        "consent.granted": "employer_pending",
-        "verification.completed": "completed",
-        "verification.expired": "expired",
-    }
-    new_status = status_map.get(name, name or "updated")
-    at = _now()
+    status_map = {"consent.granted":"employer_pending","verification.completed":"completed","verification.expired":"expired"}
+    new_status, at = status_map.get(name, name or "updated"), _now()
     with _conn() as con:
-        row = con.execute(
-            "SELECT * FROM lender_requirements WHERE verification_id=? ORDER BY requested_at DESC LIMIT 1",
-            (vid,),
-        ).fetchone()
+        row = con.execute("SELECT * FROM lender_requirements WHERE verification_id=? ORDER BY requested_at DESC LIMIT 1", (vid,)).fetchone()
         if not row:
             return {"ok": True, "matched": False}
         result = json.dumps(event) if name in {"verification.completed", "verification.expired"} else row["result_json"]
-        con.execute(
-            "UPDATE lender_requirements SET status=?, updated_at=?, result_json=?, last_error=NULL WHERE id=?",
-            (new_status, at, result, row["id"]),
-        )
+        con.execute("UPDATE lender_requirements SET status=?,updated_at=?,result_json=?,last_error=NULL WHERE id=?", (new_status, at, result, row["id"]))
     return {"ok": True, "matched": True, "requirement_id": row["id"]}
