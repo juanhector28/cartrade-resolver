@@ -29,5 +29,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v31 uses intent-first retrieval and hard constraints before ranking.
-CMD uvicorn app.main_v31:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v32 adds market plausibility and hard-constraint-safe Explore.
+CMD uvicorn app.main_v32:app --host 0.0.0.0 --port ${PORT:-8000}
