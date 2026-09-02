@@ -29,5 +29,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v26 keeps Router SHADOW safety and fixes live intake range/work parsing.
-CMD uvicorn app.main_v26:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v27 adds the persistent Atlas Capital -> CarTrade -> Trust+ requirement bridge.
+CMD uvicorn app.main_v27:app --host 0.0.0.0 --port ${PORT:-8000}
