@@ -25,6 +25,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install runner import dependencies
+        run: python -m pip install httpx beautifulsoup4 lxml
       - name: Apply v20 build patch in checkout
         run: python resolver_patch_atlas_v20.py
       - name: Verify PAB parity and fail-closed local currencies
