@@ -16,7 +16,7 @@ concurrency:
 jobs:
   verify-runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,7 +28,7 @@ jobs:
           EXPECTED_SHA="$(git log -1 --format=%H -- app Dockerfile requirements.txt railway.toml)"
           export EXPECTED_SHA
           python - <<'PY'
-          import json, os, subprocess, time, urllib.request
+          import json, os, subprocess, time, urllib.error, urllib.request
           base = os.environ["CARLY_BASE_URL"]
           expected = os.environ["EXPECTED_SHA"]
           runtime_paths = ["app", "Dockerfile", "requirements.txt", "railway.toml"]
@@ -47,7 +47,20 @@ jobs:
               except Exception:
                   return False
 
-          for attempt in range(1, 37):
+          def health_status():
+              try:
+                  with urllib.request.urlopen(base + "/health", timeout=5) as r:
+                      return r.status
+              except urllib.error.HTTPError as exc:
+                  return exc.code
+              except Exception:
+                  return None
+
+          # Render deploys for this service can legitimately take >7 minutes.
+          # Give the platform a 15-minute transition window while preserving
+          # exact SHA/composition/readiness checks before declaring success.
+          for attempt in range(1, 91):
+              health = health_status()
               try:
                   with urllib.request.urlopen(base + "/carly/runtime", timeout=10) as r:
                       runtime = json.loads(r.read().decode("utf-8"))
@@ -55,6 +68,7 @@ jobs:
                   composition = runtime.get("composition")
                   runtime_tree_ok = same_runtime_tree(deployed)
                   runtime_ok = composition == "commercial-v35-session-facts" and runtime_tree_ok
+                  phase = "ready_candidate" if runtime_ok else "stale_runtime"
 
                   financing_ok = False
                   pilot_ok = False
@@ -103,6 +117,8 @@ jobs:
 
                   print({
                       "attempt": attempt,
+                      "phase": phase,
+                      "health_http": health,
                       "composition": composition,
                       "deployed": deployed,
                       "expected_runtime_sha": expected,
@@ -114,11 +130,28 @@ jobs:
                       "browser_cors_ready": cors_ok,
                   })
                   if runtime_ok and financing_ok and pilot_ok and auth_ok and cors_ok:
+                      print("RENDER_DEPLOY_GATE=PASS")
                       raise SystemExit(0)
               except SystemExit:
                   raise
+              except urllib.error.HTTPError as exc:
+                  phase = "deploy_transition" if exc.code in {502, 503, 504} else "http_error"
+                  print({
+                      "attempt": attempt,
+                      "phase": phase,
+                      "health_http": health,
+                      "runtime_http": exc.code,
+                      "expected_runtime_sha": expected,
+                  })
               except Exception as exc:
-                  print(f"attempt {attempt}: {type(exc).__name__}: {exc}")
+                  print({
+                      "attempt": attempt,
+                      "phase": "transport_error",
+                      "health_http": health,
+                      "error_type": type(exc).__name__,
+                      "error": str(exc),
+                      "expected_runtime_sha": expected,
+                  })
               time.sleep(10)
-          raise SystemExit("Render did not expose Carly v35 and the authenticated financing bridge in time")
+          raise SystemExit("Render did not expose Carly v35 and the authenticated financing bridge within the 15-minute deploy window")
           PY
