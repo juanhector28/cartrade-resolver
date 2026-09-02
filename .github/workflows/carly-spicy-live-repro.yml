@@ -1,0 +1,51 @@
+name: Carly spicy live repro
+
+on:
+  push:
+    branches: [carly-live-repro-spicy-20260902]
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Run five production repro prompts
+        env:
+          CARLY_BASE_URL: https://cartrade-resolver.onrender.com
+        run: |
+          python - <<'PY'
+          import json, time, urllib.request, urllib.error
+          base = 'https://cartrade-resolver.onrender.com'
+          cases = [
+            ('P5_NO_PICKUP', 'Somos 5. Necesito algo para ciudad durante la semana y finca los fines de semana. Hay grava y algo de lodo cuando llueve. No quiero pickup bajo ninguna circunstancia. Automática, máximo US$450 al mes. Prioriza espacio y despeje del suelo.'),
+            ('P7_RAV4_EXACT', 'Quiero una Toyta Rav-4 2023 o más nueva, automática, máximo US$450 al mes. No quiero Nissan ni Kia. Si no hay una Rav4 exacta, no me muestres otro modelo hasta decirme claramente que no encontraste una.'),
+            ('P8_DELIVERY', 'Hago delivery unos 120 km al día. Quiero algo automático, económico de gasolina, confiable y de 2019 en adelante. Máximo US$250 al mes. No quiero pickups ni carros sospechosamente baratos que puedan esconder problemas.'),
+            ('P9_CONTRADICTION', 'Quiero una pickup pequeña porque estaciono en espacios reducidos, pero debe ser cómoda para 5 adultos, automática, 2022 o más nueva y máximo US$300 al mes. No quiero sacrificar ninguna de esas condiciones.'),
+            ('P10_NUCLEAR', 'Somos 6, incluyendo dos niños pequeños. Quiero algo automático 2023+, cómodo para viajes largos, con buen espacio de equipaje, máximo US$400 al mes y US$17,000 total. No pickup, no Nissan, no Kia. Prefiero Toyota u Honda, pero acepto otras marcas confiables. No quiero carros reparados, salvage, chocados, con daño visible ni precios anormalmente bajos. Si ninguna opción cumple todo, no relajes nada sin preguntarme primero.'),
+          ]
+          def post(prompt):
+            payload = json.dumps({'messages':[{'role':'user','content':prompt}], 'country':'sv', 'top_n':12}).encode()
+            req = urllib.request.Request(base + '/carly/chat', data=payload, headers={'Content-Type':'application/json','User-Agent':'Carly-Spicy-Repro/1.0'}, method='POST')
+            t=time.time()
+            with urllib.request.urlopen(req, timeout=75) as r:
+              body=json.loads(r.read().decode())
+            return body, round(time.time()-t,2)
+          for name,prompt in cases:
+            try:
+              body,elapsed=post(prompt)
+              exposed=(body.get('recommendations') or []) + (body.get('explore') or [])
+              out={
+                'case':name,'http':'200','elapsed_s':elapsed,'phase':body.get('phase'),'reply':body.get('reply'),
+                'advisor_mode':body.get('advisor_mode'),'brain':body.get('recommendation_brain'),'profile':body.get('profile'),
+                'recommendation_count':body.get('recommendation_count'),'explore_count':body.get('explore_count'),
+                'cars':[{
+                  'id':c.get('id'),'make':c.get('make'),'model':c.get('model'),'year':c.get('year'),'price':c.get('price_usd'),'monthly':c.get('monthly_est') or c.get('monthly_payment'),'body':c.get('body_type'),'transmission':c.get('transmission'),'damage_risk':c.get('visible_damage_risk'),'vision_checked_at':c.get('vision_checked_at'),'url':c.get('url')
+                } for c in exposed[:12]]
+              }
+              print('CARLY_REPRO ' + json.dumps(out, ensure_ascii=False))
+            except Exception as e:
+              print('CARLY_REPRO ' + json.dumps({'case':name,'error':type(e).__name__+': '+str(e)}, ensure_ascii=False))
+          PY
