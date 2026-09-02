@@ -34,8 +34,9 @@ jobs:
           python - <<'PY'
           from app.atlas_manifest_runner import _clean_url
 
-          assert _clean_url("https://www.encuentra24.com/panama-es/autos-motos/bmw-r1250/123") is None
-          assert _clean_url("https://www.encuentra24.com/panama-es/autos-usados/bmw-x5/456") == "https://www.encuentra24.com/panama-es/autos-usados/bmw-x5/456"
-          assert _clean_url("https://example.com/autos-motos/toyota-corolla") == "https://example.com/autos-motos/toyota-corolla"
+          base = "https://www.encuentra24.com/"
+          assert _clean_url(base, "https://www.encuentra24.com/panama-es/autos-motos/bmw-r1250/123") is None
+          assert _clean_url(base, "https://www.encuentra24.com/panama-es/autos-usados/bmw-x5/456") == "https://www.encuentra24.com/panama-es/autos-usados/bmw-x5/456"
+          assert _clean_url("https://example.com/", "https://example.com/autos-motos/toyota-corolla") == "https://example.com/autos-motos/toyota-corolla"
           print("ATLAS_ENCUENTRA24_CAR_ROUTE_V21=PASS")
           PY
