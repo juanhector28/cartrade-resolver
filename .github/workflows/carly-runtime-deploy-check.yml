@@ -54,7 +54,7 @@ jobs:
                   deployed = runtime.get("git_commit")
                   composition = runtime.get("composition")
                   runtime_tree_ok = same_runtime_tree(deployed)
-                  runtime_ok = composition == "commercial-v20-financing-bridge" and runtime_tree_ok
+                  runtime_ok = composition == "commercial-v28-recommendation-brain" and runtime_tree_ok
 
                   financing_ok = False
                   pilot_ok = False
@@ -120,5 +120,5 @@ jobs:
               except Exception as exc:
                   print(f"attempt {attempt}: {type(exc).__name__}: {exc}")
               time.sleep(10)
-          raise SystemExit("Render did not expose a stable Carly runtime and authenticated financing bridge in time")
+          raise SystemExit("Render did not expose Carly v28 and the authenticated financing bridge in time")
           PY
