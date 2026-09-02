@@ -33,5 +33,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v36 adds a bounded, cached visual-damage gate to finalist recommendations.
-CMD uvicorn app.main_v36:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v37 hardens negations, compact constraints, six-seat requests and cached vision.
+CMD uvicorn app.main_v37:app --host 0.0.0.0 --port ${PORT:-8000}
