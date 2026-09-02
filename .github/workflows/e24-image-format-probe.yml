@@ -12,16 +12,13 @@ jobs:
         run: |
           python - <<'PY'
           import urllib.request
-          urls=[
-            'https://photos.encuentra24.com/t_or_fh_l/f_auto/v1/sv/32/86/67/81/32866781_a72614a1f4ef911cef6ae364cef3f6be-6bcce70',
-            'https://photos.encuentra24.com/t_or_fh_l/f_jpg/v1/sv/32/86/67/81/32866781_a72614a1f4ef911cef6ae364cef3f6be-6bcce70',
-          ]
-          for url in urls:
-            req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'image/jpeg,image/png,image/webp,*/*;q=0.8'})
+          base='https://photos.encuentra24.com/t_or_fh_l/f_auto/v1/sv/32/86/67/81/32866781_a72614a1f4ef911cef6ae364cef3f6be-6bcce70'
+          for accept in ['image/jpeg','image/webp','image/jpeg,image/png']:
+            req=urllib.request.Request(base,headers={'User-Agent':'Mozilla/5.0','Accept':accept})
             try:
               with urllib.request.urlopen(req,timeout=20) as r:
                 data=r.read(32)
-                print({'url':url,'status':r.status,'content_type':r.headers.get('content-type'),'content_length':r.headers.get('content-length'),'magic':data[:16].hex()})
+                print({'accept':accept,'status':r.status,'content_type':r.headers.get('content-type'),'content_length':r.headers.get('content-length'),'magic':data[:16].hex()})
             except Exception as e:
-              print({'url':url,'error':type(e).__name__+': '+str(e)})
+              print({'accept':accept,'error':type(e).__name__+': '+str(e)})
           PY
