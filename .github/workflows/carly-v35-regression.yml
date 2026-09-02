@@ -16,6 +16,9 @@ jobs:
   v35-session-facts:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      CACHE_DB: /tmp/carly-v35-cache.db
+      TRUSTPLUS_DB: /tmp/carly-v35-trustplus.db
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
