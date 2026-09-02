@@ -1,0 +1,47 @@
+name: Atlas v20 PAB normalization
+
+on:
+  pull_request:
+    paths:
+      - "resolver_patch_atlas_v20.py"
+      - "Dockerfile"
+      - ".github/workflows/atlas-pab-v20-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "resolver_patch_atlas_v20.py"
+      - "Dockerfile"
+      - ".github/workflows/atlas-pab-v20-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  currency-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install runner import dependencies
+        run: python -m pip install httpx beautifulsoup4 lxml
+      - name: Apply v20 build patch in checkout
+        run: python resolver_patch_atlas_v20.py
+      - name: Verify PAB parity and fail-closed local currencies
+        run: |
+          python - <<'PY'
+          import os
+          from app.atlas_manifest_runner import _money_usd
+
+          assert _money_usd(16000, "PAB") == 16000.0
+          assert _money_usd("B/. 22,500", "PAB") == 22500.0
+          assert _money_usd(2995, "USD") == 2995.0
+          assert _money_usd(140000, "HNL") is None
+          assert _money_usd(3200000, "CRC") is None
+
+          os.environ["ATLAS_FX_GTQ_PER_USD"] = "7.65"
+          assert _money_usd(76500, "GTQ") == 10000.0
+          print("ATLAS_PAB_V20=PASS")
+          PY
