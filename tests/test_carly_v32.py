@@ -1,3 +1,8 @@
+import os
+
+os.environ.setdefault("REQUIREMENTS_DB", "/tmp/carly_v32_requirements.db")
+os.environ.setdefault("CACHE_DB", "/tmp/carly_v32_cache.db")
+
 from app import main_v32 as v32
 
 
