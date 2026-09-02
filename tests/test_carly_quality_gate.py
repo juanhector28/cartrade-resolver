@@ -75,3 +75,25 @@ def test_rank_wrapper_filters_before_scoring():
         _car("L200", make="Mitsubishi"),
     ], p, top_n=6)
     assert [c["model"] for c in seen] == ["Picanto"]
+
+
+def test_one_off_live_carly_comparison_probe():
+    import json
+    import urllib.request
+
+    prompt = "Necesito un carro cómodo para ir a la universidad. Manejo unos 20 km al día y no quiero pagar más de US$500 al mes."
+    payload = json.dumps({
+        "messages": [{"role": "user", "content": prompt}],
+        "country": "sv",
+        "top_n": 6,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://cartrade-resolver.onrender.com/carly/chat",
+        data=payload,
+        headers={"Content-Type": "application/json", "User-Agent": "CarTrade-Carly-Compare/1.0"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    print("CARLY_COMPARE_RESULT=" + json.dumps(data, ensure_ascii=False))
+    assert isinstance(data, dict)
