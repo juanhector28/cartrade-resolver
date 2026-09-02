@@ -1,0 +1,25 @@
+name: TEMP Carly v33 live complex15
+
+on:
+  pull_request:
+    paths:
+      - tests/live_carly_v33_complex15.py
+      - .github/workflows/carly-v33-live-complex15.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Wait for v33 and run 15 complex production conversations
+        env:
+          CARLY_BASE_URL: https://cartrade-resolver.onrender.com
+        run: python tests/live_carly_v33_complex15.py
