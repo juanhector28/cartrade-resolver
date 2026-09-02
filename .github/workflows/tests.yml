@@ -12,13 +12,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Probe Render health and runtime once
+      - name: Probe Render readiness gates once
         run: |
           set +e
-          echo '--- /health ---'
-          curl -sS -i --max-time 15 https://cartrade-resolver.onrender.com/health
-          echo
-          echo '--- /carly/runtime ---'
-          curl -sS -i --max-time 15 https://cartrade-resolver.onrender.com/carly/runtime
+          for path in health carly/runtime financing/readiness auth/config; do
+            echo "--- /$path ---"
+            curl -sS -i --max-time 15 "https://cartrade-resolver.onrender.com/$path"
+            echo
+          done
+          echo '--- OPTIONS /financing/intake ---'
+          curl -sS -i --max-time 15 -X OPTIONS \
+            -H 'Origin: https://cartrade.live' \
+            -H 'Access-Control-Request-Method: POST' \
+            -H 'Access-Control-Request-Headers: authorization,content-type' \
+            https://cartrade-resolver.onrender.com/financing/intake
           echo
           exit 0
