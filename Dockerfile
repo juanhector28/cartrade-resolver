@@ -29,5 +29,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v28 adds the authoritative recommendation brain after v27's Trust+ bridge.
-CMD uvicorn app.main_v28:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v29 applies the final eligibility hotfix after v28's recommendation brain.
+CMD uvicorn app.main_v29:app --host 0.0.0.0 --port ${PORT:-8000}
