@@ -26,6 +26,8 @@ COPY resolver_patch_atlas_v20.py /tmp/resolver_patch_atlas_v20.py
 RUN python /tmp/resolver_patch_atlas_v20.py && rm /tmp/resolver_patch_atlas_v20.py
 COPY resolver_patch_atlas_v21.py /tmp/resolver_patch_atlas_v21.py
 RUN python /tmp/resolver_patch_atlas_v21.py && rm /tmp/resolver_patch_atlas_v21.py
+COPY resolver_patch_atlas_v22.py /tmp/resolver_patch_atlas_v22.py
+RUN python /tmp/resolver_patch_atlas_v22.py && rm /tmp/resolver_patch_atlas_v22.py
 
 RUN mkdir -p /data
 ENV CACHE_DB=/data/resolver_cache.db
