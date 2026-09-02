@@ -1,9 +1,9 @@
 import os
 
-os.environ.setdefault("REQUIREMENTS_DB", "/tmp/carly_v32_stress15_requirements.db")
-os.environ.setdefault("CACHE_DB", "/tmp/carly_v32_stress15_cache.db")
+os.environ.setdefault("REQUIREMENTS_DB", "/tmp/carly_v33_stress15_requirements.db")
+os.environ.setdefault("CACHE_DB", "/tmp/carly_v33_stress15_cache.db")
 
-from app import main_v32 as v32
+from app import main_v33 as v32
 
 
 def body(text: str):
