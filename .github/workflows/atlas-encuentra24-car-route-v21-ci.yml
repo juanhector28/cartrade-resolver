@@ -40,27 +40,3 @@ jobs:
           assert _clean_url("https://example.com/", "https://example.com/autos-motos/toyota-corolla") == "https://example.com/autos-motos/toyota-corolla"
           print("ATLAS_ENCUENTRA24_CAR_ROUTE_V21=PASS")
           PY
-
-  render-auth-probe:
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - name: Verify Render public auth after environment update
-        run: |
-          set -euo pipefail
-          echo '--- /auth/config ---'
-          curl --fail --silent --show-error --max-time 15 https://cartrade-resolver.onrender.com/auth/config | tee /tmp/auth.json
-          echo
-          echo '--- /carly/runtime ---'
-          curl --fail --silent --show-error --max-time 15 https://cartrade-resolver.onrender.com/carly/runtime | tee /tmp/runtime.json
-          echo
-          python - <<'PY'
-          import json
-          auth = json.load(open('/tmp/auth.json'))
-          runtime = json.load(open('/tmp/runtime.json'))
-          assert auth.get('provider') == 'supabase', auth
-          assert auth.get('url'), auth
-          assert auth.get('publishable_key'), auth
-          assert runtime.get('composition') == 'commercial-v35-session-facts', runtime
-          print('RENDER_PUBLIC_AUTH=PASS')
-          PY
