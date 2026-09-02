@@ -1,4 +1,4 @@
-"""Temporary live production audit for Carly v33. Do not import into production."""
+"""Temporary live production audit for Carly v34. Do not import into production."""
 from __future__ import annotations
 
 import concurrent.futures
@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 
 BASE = os.environ.get("CARLY_BASE_URL", "https://cartrade-resolver.onrender.com").rstrip("/")
-EXPECTED = "commercial-v33-constraint-parser"
+EXPECTED = "commercial-v34-demo-safety"
 
 CASES = [
     (1, "Toyota RAV4 2022 o más nueva, automática. Presupuesto total US$20,000 y máximo $500 al mes."),
@@ -31,7 +31,7 @@ CASES = [
 
 
 def get_json(path: str, timeout=20):
-    req = urllib.request.Request(BASE + path, headers={"User-Agent": "CarTrade-v33-LiveAudit/1.0"})
+    req = urllib.request.Request(BASE + path, headers={"User-Agent": "CarTrade-v34-LiveAudit/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
@@ -47,7 +47,7 @@ def wait_runtime():
         except Exception as exc:
             print("RUNTIME_WAIT_ERROR " + repr(exc))
         time.sleep(8)
-    raise SystemExit("v33 runtime was not live before audit timeout")
+    raise SystemExit("v34 runtime was not live before audit timeout")
 
 
 def post_case(case):
@@ -60,7 +60,7 @@ def post_case(case):
     req = urllib.request.Request(
         BASE + "/carly/chat",
         data=payload,
-        headers={"Content-Type": "application/json", "User-Agent": "CarTrade-v33-LiveAudit/1.0"},
+        headers={"Content-Type": "application/json", "User-Agent": "CarTrade-v34-LiveAudit/1.0"},
         method="POST",
     )
     started = time.time()
@@ -104,9 +104,9 @@ def main():
         for fut in concurrent.futures.as_completed(futures):
             result = fut.result()
             results.append(result)
-            print("CARLY_V33_COMPLEX_CASE " + json.dumps(result, ensure_ascii=False, sort_keys=True))
+            print("CARLY_V34_COMPLEX_CASE " + json.dumps(result, ensure_ascii=False, sort_keys=True))
     results.sort(key=lambda x: x["case"])
-    print("CARLY_V33_COMPLEX_SUMMARY " + json.dumps(results, ensure_ascii=False, sort_keys=True))
+    print("CARLY_V34_COMPLEX_SUMMARY " + json.dumps(results, ensure_ascii=False, sort_keys=True))
 
 
 if __name__ == "__main__":
