@@ -1,0 +1,61 @@
+name: Carly random 10 audit
+
+on:
+  push:
+    branches:
+      - carly-random-10-20260902
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run 10 production prompts
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, urllib.request, urllib.error, time
+
+          URL = "https://cartrade-resolver.onrender.com/carly/chat"
+          cases = [
+            (1, "Universidad cómodo", "Necesito un carro cómodo para ir a la universidad. Manejo unos 20 km al día y no quiero pagar más de US$500 al mes."),
+            (2, "Finca carga", "Quiero un carro para ir a la finca los fines de semana. El camino es de grava, vamos 3 pasajeros y llevo herramientas y cosas pesadas. Máximo US$500 al mes."),
+            (3, "Modelo exacto", "Solo quiero un Toyota RAV4. No me enseñes otros modelos. Máximo US$650 al mes."),
+            (4, "Familia", "Somos familia de 5 con un bebé. Lo usamos en ciudad entre semana y salimos a carretera algunos fines de semana. Máximo US$550 al mes."),
+            (5, "Trabajo pickup", "Necesito una pickup automática para trabajo de construcción, cargar herramientas y materiales. Máximo US$600 al mes."),
+            (6, "Primer carro barato", "Es mi primer carro. Quiero algo económico, confiable y fácil de mantener. No más de US$300 al mes."),
+            (7, "Sedán automático", "Quiero únicamente sedán automático para ciudad. Máximo US$400 al mes."),
+            (8, "Exacto difícil", "Busco un Honda CR-V 2024 o más nuevo. Si no hay uno exacto, dímelo antes de mostrar alternativas. Máximo US$450 al mes."),
+            (9, "Delivery", "Quiero el carro más barato posible para hacer delivery todos los días, pero que no sea una mala compra. Máximo US$250 al mes."),
+            (10, "Typo modelo", "Quiero una Toyta Rav4 para uso diario, máximo US$500 al mes."),
+          ]
+
+          def slim(car):
+            if not isinstance(car, dict): return {}
+            keys = ("make","model","year","price_usd","km","monthly_est","monthly_payment","match_pct","body_type","transmission","best_for","caveat")
+            return {k: car.get(k) for k in keys if car.get(k) is not None}
+
+          results=[]
+          for num, label, prompt in cases:
+            payload=json.dumps({"messages":[{"role":"user","content":prompt}],"country":"sv","top_n":6}).encode()
+            req=urllib.request.Request(URL,data=payload,headers={"Content-Type":"application/json","User-Agent":"CarTrade-Carly-Audit/1.0"},method="POST")
+            item={"case":num,"label":label,"prompt":prompt}
+            try:
+              with urllib.request.urlopen(req,timeout=90) as r:
+                data=json.loads(r.read().decode())
+              item.update({
+                "http":200,
+                "phase":data.get("phase"),
+                "reply":data.get("reply"),
+                "profile":data.get("profile"),
+                "recommendations":[slim(c) for c in (data.get("recommendations") or [])],
+                "explore":[slim(c) for c in (data.get("explore") or [])],
+                "brain":data.get("recommendation_brain"),
+                "advisor_mode":data.get("advisor_mode"),
+              })
+            except Exception as e:
+              item.update({"http":"error","error":repr(e)})
+            results.append(item)
+            print("CARLY_AUDIT_CASE="+json.dumps(item,ensure_ascii=False), flush=True)
+            time.sleep(0.4)
+          print("CARLY_AUDIT_ALL="+json.dumps(results,ensure_ascii=False), flush=True)
+          PY
