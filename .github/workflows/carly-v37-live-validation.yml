@@ -1,0 +1,53 @@
+name: Carly v37 live validation
+
+on:
+  push:
+    branches: [carly-v37-live-validation-20260902]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Validate v37 and reproduce spicy prompts
+        run: |
+          python - <<'PY'
+          import json, time, urllib.request, urllib.error
+          base='https://cartrade-resolver.onrender.com'
+          with urllib.request.urlopen(base+'/carly/runtime', timeout=15) as r:
+              runtime=json.loads(r.read().decode())
+          print('V37_RUNTIME '+json.dumps(runtime, ensure_ascii=False))
+          if runtime.get('composition') != 'commercial-v37-spicy-hardening':
+              raise SystemExit('v37 is not live')
+          cases=[
+            ('P5_NO_PICKUP','Somos 5. Necesito algo para ciudad durante la semana y finca los fines de semana. Hay grava y algo de lodo cuando llueve. No quiero pickup bajo ninguna circunstancia. Automática, máximo US$450 al mes. Prioriza espacio y despeje del suelo.'),
+            ('P8_DELIVERY','Hago delivery unos 120 km al día. Quiero algo automático, económico de gasolina, confiable y de 2019 en adelante. Máximo US$250 al mes. No quiero pickups ni carros sospechosamente baratos que puedan esconder problemas.'),
+            ('P9_CONTRADICTION','Quiero una pickup pequeña porque estaciono en espacios reducidos, pero debe ser cómoda para 5 adultos, automática, 2022 o más nueva y máximo US$300 al mes. No quiero sacrificar ninguna de esas condiciones.'),
+            ('P10_NUCLEAR','Somos 6, incluyendo dos niños pequeños. Quiero algo automático 2023+, cómodo para viajes largos, con buen espacio de equipaje, máximo US$400 al mes y US$17,000 total. No pickup, no Nissan, no Kia. Prefiero Toyota u Honda, pero acepto otras marcas confiables. No quiero carros reparados, salvage, chocados, con daño visible ni precios anormalmente bajos. Si ninguna opción cumple todo, no relajes nada sin preguntarme primero.'),
+          ]
+          def post(prompt):
+              payload=json.dumps({'messages':[{'role':'user','content':prompt}], 'country':'sv', 'top_n':12}).encode()
+              req=urllib.request.Request(base+'/carly/chat',data=payload,headers={'Content-Type':'application/json','User-Agent':'Carly-v37-Live-Validation/1.0'},method='POST')
+              started=time.time()
+              with urllib.request.urlopen(req,timeout=100) as r:
+                  body=json.loads(r.read().decode())
+              return body,round(time.time()-started,2)
+          for name,prompt in cases:
+              try:
+                  body,elapsed=post(prompt)
+                  cars=(body.get('recommendations') or [])+(body.get('explore') or [])
+                  decision=body.get('decision') or {}
+                  out={
+                      'case':name,'elapsed_s':elapsed,'phase':body.get('phase'),'reply':body.get('reply'),
+                      'advisor_mode':body.get('advisor_mode'),'brain':body.get('recommendation_brain'),'profile':body.get('profile'),
+                      'recommendation_count':body.get('recommendation_count'),'explore_count':body.get('explore_count'),
+                      'decision_room':body.get('decision_room'),'decision_vehicle':decision.get('vehicle') or decision.get('focus_vehicle') or decision.get('car'),
+                      'cars':[{'id':c.get('id'),'make':c.get('make'),'model':c.get('model'),'title':c.get('title'),'year':c.get('year'),'price':c.get('price_usd'),'monthly':c.get('monthly_est') or c.get('monthly_payment'),'body':c.get('body_type'),'transmission':c.get('transmission'),'damage_risk':c.get('visible_damage_risk'),'vision_checked_at':c.get('vision_checked_at'),'url':c.get('url')} for c in cars[:12]],
+                  }
+                  print('V37_CASE '+json.dumps(out,ensure_ascii=False))
+              except Exception as exc:
+                  print('V37_CASE '+json.dumps({'case':name,'error':type(exc).__name__+': '+str(exc)},ensure_ascii=False))
+          PY
