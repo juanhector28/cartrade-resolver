@@ -9,11 +9,12 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - name: Run 10 production prompts
+      - name: Run 10 production prompts in parallel
         shell: bash
         run: |
           python - <<'PY'
-          import json, urllib.request, urllib.error, time
+          import json, urllib.request
+          from concurrent.futures import ThreadPoolExecutor, as_completed
 
           URL = "https://cartrade-resolver.onrender.com/carly/chat"
           cases = [
@@ -31,31 +32,28 @@ jobs:
 
           def slim(car):
             if not isinstance(car, dict): return {}
-            keys = ("make","model","year","price_usd","km","monthly_est","monthly_payment","match_pct","body_type","transmission","best_for","caveat")
-            return {k: car.get(k) for k in keys if car.get(k) is not None}
+            keys=("make","model","year","price_usd","km","monthly_est","monthly_payment","match_pct","body_type","transmission","best_for","caveat")
+            return {k:car.get(k) for k in keys if car.get(k) is not None}
 
-          results=[]
-          for num, label, prompt in cases:
-            payload=json.dumps({"messages":[{"role":"user","content":prompt}],"country":"sv","top_n":6}).encode()
-            req=urllib.request.Request(URL,data=payload,headers={"Content-Type":"application/json","User-Agent":"CarTrade-Carly-Audit/1.0"},method="POST")
+          def run_case(case):
+            num,label,prompt=case
             item={"case":num,"label":label,"prompt":prompt}
             try:
+              payload=json.dumps({"messages":[{"role":"user","content":prompt}],"country":"sv","top_n":6}).encode()
+              req=urllib.request.Request(URL,data=payload,headers={"Content-Type":"application/json","User-Agent":"CarTrade-Carly-Audit/1.1"},method="POST")
               with urllib.request.urlopen(req,timeout=90) as r:
                 data=json.loads(r.read().decode())
-              item.update({
-                "http":200,
-                "phase":data.get("phase"),
-                "reply":data.get("reply"),
-                "profile":data.get("profile"),
-                "recommendations":[slim(c) for c in (data.get("recommendations") or [])],
-                "explore":[slim(c) for c in (data.get("explore") or [])],
-                "brain":data.get("recommendation_brain"),
-                "advisor_mode":data.get("advisor_mode"),
-              })
+              item.update({"http":200,"phase":data.get("phase"),"reply":data.get("reply"),"profile":data.get("profile"),"recommendations":[slim(c) for c in (data.get("recommendations") or [])],"explore":[slim(c) for c in (data.get("explore") or [])],"brain":data.get("recommendation_brain"),"advisor_mode":data.get("advisor_mode")})
             except Exception as e:
               item.update({"http":"error","error":repr(e)})
-            results.append(item)
-            print("CARLY_AUDIT_CASE="+json.dumps(item,ensure_ascii=False), flush=True)
-            time.sleep(0.4)
-          print("CARLY_AUDIT_ALL="+json.dumps(results,ensure_ascii=False), flush=True)
+            return item
+
+          results=[]
+          with ThreadPoolExecutor(max_workers=10) as ex:
+            futures=[ex.submit(run_case,c) for c in cases]
+            for f in as_completed(futures):
+              item=f.result(); results.append(item)
+              print("CARLY_AUDIT_CASE="+json.dumps(item,ensure_ascii=False),flush=True)
+          results.sort(key=lambda x:x["case"])
+          print("CARLY_AUDIT_ALL="+json.dumps(results,ensure_ascii=False),flush=True)
           PY
