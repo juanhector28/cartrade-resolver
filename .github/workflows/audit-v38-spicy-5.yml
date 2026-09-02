@@ -1,0 +1,75 @@
+name: Audit v38 spicy 5
+
+on:
+  push:
+    branches: [audit-v38-spicy-5-20260902]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Run exact prompts against production
+        shell: python
+        run: |
+          import json, time, urllib.request, urllib.error
+
+          BASE = "https://cartrade-resolver.onrender.com"
+          prompts = [
+            "Quiero algo cómodo para ciudad y carretera, automático, máximo US$425 al mes. Preferiría Toyota o Honda, pero no es obligatorio. No quiero pickup, no quiero Kia ni Nissan, y tampoco quiero un carro demasiado pequeño. Somos 4 y llevamos bastante equipaje cuando viajamos.",
+            "Necesito un SUV 2024 o más nuevo, automático, para 7 pasajeros, máximo US$350 al mes. No quiero carros chocados ni reparados. Si no existe algo que cumpla TODO, dime que no hay opciones. No me enseñes carros que se salgan del presupuesto ni modelos de 5 pasajeros.",
+            "Estoy buscando una Honda CRV 2023 o más nueva, automática, máximo US$500 al mes. Si no hay una CR-V exacta que cumpla, primero dímelo claramente y después puedes enseñarme máximo 3 alternativas similares de Toyota, Mazda o Subaru. Nada de Nissan.",
+            "Necesito un carro para visitar clientes todos los días, unos 60 km diarios, casi todo carretera. Quiero que sea silencioso, cómodo y confiable. Máximo US$450 al mes. Prefiero gastar un poco más por un Corolla, Civic o algo equivalente antes que comprar el carro más barato del mercado. No quiero microcarros.",
+            "Somos 6, incluyendo dos niños pequeños. Quiero automático, 2022 o más nuevo, máximo US$18,000 total y máximo US$430 al mes. Lo usamos en ciudad y para viajes largos. No pickups, no Nissan, no Kia. Toyota y Honda son mis favoritas, pero acepto otras marcas confiables. No quiero salvage, reparados, chocados, carros con daño visible ni precios sospechosamente bajos. Si encuentras un carro muy barato pero dudoso, NO me lo enseñes. Si ninguna opción cumple todo, no relajes nada sin preguntarme.",
+          ]
+
+          def get(path):
+            with urllib.request.urlopen(BASE + path, timeout=30) as r:
+              return r.status, json.loads(r.read().decode())
+
+          def post(prompt):
+            payload = json.dumps({
+              "messages": [{"role": "user", "content": prompt}],
+              "country": "sv",
+              "top_n": 30,
+            }).encode()
+            req = urllib.request.Request(BASE + "/carly/chat", data=payload, headers={"Content-Type":"application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=120) as r:
+              return r.status, json.loads(r.read().decode())
+
+          # Wait for v38 explicitly.
+          for attempt in range(30):
+            try:
+              status, runtime = get("/carly/runtime")
+              text = json.dumps(runtime).lower()
+              print("RUNTIME", status, json.dumps(runtime, ensure_ascii=False))
+              if "v38" in text:
+                break
+            except Exception as e:
+              print("RUNTIME_WAIT", repr(e))
+            time.sleep(10)
+          else:
+            raise SystemExit("v38 runtime not observed")
+
+          def slim(card):
+            if not isinstance(card, dict): return card
+            return {k: card.get(k) for k in ["id","make","model","year","price_usd","monthly_est","monthly_payment","km","body_type","transmission","location","match","match_score","url","vision_checked_at","visible_damage_risk"] if k in card}
+
+          for i,prompt in enumerate(prompts,1):
+            try:
+              status, data = post(prompt)
+              out = {
+                "case": i,
+                "http": status,
+                "prompt": prompt,
+                "phase": data.get("phase"),
+                "reply": data.get("reply"),
+                "advisor_mode": data.get("advisor_mode"),
+                "profile": data.get("profile"),
+                "recommendation_brain": data.get("recommendation_brain"),
+                "recommendations": [slim(x) for x in (data.get("recommendations") or [])],
+                "explore": [slim(x) for x in (data.get("explore") or [])],
+              }
+              print("CARLY_CASE", i, json.dumps(out, ensure_ascii=False, separators=(",",":")))
+            except Exception as e:
+              print("CARLY_CASE", i, json.dumps({"case":i,"error":repr(e)}, ensure_ascii=False))
