@@ -1,0 +1,42 @@
+name: Render v20 container smoke
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - "resolver_patch_atlas_v20.py"
+      - ".github/workflows/render-v20-container-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  production-image-boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build exact production Dockerfile
+        run: docker build -t cartrade-resolver-v20-smoke .
+      - name: Boot container and require health
+        run: |
+          set -euo pipefail
+          docker run -d --name resolver-smoke -p 18000:8000 -e PORT=8000 cartrade-resolver-v20-smoke
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18000/health >/tmp/health.json 2>/dev/null; then
+              ok=1
+              break
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx resolver-smoke; then
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ok" != 1 ]; then
+            echo '--- container logs ---'
+            docker logs resolver-smoke || true
+            exit 1
+          fi
+          cat /tmp/health.json
+          echo 'RENDER_V20_PRODUCTION_IMAGE_BOOT=PASS'
