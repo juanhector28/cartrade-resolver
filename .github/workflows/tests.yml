@@ -88,4 +88,37 @@ jobs:
       - name: Check Carly production entrypoint
         run: grep -q "CMD uvicorn app.main_v34:app" Dockerfile
       - name: Check patch syntax
-        run: python -m py_compile app/atlas_inventory_api.py resolver_patch_atlas_v17.py app/carly_guardrails.py app/carly_state.py app/carly_ui_contract.py app/carly_decision_room.py app/carly_preview_first.py app/carly_commercial.py app/carly_fastpath.py app/carly_quality_gate.py app/carly_advisor.py app/carly_vehicle_brief.py app/carly_profile.py app/financing_bridge.py app/financing_intake_bridge.py app/pilot_financing_promoter.py app/public_auth.py app/main.py app/main_guarded.py app/main_decision.py app/main_state.py app/main_room.py app/main_preview.py app/main_commercial.py app/main_v7.py app/main_v8.py app/main_v9.py app/main_v10.py app/main_v11.py app/main_v12.py app/main_v13.py app/main_v14.py app/main_v15.py app/main_v16.py app/main_v17.py app/main_v18.py app/main_v19.py app/main_v20.py app/main_v25.py app/main_v26.py app/main_v27.py app/main_v28.py app/main_v29.py app/main_v30.py app/main_v31.py app/main_v32.py app/main_v33.py app/main_v34.py tests/test_carly_v31.py tests/test_carly_v32.py tests/test_carly_v32_stress15.py tests/test_carly_v33_complex15.py tests/test_carly_v34.py tests/test_carly_profile_v4.py tests/test_financing_bridge_v20.py tests/test_financing_intake_v20.py tests/test_pilot_financing_promoter.py tests/test_public_auth_v20.py tests/live_carly_objective_smoke.py tests/live_carly_followup_smoke.py tests/live_carly_followup_smoke_v2.py tests/live_carly_reset_smoke.py tests/live_carly_ui_context_smoke.py tests/live_carly_preview_smoke.py
+        run: python -m py_compile app/atlas_inventory_api.py resolver_patch_atlas_v17.py app/carly_guardrails.py app/carly_state.py app/carly_ui_contract.py app/carly_decision_room.py app/carly_preview_first.py app/carly_commercial.py app/carly_fastpath.py app/carly_quality_gate.py app/carly_advisor.py app/carly_vehicle_brief.py app/carly_profile.py app/financing_bridge.py app/financing_intake_bridge.py app/pilot_financing_promoter.py app/public_auth.py app/main.py app/main_guarded.py app/main_decision.py app/main_state.py app/main_room.py app/main_preview.py app/main_commercial.py app/carly_profile.py app/main_v7.py app/main_v8.py app/main_v9.py app/main_v10.py app/main_v11.py app/main_v12.py app/main_v13.py app/main_v14.py app/main_v15.py app/main_v16.py app/main_v17.py app/main_v18.py app/main_v19.py app/main_v20.py app/main_v25.py app/main_v26.py app/main_v27.py app/main_v28.py app/main_v29.py app/main_v30.py app/main_v31.py app/main_v32.py app/main_v33.py app/main_v34.py tests/test_carly_v31.py tests/test_carly_v32.py tests/test_carly_v32_stress15.py tests/test_carly_v33_complex15.py tests/test_carly_v34.py tests/test_carly_profile_v4.py tests/test_financing_bridge_v20.py tests/test_financing_intake_v20.py tests/test_pilot_financing_promoter.py tests/test_public_auth_v20.py tests/live_carly_objective_smoke.py tests/live_carly_followup_smoke.py tests/live_carly_followup_smoke_v2.py tests/live_carly_reset_smoke.py tests/live_carly_ui_context_smoke.py tests/live_carly_preview_smoke.py
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build exact production image
+        run: docker build -t carly-v20-smoke .
+      - name: Boot image on Render-equivalent port
+        run: |
+          docker run -d --name carly-v20-smoke -e PORT=10000 -p 10000:10000 carly-v20-smoke
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:10000/health >/tmp/health.json; then
+              cat /tmp/health.json
+              docker logs carly-v20-smoke
+              exit 0
+            fi
+            if ! docker inspect -f '{{.State.Running}}' carly-v20-smoke | grep -q true; then
+              echo 'container exited before health check'
+              docker logs carly-v20-smoke
+              exit 1
+            fi
+            sleep 2
+          done
+          echo 'container stayed up but never became healthy'
+          docker logs carly-v20-smoke
+          exit 1
+      - name: Dump container state on failure
+        if: failure()
+        run: |
+          docker ps -a
+          docker inspect carly-v20-smoke || true
+          docker logs carly-v20-smoke || true
