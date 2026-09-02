@@ -29,5 +29,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v32 adds market plausibility and hard-constraint-safe Explore.
-CMD uvicorn app.main_v32:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v33 hardens explicit transmission and total-purchase-budget parsing.
+CMD uvicorn app.main_v33:app --host 0.0.0.0 --port ${PORT:-8000}
