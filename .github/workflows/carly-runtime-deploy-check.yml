@@ -64,7 +64,7 @@ jobs:
                   deployed = runtime.get("git_commit")
                   composition = runtime.get("composition")
                   runtime_tree_ok = same_runtime_tree(deployed)
-                  runtime_ok = composition == "commercial-v38-avif-vision" and runtime_tree_ok
+                  runtime_ok = composition == "commercial-v40-constraint-closeout" and runtime_tree_ok
                   phase = "ready_candidate" if runtime_ok else "stale_runtime"
 
                   financing_ok = False
@@ -150,5 +150,5 @@ jobs:
                       "expected_runtime_sha": expected,
                   })
               time.sleep(10)
-          raise SystemExit("Render did not expose Carly v38 and the authenticated financing bridge within the 15-minute deploy window")
+          raise SystemExit("Render did not expose Carly v40 and the authenticated financing bridge within the 15-minute deploy window")
           PY
