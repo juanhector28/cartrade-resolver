@@ -2,7 +2,8 @@
 
 v39's first isolated CI caught two human-language gaps before production:
 - `tampoco quiero un carro demasiado pequeño`;
-- strong exact `Honda CRV` when the inherited exact helper returns no candidate.
+- strong exact `Honda CRV` when the inherited exact helper sees the model again in
+  a later fallback clause.
 
 Keep the structural v39 retrieval/ranking work unchanged and only normalize these
 forms before its authoritative rebuild executes.
@@ -33,6 +34,7 @@ _NO_SMALL = re.compile(
     r"(?:demasiado\s+)?peque[nñ]o\b|\b(?:no|tampoco)\s+(?:quiero|quisiera)\s+microcarros?\b",
     re.I,
 )
+_SEARCH_ACTION = re.compile(r"\b(?:estoy\s+buscando|ando\s+buscando|busco|quiero|necesito)\b", re.I)
 
 
 def _candidate_exact(text: str):
@@ -49,13 +51,29 @@ def _candidate_exact(text: str):
     return None
 
 
+def _primary_search_exact(text: str, candidate):
+    """Primary search clause wins over later `si no hay X` fallback mentions."""
+    if not candidate:
+        return None
+    pattern = v39._pattern_for(candidate)
+    if pattern is None:
+        return None
+    for action in _SEARCH_ACTION.finditer(text or ""):
+        # Only inspect the compact clause immediately after the action. A later
+        # conditional repetition of the same model cannot cancel this intent.
+        clause = (text or "")[action.end():action.end() + 70]
+        if pattern.search(clause) and not re.search(r"\bprefier[oa]|preferir[ií]a\b", clause, re.I):
+            return candidate
+    return None
+
+
 def _constraints(body: Any) -> dict[str, Any]:
     c = dict(_ORIG_CONSTRAINTS(body))
     text = str(c.get("text") or "")
     c["avoid_small"] = bool(c.get("avoid_small") or _NO_SMALL.search(text))
 
     candidate = _candidate_exact(text)
-    strong = v39._strong_exact(text, candidate)
+    strong = _primary_search_exact(text, candidate) or v39._strong_exact(text, candidate)
     preferred = v39._preferred_models(text)
     mentions = v39._model_mentions(text)
     if strong:
@@ -75,6 +93,7 @@ def _apply(body: Any, prior_result: Any) -> Any:
         if brain:
             brain["version"] = "v40"
             brain["human_parser_closeout"] = True
+            brain["primary_exact_precedence"] = True
             result["recommendation_brain"] = brain
             result["advisor_mode"] = "recommendation_brain_v40"
     return result
