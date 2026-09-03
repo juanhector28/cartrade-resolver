@@ -1,0 +1,67 @@
+name: Audit Carly normal journeys
+
+on:
+  push:
+    branches: [audit-carly-3levels-20260903]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Run normal two-turn journeys against production
+        shell: python
+        run: |
+          import json,time,urllib.request,pathlib
+          BASE='https://cartrade-resolver.onrender.com'
+          cases=[
+            {'id':'N1','p':'Quiero un carro bueno y económico para ir al trabajo.','follow':'Máximo $400 al mes.'},
+            {'id':'N2','p':'Necesito un SUV para mi familia.','follow':'Máximo $500 al mes. Somos 5.'},
+            {'id':'N3','p':'Busco algo confiable, automático y que no sea muy caro.','follow':'Máximo $425 al mes.'},
+            {'id':'N4','p':'Quiero una pickup para trabajar.','follow':'Máximo $550 al mes. Cargo herramientas.'},
+            {'id':'N5','p':'Quiero un carro para ir a la universidad.','follow':'Unos $350 al mes.'},
+            {'id':'N6','p':'Carro para ir a la finca los fines de semana.','follow':'Máximo $500 al mes. Hay grava y llevo herramientas.'},
+            {'id':'N7','p':'Quiero un carro para ir al trabajo que no me dé problemas.','follow':'Máximo $400 al mes.'},
+          ]
+          def post(messages):
+            payload=json.dumps({'messages':messages,'country':'sv','top_n':30}).encode()
+            req=urllib.request.Request(BASE+'/carly/chat',data=payload,headers={'Content-Type':'application/json'},method='POST')
+            t=time.monotonic()
+            with urllib.request.urlopen(req,timeout=150) as r:
+              return r.status,json.loads(r.read().decode()),round(time.monotonic()-t,3)
+          def slim(c):
+            if not isinstance(c,dict): return c
+            return {k:c.get(k) for k in ['id','make','model','year','price_usd','monthly_est','body_type','transmission','location','vision_checked_at','visible_damage_risk'] if k in c}
+          out=[]
+          for c in cases:
+            row={**c}
+            try:
+              s1,d1,t1=post([{'role':'user','content':c['p']}])
+              msgs=[{'role':'user','content':c['p']},{'role':'assistant','content':str(d1.get('reply') or '')},{'role':'user','content':c['follow']}]
+              s2,d2,t2=post(msgs)
+              rec=[slim(x) for x in (d2.get('recommendations') or [])]
+              exp=[slim(x) for x in (d2.get('explore') or [])]
+              surf=rec+exp
+              fail=[]
+              if s2!=200: fail.append(f'HTTP {s2}')
+              if not str(d2.get('reply') or '').strip(): fail.append('empty reply')
+              if t2>=120: fail.append(f'latency {t2}s')
+              if c['id']=='N2' and surf and any(str(x.get('body_type') or '').lower()!='suv' for x in surf): fail.append('non-SUV leaked')
+              if c['id']=='N3' and surf and any(str(x.get('transmission') or '').lower() not in {'automatic','automática','automatica','auto','at',''} for x in surf): fail.append('manual leaked')
+              if c['id']=='N4' and surf and any(str(x.get('body_type') or '').lower()!='pickup' for x in surf): fail.append('non-pickup leaked')
+              row.update({'first_reply':d1.get('reply'),'first_elapsed_s':t1,'http':s2,'elapsed_s':t2,'phase':d2.get('phase'),'reply':d2.get('reply'),'profile':d2.get('profile'),'brain':d2.get('recommendation_brain'),'recommendations':rec,'explore':exp,'failures':fail,'pass':not fail})
+            except Exception as e:
+              row.update({'pass':False,'failures':[repr(e)]})
+            out.append(row)
+            print('JOURNEY',c['id'],json.dumps(row,ensure_ascii=False,separators=(',',':')))
+          summary={'passed':sum(1 for r in out if r.get('pass')),'total':len(out)}
+          pathlib.Path('carly_normal_journeys.json').write_text(json.dumps({'summary':summary,'results':out},ensure_ascii=False,indent=2),encoding='utf-8')
+          print('SUMMARY',json.dumps(summary))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carly-normal-journeys
+          path: carly_normal_journeys.json
+          retention-days: 3
