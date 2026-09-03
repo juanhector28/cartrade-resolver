@@ -1,0 +1,116 @@
+name: Audit Carly 3 levels
+
+on:
+  push:
+    branches: [audit-carly-3levels-20260903]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Run 70-20-10 prompt suite against production
+        shell: python
+        run: |
+          import json, time, urllib.request, pathlib
+
+          BASE = "https://cartrade-resolver.onrender.com"
+          cases = [
+            {"level":"normal","id":"N1","prompt":"Quiero un carro bueno y económico para ir al trabajo."},
+            {"level":"normal","id":"N2","prompt":"Necesito un SUV para mi familia."},
+            {"level":"normal","id":"N3","prompt":"Busco algo confiable, automático y que no sea muy caro."},
+            {"level":"normal","id":"N4","prompt":"Quiero una pickup para trabajar."},
+            {"level":"normal","id":"N5","prompt":"Quiero un carro para ir a la universidad."},
+            {"level":"normal","id":"N6","prompt":"Carro para ir a la finca los fines de semana."},
+            {"level":"normal","id":"N7","prompt":"Quiero un carro para ir al trabajo que no me dé problemas."},
+            {"level":"medium","id":"M1","prompt":"Busco un carro automático para uso diario en San Salvador. Manejo unos 35 km al día, principalmente en ciudad, pero hago viajes por carretera algunos fines de semana. Somos 4 personas. Quiero algo cómodo, confiable y razonablemente económico de mantener. Mi presupuesto máximo es US$450 al mes."},
+            {"level":"medium","id":"M2","prompt":"Necesito una pickup automática para la finca, 3 pasajeros y herramientas pesadas. Máximo US$550 al mes. Quiero algo confiable para grava y carretera."},
+            {"level":"spicy","id":"S1","prompt":"Somos 5, incluyendo un niño pequeño. Quiero un SUV automático, 2023 o más nuevo, máximo US$20,000 total y máximo US$475 al mes. No quiero Nissan, Kia ni pickups. Prefiero Toyota, Honda o Mazda, pero acepto otra marca si es claramente una mejor compra. Necesito buen espacio para equipaje y carretera, así que no quiero SUVs demasiado pequeños. No me enseñes carros chocados, reparados, salvage, con daño visible ni precios sospechosamente bajos. Si no hay ninguna opción que cumpla todo, dímelo claramente y no relajes ninguna condición sin preguntarme primero."},
+          ]
+
+          def get(path):
+            with urllib.request.urlopen(BASE + path, timeout=30) as r:
+              return r.status, json.loads(r.read().decode())
+
+          def post(prompt):
+            payload = json.dumps({"messages":[{"role":"user","content":prompt}],"country":"sv","top_n":30}).encode()
+            req = urllib.request.Request(BASE + "/carly/chat", data=payload, headers={"Content-Type":"application/json"}, method="POST")
+            started = time.monotonic()
+            with urllib.request.urlopen(req, timeout=150) as r:
+              data = json.loads(r.read().decode())
+              return r.status, data, round(time.monotonic()-started,3)
+
+          def slim(c):
+            if not isinstance(c,dict): return c
+            keys=["id","make","model","year","price_usd","monthly_est","monthly_payment","km","body_type","transmission","location","match","match_score","url","vision_checked_at","visible_damage_risk","description"]
+            return {k:c.get(k) for k in keys if k in c}
+
+          status,runtime=get('/carly/runtime')
+          if status!=200 or runtime.get('composition')!='commercial-v41-capacity-latency':
+            raise SystemExit(f"runtime not ready: {status} {runtime}")
+
+          results=[]
+          for case in cases:
+            row={**case}
+            try:
+              status,data,elapsed=post(case['prompt'])
+              recs=[slim(x) for x in (data.get('recommendations') or [])]
+              explore=[slim(x) for x in (data.get('explore') or [])]
+              surfaced=recs+explore
+              blob=json.dumps(surfaced,ensure_ascii=False).lower()
+              reply=str(data.get('reply') or '')
+              profile=data.get('profile') or {}
+              failures=[]
+              if status!=200: failures.append(f'HTTP {status}')
+              if not reply.strip(): failures.append('empty reply')
+              if elapsed>=120: failures.append(f'latency {elapsed}s')
+              # Specific intent integrity checks
+              if case['id']=='N2' and surfaced and any(str(c.get('body_type') or '').lower()=='pickup' for c in surfaced): failures.append('family SUV prompt surfaced pickup')
+              if case['id']=='N4' and surfaced and not any(str(c.get('body_type') or '').lower()=='pickup' for c in surfaced): failures.append('pickup intent not reflected in surfaced set')
+              if case['id']=='N6' and ('universidad' in reply.lower() or 'trabajo' in reply.lower()): failures.append('mission drift in reply')
+              if case['id']=='M1':
+                if surfaced and any(str(c.get('transmission') or '').lower() not in {'automatic','automática','automatica','auto','at',''} for c in surfaced): failures.append('manual leaked on automatic constraint')
+                if surfaced and any((c.get('monthly_est') or c.get('monthly_payment') or 0) and float(c.get('monthly_est') or c.get('monthly_payment'))>450.01 for c in surfaced): failures.append('monthly budget leaked')
+              if case['id']=='M2':
+                if surfaced and not any(str(c.get('body_type') or '').lower()=='pickup' for c in surfaced): failures.append('pickup intent not reflected')
+                if surfaced and any(str(c.get('transmission') or '').lower() not in {'automatic','automática','automatica','auto','at',''} for c in surfaced): failures.append('manual leaked')
+              if case['id']=='S1':
+                for c in surfaced:
+                  mk=str(c.get('make') or '').lower(); bt=str(c.get('body_type') or '').lower(); yr=c.get('year'); price=c.get('price_usd'); pay=c.get('monthly_est') or c.get('monthly_payment')
+                  if mk in {'nissan','kia'}: failures.append(f'banned make leaked: {mk}')
+                  if bt=='pickup': failures.append('pickup leaked')
+                  if isinstance(yr,(int,float)) and yr<2023: failures.append(f'year leaked: {yr}')
+                  if isinstance(price,(int,float)) and price>20000.01: failures.append(f'price leaked: {price}')
+                  if isinstance(pay,(int,float)) and pay>475.01: failures.append(f'monthly leaked: {pay}')
+                  risk=str(c.get('visible_damage_risk') or '').lower()
+                  desc=str(c.get('description') or '').lower()
+                  if risk in {'high','yes','true'} or any(w in desc for w in ['salvage','chocado','chocada','reparado','reparada','daño visible']): failures.append('damage-risk vehicle leaked')
+              row.update({
+                'http':status,'elapsed_s':elapsed,'phase':data.get('phase'),'reply':reply,
+                'advisor_mode':data.get('advisor_mode'),'profile':profile,
+                'recommendation_brain':data.get('recommendation_brain'),
+                'recommendations':recs,'explore':explore,'failures':failures,'pass':not failures
+              })
+            except Exception as e:
+              row.update({'pass':False,'failures':[repr(e)]})
+            results.append(row)
+            print('CASE',case['id'],json.dumps(row,ensure_ascii=False,separators=(',',':')))
+
+          summary={}
+          for level in ['normal','medium','spicy']:
+            rs=[r for r in results if r['level']==level]
+            summary[level]={'passed':sum(1 for r in rs if r.get('pass')),'total':len(rs)}
+          summary['overall']={'passed':sum(1 for r in results if r.get('pass')),'total':len(results)}
+          out={'runtime':runtime,'summary':summary,'results':results}
+          pathlib.Path('carly_3levels_results.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('SUMMARY',json.dumps(summary,ensure_ascii=False))
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: carly-3levels-results
+          path: carly_3levels_results.json
+          retention-days: 3
