@@ -1,4 +1,4 @@
-name: Audit v38 spicy 5
+name: Audit v40 spicy 5
 
 on:
   push:
@@ -37,12 +37,12 @@ jobs:
             try:
               status, runtime = get("/carly/runtime")
               print("RUNTIME", status, json.dumps(runtime, ensure_ascii=False))
-              if "v38" in json.dumps(runtime).lower(): break
+              if "v40" in json.dumps(runtime).lower(): break
             except Exception as e:
               print("RUNTIME_WAIT", repr(e))
             time.sleep(10)
           else:
-            raise SystemExit("v38 runtime not observed")
+            raise SystemExit("v40 runtime not observed")
 
           def slim(card):
             if not isinstance(card, dict): return card
