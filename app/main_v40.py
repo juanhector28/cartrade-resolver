@@ -2,8 +2,8 @@
 
 v39's first isolated CI caught two human-language gaps before production:
 - `tampoco quiero un carro demasiado pequeño`;
-- strong exact `Honda CRV` when the inherited exact helper sees the model again in
-  a later fallback clause.
+- strong exact `Honda CRV` when fallback brands later in the same prompt polluted
+  the inherited global brand detector.
 
 Keep the structural v39 retrieval/ranking work unchanged and only normalize these
 forms before its authoritative rebuild executes.
@@ -37,17 +37,22 @@ _NO_SMALL = re.compile(
 _SEARCH_ACTION = re.compile(r"\b(?:estoy\s+buscando|ando\s+buscando|busco|quiero|necesito)\b", re.I)
 
 
-def _candidate_exact(text: str):
-    """Detect a canonical model independently of the inherited exact helper."""
-    normalized = v28._norm(text or "")
-    explicit_brand = None
+def _nearby_brand(text: str, start: int, end: int) -> str | None:
+    """Resolve only a brand adjacent to this model mention, not a later fallback brand."""
+    window = v28._norm((text or "")[max(0, start - 30):min(len(text or ""), end + 18)])
     for alias, canonical in v31._BRAND_ALIASES.items():
-        if re.search(rf"\b{re.escape(alias)}\b", normalized):
-            explicit_brand = canonical
-            break
+        if re.search(rf"\b{re.escape(alias)}\b", window):
+            return canonical
+    return None
+
+
+def _candidate_exact(text: str):
+    """Detect model and associate brand locally around that exact mention."""
     for make, model, pattern, body in v39._all_model_specs():
-        if pattern.search(text or "") and (explicit_brand is None or explicit_brand == make):
-            return make, model, body
+        for match in pattern.finditer(text or ""):
+            local_brand = _nearby_brand(text, match.start(), match.end())
+            if local_brand is None or local_brand == make:
+                return make, model, body
     return None
 
 
@@ -59,8 +64,6 @@ def _primary_search_exact(text: str, candidate):
     if pattern is None:
         return None
     for action in _SEARCH_ACTION.finditer(text or ""):
-        # Only inspect the compact clause immediately after the action. A later
-        # conditional repetition of the same model cannot cancel this intent.
         clause = (text or "")[action.end():action.end() + 70]
         if pattern.search(clause) and not re.search(r"\bprefier[oa]|preferir[ií]a\b", clause, re.I):
             return candidate
@@ -85,8 +88,6 @@ def _constraints(body: Any) -> dict[str, Any]:
 
 
 def _apply(body: Any, prior_result: Any) -> Any:
-    # v39._apply resolves its module-level `_constraints` dynamically, so this
-    # monkeypatch is authoritative without duplicating retrieval/ranking logic.
     result = _ORIG_APPLY(body, prior_result)
     if isinstance(result, dict):
         brain = dict(result.get("recommendation_brain") or {})
@@ -94,12 +95,12 @@ def _apply(body: Any, prior_result: Any) -> Any:
             brain["version"] = "v40"
             brain["human_parser_closeout"] = True
             brain["primary_exact_precedence"] = True
+            brain["local_brand_model_binding"] = True
             result["recommendation_brain"] = brain
             result["advisor_mode"] = "recommendation_brain_v40"
     return result
 
 
-# Globals dynamically resolved by v39/v31 route stack.
 v39._constraints = _constraints
 v31._constraints = _constraints
 v37._constraints = _constraints
