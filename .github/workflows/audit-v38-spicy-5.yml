@@ -1,4 +1,4 @@
-name: Audit v40 spicy 5
+name: Audit v41 live closeout
 
 on:
   push:
@@ -9,18 +9,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Run exact prompts against production
+      - name: Run v41 closeout prompts against production
         shell: python
         run: |
           import json, time, urllib.request
 
           BASE = "https://cartrade-resolver.onrender.com"
-          prompts = [
-            "Quiero algo cómodo para ciudad y carretera, automático, máximo US$425 al mes. Preferiría Toyota o Honda, pero no es obligatorio. No quiero pickup, no quiero Kia ni Nissan, y tampoco quiero un carro demasiado pequeño. Somos 4 y llevamos bastante equipaje cuando viajamos.",
-            "Necesito un SUV 2024 o más nuevo, automático, para 7 pasajeros, máximo US$350 al mes. No quiero carros chocados ni reparados. Si no existe algo que cumpla TODO, dime que no hay opciones. No me enseñes carros que se salgan del presupuesto ni modelos de 5 pasajeros.",
-            "Estoy buscando una Honda CRV 2023 o más nueva, automática, máximo US$500 al mes. Si no hay una CR-V exacta que cumpla, primero dímelo claramente y después puedes enseñarme máximo 3 alternativas similares de Toyota, Mazda o Subaru. Nada de Nissan.",
-            "Necesito un carro para visitar clientes todos los días, unos 60 km diarios, casi todo carretera. Quiero que sea silencioso, cómodo y confiable. Máximo US$450 al mes. Prefiero gastar un poco más por un Corolla, Civic o algo equivalente antes que comprar el carro más barato del mercado. No quiero microcarros.",
-            "Somos 6, incluyendo dos niños pequeños. Quiero automático, 2022 o más nuevo, máximo US$18,000 total y máximo US$430 al mes. Lo usamos en ciudad y para viajes largos. No pickups, no Nissan, no Kia. Toyota y Honda son mis favoritas, pero acepto otras marcas confiables. No quiero salvage, reparados, chocados, carros con daño visible ni precios sospechosamente bajos. Si encuentras un carro muy barato pero dudoso, NO me lo enseñes. Si ninguna opción cumple todo, no relajes nada sin preguntarme.",
+          cases = [
+            ("4_highway_comfort", "Necesito un carro para visitar clientes todos los días, unos 60 km diarios, casi todo carretera. Quiero que sea silencioso, cómodo y confiable. Máximo US$450 al mes. Prefiero gastar un poco más por un Corolla, Civic o algo equivalente antes que comprar el carro más barato del mercado. No quiero microcarros."),
+            ("5_six_passengers", "Somos 6, incluyendo dos niños pequeños. Quiero automático, 2022 o más nuevo, máximo US$18,000 total y máximo US$430 al mes. Lo usamos en ciudad y para viajes largos. No pickups, no Nissan, no Kia. Toyota y Honda son mis favoritas, pero acepto otras marcas confiables. No quiero salvage, reparados, chocados, carros con daño visible ni precios sospechosamente bajos. Si encuentras un carro muy barato pero dudoso, NO me lo enseñes. Si ninguna opción cumple todo, no relajes nada sin preguntarme."),
+            ("1_negative_constraints_sanity", "Quiero algo cómodo para ciudad y carretera, automático, máximo US$425 al mes. Preferiría Toyota o Honda, pero no es obligatorio. No quiero pickup, no quiero Kia ni Nissan, y tampoco quiero un carro demasiado pequeño. Somos 4 y llevamos bastante equipaje cuando viajamos."),
           ]
 
           def get(path):
@@ -30,29 +28,53 @@ jobs:
           def post(prompt):
             payload = json.dumps({"messages":[{"role":"user","content":prompt}],"country":"sv","top_n":30}).encode()
             req = urllib.request.Request(BASE + "/carly/chat", data=payload, headers={"Content-Type":"application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=120) as r:
-              return r.status, json.loads(r.read().decode())
+            started = time.monotonic()
+            with urllib.request.urlopen(req, timeout=150) as r:
+              data = json.loads(r.read().decode())
+              return r.status, data, round(time.monotonic() - started, 3)
 
-          for attempt in range(30):
-            try:
-              status, runtime = get("/carly/runtime")
-              print("RUNTIME", status, json.dumps(runtime, ensure_ascii=False))
-              if "v40" in json.dumps(runtime).lower(): break
-            except Exception as e:
-              print("RUNTIME_WAIT", repr(e))
-            time.sleep(10)
-          else:
-            raise SystemExit("v40 runtime not observed")
+          status, runtime = get("/carly/runtime")
+          print("RUNTIME", status, json.dumps(runtime, ensure_ascii=False, separators=(",",":")))
+          if runtime.get("composition") != "commercial-v41-capacity-latency":
+            raise SystemExit("v41 runtime not observed")
 
           def slim(card):
             if not isinstance(card, dict): return card
-            keys=["id","make","model","year","price_usd","monthly_est","monthly_payment","km","body_type","transmission","location","match","match_score","url","vision_checked_at","visible_damage_risk"]
+            keys=["id","make","model","year","price_usd","monthly_est","monthly_payment","km","body_type","transmission","location","match","match_score","url","vision_checked_at","visible_damage_risk","description"]
             return {k:card.get(k) for k in keys if k in card}
 
-          for i,prompt in enumerate(prompts,1):
+          failures=[]
+          for label,prompt in cases:
             try:
-              status,data=post(prompt)
-              out={"case":i,"http":status,"prompt":prompt,"phase":data.get("phase"),"reply":data.get("reply"),"advisor_mode":data.get("advisor_mode"),"profile":data.get("profile"),"recommendation_brain":data.get("recommendation_brain"),"recommendations":[slim(x) for x in (data.get("recommendations") or [])],"explore":[slim(x) for x in (data.get("explore") or [])]}
-              print("CARLY_CASE",i,json.dumps(out,ensure_ascii=False,separators=(",",":")))
+              status,data,elapsed=post(prompt)
+              recs=[slim(x) for x in (data.get("recommendations") or [])]
+              explore=[slim(x) for x in (data.get("explore") or [])]
+              out={"case":label,"http":status,"elapsed_s":elapsed,"phase":data.get("phase"),"reply":data.get("reply"),"advisor_mode":data.get("advisor_mode"),"profile":data.get("profile"),"recommendation_brain":data.get("recommendation_brain"),"recommendations":recs,"explore":explore}
+              print("CARLY_CASE",label,json.dumps(out,ensure_ascii=False,separators=(",",":")))
+
+              surfaced=recs+explore
+              blob=json.dumps(surfaced,ensure_ascii=False).lower()
+              if label == "4_highway_comfort":
+                if elapsed >= 120:
+                  failures.append(f"case4 latency {elapsed}s")
+                if "picanto" in blob or "mirage" in blob or "spark" in blob:
+                  failures.append("case4 microcar leaked")
+              elif label == "5_six_passengers":
+                if "outlander-sport" in blob or "outlander sport" in blob:
+                  failures.append("case5 Outlander Sport leaked")
+                if "familia de cinco" in str(data.get("reply") or "").lower():
+                  failures.append("case5 wrong five-person copy")
+                for c in surfaced:
+                  if str(c.get("make") or "").lower() in {"nissan","kia"} or str(c.get("body_type") or "").lower() == "pickup":
+                    failures.append("case5 banned vehicle leaked")
+              elif label == "1_negative_constraints_sanity":
+                for c in surfaced:
+                  if str(c.get("make") or "").lower() in {"nissan","kia"} or str(c.get("body_type") or "").lower() == "pickup":
+                    failures.append("case1 banned vehicle leaked")
             except Exception as e:
-              print("CARLY_CASE",i,json.dumps({"case":i,"error":repr(e)},ensure_ascii=False))
+              failures.append(f"{label}: {repr(e)}")
+              print("CARLY_CASE",label,json.dumps({"case":label,"error":repr(e)},ensure_ascii=False))
+
+          print("AUDIT_FAILURES",json.dumps(failures,ensure_ascii=False))
+          if failures:
+            raise SystemExit("; ".join(failures))
