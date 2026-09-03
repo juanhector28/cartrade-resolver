@@ -33,5 +33,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v38 converts AVIF finalist photos before the cached visual-damage gate.
-CMD uvicorn app.main_v38:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v39 makes parsed constraints authoritative before finalist vision/ranking.
+CMD uvicorn app.main_v39:app --host 0.0.0.0 --port ${PORT:-8000}
