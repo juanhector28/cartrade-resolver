@@ -1,0 +1,43 @@
+name: Carly v41 capacity latency
+
+on:
+  push:
+    branches: [carly-v41-capacity-latency]
+  pull_request:
+    paths:
+      - 'app/main_v41.py'
+      - 'tests/test_carly_v41.py'
+      - 'Dockerfile'
+      - '.github/workflows/carly-v41-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CACHE_DB: /tmp/carly-v41-cache.db
+      TRUSTPLUS_DB: /tmp/carly-v41-trustplus.db
+      CARLY_VISION_JIT_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Run v41 regressions
+        run: python -m pytest -q tests/test_carly_v41.py
+      - name: Run v40 and recent recommendation regressions
+        run: |
+          python -m pytest -q tests/test_carly_v40.py
+          python -m pytest -q tests/test_carly_v38.py
+          python -m pytest -q tests/test_carly_v37.py
+          python -m pytest -q tests/test_carly_v36.py
+      - name: Check v41 entrypoint and syntax
+        run: |
+          grep -q 'CMD uvicorn app.main_v41:app' Dockerfile
+          python -m py_compile app/main_v41.py tests/test_carly_v41.py
