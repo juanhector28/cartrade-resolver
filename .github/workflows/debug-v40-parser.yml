@@ -7,15 +7,17 @@ permissions:
 jobs:
   debug:
     runs-on: ubuntu-latest
+    env:
+      CACHE_DB: /tmp/debug-v40-cache.db
+      TRUSTPLUS_DB: /tmp/debug-v40-trustplus.db
+      CARLY_VISION_JIT_ENABLED: '0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt >/dev/null
-      - env:
-          CARLY_VISION_JIT_ENABLED: '0'
-        run: |
+      - run: |
           python - <<'PY'
           from app import main_v40 as v
           text='Estoy buscando una Honda CRV 2023 o más nueva, automática, máximo US$500 al mes. Si no hay una CR-V exacta que cumpla, primero dímelo claramente y después puedes enseñarme máximo 3 alternativas similares de Toyota, Mazda o Subaru. Nada de Nissan.'
