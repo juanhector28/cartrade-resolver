@@ -33,5 +33,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v38 converts AVIF finalist photos before the cached visual-damage gate.
-CMD uvicorn app.main_v38:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v40 keeps v39 focused retrieval and closes two human-language parser gaps.
+CMD uvicorn app.main_v40:app --host 0.0.0.0 --port ${PORT:-8000}
