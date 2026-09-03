@@ -33,5 +33,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v40 keeps v39 focused retrieval and closes two human-language parser gaps.
-CMD uvicorn app.main_v40:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v41 adds source-truth capacity gating and removes duplicate prefilter vision.
+CMD uvicorn app.main_v41:app --host 0.0.0.0 --port ${PORT:-8000}

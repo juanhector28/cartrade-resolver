@@ -39,10 +39,7 @@ jobs:
               if deployed == expected:
                   return True
               try:
-                  probe = subprocess.run(
-                      ["git", "diff", "--quiet", expected, deployed, "--", *runtime_paths],
-                      check=False,
-                  )
+                  probe = subprocess.run(["git", "diff", "--quiet", expected, deployed, "--", *runtime_paths], check=False)
                   return probe.returncode == 0
               except Exception:
                   return False
@@ -64,13 +61,10 @@ jobs:
                   deployed = runtime.get("git_commit")
                   composition = runtime.get("composition")
                   runtime_tree_ok = same_runtime_tree(deployed)
-                  runtime_ok = composition == "commercial-v40-constraint-closeout" and runtime_tree_ok
+                  runtime_ok = composition == "commercial-v41-capacity-latency" and runtime_tree_ok
                   phase = "ready_candidate" if runtime_ok else "stale_runtime"
 
-                  financing_ok = False
-                  pilot_ok = False
-                  auth_ok = False
-                  cors_ok = False
+                  financing_ok = pilot_ok = auth_ok = cors_ok = False
                   if runtime_ok:
                       with urllib.request.urlopen(base + "/financing/readiness", timeout=10) as r:
                           financing = json.loads(r.read().decode("utf-8"))
@@ -86,18 +80,11 @@ jobs:
                           financing.get("pilot_router_autopromote") is True
                           and financing.get("pilot_evidence_mode") == "synthetic_shadow"
                       )
-
                       with urllib.request.urlopen(base + "/auth/config", timeout=10) as r:
                           auth = json.loads(r.read().decode("utf-8"))
-                      auth_ok = (
-                          auth.get("provider") == "supabase"
-                          and bool(auth.get("url"))
-                          and bool(auth.get("publishable_key"))
-                      )
-
+                      auth_ok = auth.get("provider") == "supabase" and bool(auth.get("url")) and bool(auth.get("publishable_key"))
                       req = urllib.request.Request(
-                          base + "/financing/intake",
-                          method="OPTIONS",
+                          base + "/financing/intake", method="OPTIONS",
                           headers={
                               "Origin": "https://cartrade.live",
                               "Access-Control-Request-Method": "POST",
@@ -107,25 +94,12 @@ jobs:
                       with urllib.request.urlopen(req, timeout=10) as r:
                           allow_origin = r.headers.get("Access-Control-Allow-Origin", "")
                           allow_headers = r.headers.get("Access-Control-Allow-Headers", "").lower()
-                      cors_ok = (
-                          allow_origin == "https://cartrade.live"
-                          and "authorization" in allow_headers
-                      )
+                      cors_ok = allow_origin == "https://cartrade.live" and "authorization" in allow_headers
 
-                  print({
-                      "attempt": attempt,
-                      "phase": phase,
-                      "health_http": health,
-                      "composition": composition,
-                      "deployed": deployed,
-                      "expected_runtime_sha": expected,
-                      "runtime_tree_ready": runtime_tree_ok,
-                      "runtime_ready": runtime_ok,
-                      "financing_ready": financing_ok,
-                      "pilot_router_ready": pilot_ok,
-                      "public_auth_ready": auth_ok,
-                      "browser_cors_ready": cors_ok,
-                  })
+                  print({"attempt": attempt, "phase": phase, "health_http": health, "composition": composition,
+                         "deployed": deployed, "expected_runtime_sha": expected, "runtime_tree_ready": runtime_tree_ok,
+                         "runtime_ready": runtime_ok, "financing_ready": financing_ok, "pilot_router_ready": pilot_ok,
+                         "public_auth_ready": auth_ok, "browser_cors_ready": cors_ok})
                   if runtime_ok and financing_ok and pilot_ok and auth_ok and cors_ok:
                       print("RENDER_DEPLOY_GATE=PASS")
                       raise SystemExit(0)
@@ -133,22 +107,11 @@ jobs:
                   raise
               except urllib.error.HTTPError as exc:
                   phase = "deploy_transition" if exc.code in {502, 503, 504} else "http_error"
-                  print({
-                      "attempt": attempt,
-                      "phase": phase,
-                      "health_http": health,
-                      "runtime_http": exc.code,
-                      "expected_runtime_sha": expected,
-                  })
+                  print({"attempt": attempt, "phase": phase, "health_http": health, "runtime_http": exc.code,
+                         "expected_runtime_sha": expected})
               except Exception as exc:
-                  print({
-                      "attempt": attempt,
-                      "phase": "transport_error",
-                      "health_http": health,
-                      "error_type": type(exc).__name__,
-                      "error": str(exc),
-                      "expected_runtime_sha": expected,
-                  })
+                  print({"attempt": attempt, "phase": "transport_error", "health_http": health,
+                         "error_type": type(exc).__name__, "error": str(exc), "expected_runtime_sha": expected})
               time.sleep(10)
-          raise SystemExit("Render did not expose Carly v40 and the authenticated financing bridge within the 15-minute deploy window")
+          raise SystemExit("Render did not expose Carly v41 and the authenticated financing bridge within the 15-minute deploy window")
           PY
