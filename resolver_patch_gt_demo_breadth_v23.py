@@ -10,6 +10,9 @@ if marker not in s:
 # CARLY_GT_DEMO_BREADTH_V23
 # Read-only demo lane for Guatemala. Production /carly/search and /carly/chat
 # remain unchanged and continue to exclude atlas_shadow inventory.
+import json as _gt_demo_json
+
+
 class CarlyGtDemoSearchRequest(BaseModel):
     q: str = ""
     country: str = "gt"
@@ -21,7 +24,7 @@ def _gt_demo_atlas_meta(row: dict) -> dict:
     raw = row.get("raw_payload")
     if isinstance(raw, str):
         try:
-            raw = json.loads(raw)
+            raw = _gt_demo_json.loads(raw)
         except Exception:
             raw = {}
     if not isinstance(raw, dict):
