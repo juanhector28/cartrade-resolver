@@ -1,0 +1,29 @@
+name: Atlas Resolver Boundary Probe
+on:
+  push:
+    branches:
+      - diag/resolver-boundary-20260908
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe live resolver boundaries
+        shell: bash
+        run: |
+          set +e
+          for BASE in "https://cartrade-resolver.onrender.com" "https://resolver.cartrade.live"; do
+            echo "=== $BASE ==="
+            echo "-- health"
+            curl -sS -o health.out -w "HTTP %{http_code} time=%{time_total}\n" --max-time 20 "$BASE/health"
+            head -c 500 health.out; echo
+            echo "-- publish path (invalid token expected 401 if app is alive)"
+            curl -sS -o publish.out -w "HTTP %{http_code} time=%{time_total}\n" --max-time 20               -X POST "$BASE/atlas/publish-source"               -H "Content-Type: application/json"               -H "X-Atlas-Token: intentionally-invalid-diagnostic-token"               --data '{"source_id":"gt-agautoventas-com","manifest_version":3,"idempotency_key":"publish:gt-agautoventas-com:3","min_listings":2,"dry_run":true}'
+            head -c 500 publish.out; echo
+            echo "-- Carly search"
+            curl -sS -o carly.out -w "HTTP %{http_code} time=%{time_total}\n" --max-time 20               -X POST "$BASE/carly/search"               -H "Content-Type: application/json"               --data '{"q":"Toyota","country":"gt","limit":1}'
+            head -c 500 carly.out; echo
+          done
