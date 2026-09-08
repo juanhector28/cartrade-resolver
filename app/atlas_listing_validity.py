@@ -9,6 +9,30 @@ CORE_FIELDS = ("make", "model", "year", "price_usd")
 MIN_VALID_COVERAGE = 0.80
 MIN_YEAR = 1950
 
+# Publisher/runtime defense-in-depth. The extraction gate has richer
+# canonicalization, but the canonical listing-validity contract must never
+# accept arbitrary non-empty text as a vehicle make.
+_PLAUSIBLE_MAKES = {
+    "acura", "alfa romeo", "audi", "baic", "bmw", "buick", "byd",
+    "cadillac", "changan", "chery", "chevrolet", "chrysler", "citroen",
+    "cupra", "daihatsu", "dodge", "dongfeng", "fiat", "ford", "foton",
+    "geely", "genesis", "gmc", "great wall", "gwm", "haval", "honda",
+    "hyundai", "infiniti", "isuzu", "jac", "jaecoo", "jeep", "jetour",
+    "jmc", "kia", "land rover", "lexus", "lincoln", "maxus", "mazda",
+    "mercedes", "mercedes benz", "mg", "mini", "mitsubishi", "nissan",
+    "omoda", "peugeot", "porsche", "ram", "renault", "seat", "skoda",
+    "subaru", "suzuki", "tesla", "toyota", "volkswagen", "volvo",
+}
+
+
+def _normalized_make(value: Any) -> str:
+    text = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    return re.sub(r"\s+", " ", text)
+
+
+def _plausible_make(value: Any) -> bool:
+    return _normalized_make(value) in _PLAUSIBLE_MAKES
+
 _CATEGORY_PATH_PATTERNS = (
     re.compile(r"^/(?:buscador|buscar|search)/(?:marca|brand)/[^/]+/?$", re.I),
 )
@@ -38,6 +62,8 @@ def is_valid_listing(row: dict[str, Any] | None, *, current_year: int | None = N
     """
     row = row or {}
     if not all(_nonempty(row.get(field)) for field in CORE_FIELDS):
+        return False
+    if not _plausible_make(row.get("make")):
         return False
 
     try:
