@@ -9,6 +9,7 @@ from fastapi import Header, HTTPException
 from pydantic import BaseModel, Field
 
 from .atlas_listing_validity import listing_validity
+from .atlas_manifest_runner import _money_usd
 
 
 class AtlasPublishRequest(BaseModel):
@@ -139,6 +140,238 @@ def _inject_test_publish_collision(
         .execute()
     )
 
+
+
+class AtlasShadowImportRequest(BaseModel):
+    source_id: str = Field(min_length=3, max_length=240)
+    manifest_version: int = Field(ge=1, le=1_000_000)
+    country: str = Field(min_length=2, max_length=2)
+    domain: str = Field(min_length=3, max_length=240)
+    min_listings: int = Field(default=10, ge=1, le=100)
+    items: list[dict[str, Any]] = Field(min_length=1, max_length=100)
+
+
+def _shadow_import_record(
+    *,
+    source_id: str,
+    manifest_version: int,
+    country: str,
+    domain: str,
+    item: dict[str, Any],
+) -> dict[str, Any] | None:
+    url = str(item.get("url") or item.get("source_url") or item.get("listing_url") or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return None
+
+    photos = item.get("photos") or []
+    if isinstance(photos, str):
+        photos = [photos]
+    photos = [p for p in photos if isinstance(p, str) and p.startswith(("http://", "https://"))][:12]
+
+    currency = str(item.get("currency") or "USD").upper()
+    raw_price = item.get("price_usd")
+    if raw_price in (None, ""):
+        raw_price = item.get("price")
+    price_usd = _money_usd(raw_price, currency)
+
+    km = item.get("km")
+    if km in (None, ""):
+        km = item.get("mileage")
+    if km in (None, ""):
+        km = item.get("kilometers")
+
+    raw = {k: v for k, v in item.items() if not str(k).startswith("_")}
+    raw["atlas"] = {
+        "source_id": source_id,
+        "manifest_version": int(manifest_version),
+        "shadow": True,
+        "extractor": str(item.get("_atlas_extractor") or raw.get("extractor") or "structured_import"),
+        "raw_price": raw_price,
+        "raw_currency": currency,
+    }
+    now = _now_iso()
+    return {
+        "source": f"atlas:{domain}",
+        "country": country.lower(),
+        "url": url,
+        "title": item.get("title") or item.get("name"),
+        "make": item.get("make"),
+        "model": item.get("model"),
+        "year": item.get("year"),
+        "km": km,
+        "price_usd": price_usd,
+        "currency": "USD" if price_usd is not None else currency,
+        "fuel_type": item.get("fuel_type"),
+        "transmission": item.get("transmission"),
+        "location": item.get("location"),
+        "photos": photos,
+        "photo_count": len(photos),
+        "primary_photo": photos[0] if photos else None,
+        "raw_payload": raw,
+        "scraped_at": now,
+        "updated_at": now,
+        "last_seen_at": now,
+        "status": "atlas_shadow",
+        "listing_state": "indexed",
+    }
+
+
+def _existing_by_url(supabase: Any, url: str) -> dict[str, Any] | None:
+    rows = (
+        supabase.table("scraped_listings")
+        .select("id,url,status,source,raw_payload,is_addressable,updated_at")
+        .eq("url", url)
+        .limit(1)
+        .execute().data or []
+    )
+    return rows[0] if rows else None
+
+
+def import_shadow_items(
+    supabase: Any,
+    body: AtlasShadowImportRequest,
+) -> dict[str, Any]:
+    """Persist pre-extracted Atlas rows into shared non-addressable shadow inventory.
+
+    This endpoint does not publish or activate anything. It only closes the
+    storage gap between an already-extracted Atlas cache and Resolver's shared
+    atlas_shadow plane. Publisher remains the sole staging/addressability gate.
+    """
+    if supabase is None:
+        raise HTTPException(status_code=503, detail="Supabase is not connected")
+
+    source_id = body.source_id.strip()
+    country = body.country.strip().upper()
+    domain = body.domain.strip().lower().removeprefix("www.")
+    manifest_version = int(body.manifest_version)
+
+    if len(country) != 2 or source_id.split("-", 1)[0].lower() != country.lower():
+        raise HTTPException(status_code=422, detail="source_id/country mismatch")
+    if not domain or "." not in domain:
+        raise HTTPException(status_code=422, detail="valid domain is required")
+
+    records = [
+        row for row in (
+            _shadow_import_record(
+                source_id=source_id,
+                manifest_version=manifest_version,
+                country=country,
+                domain=domain,
+                item=item,
+            )
+            for item in body.items
+            if isinstance(item, dict)
+        )
+        if row is not None
+    ]
+    validity = listing_validity(records)
+    valid_records = list(validity.pop("valid_rows"))
+
+    if not validity["passes_threshold"] or validity["valid_count"] < int(body.min_listings):
+        return {
+            "result": "rejected_precondition",
+            "reason": (
+                "core_listing_coverage_below_80"
+                if not validity["passes_threshold"]
+                else "insufficient_valid_import_inventory"
+            ),
+            "source_id": source_id,
+            "manifest_version": manifest_version,
+            "input_count": len(body.items),
+            "normalized_count": len(records),
+            "min_listings": int(body.min_listings),
+            **validity,
+            "saved_shadow": 0,
+            "refreshed_shadow": 0,
+            "protected_collision_count": 0,
+            "protected_collision_urls": [],
+        }
+
+    saved = 0
+    refreshed = 0
+    collisions: list[dict[str, Any]] = []
+    errors: list[str] = []
+
+    for record in valid_records:
+        url = str(record.get("url") or "")
+        try:
+            existing = _existing_by_url(supabase, url)
+            if existing:
+                meta = _atlas_meta(existing)
+                same_shadow_source = bool(
+                    existing.get("status") == "atlas_shadow"
+                    and meta.get("source_id") == source_id
+                )
+                if not same_shadow_source:
+                    collisions.append({
+                        "url": url,
+                        "reason": "shadow_collision_existing_owner",
+                        "existing_status": existing.get("status"),
+                        "existing_source": existing.get("source"),
+                        "existing_source_id": meta.get("source_id"),
+                        "existing_manifest_version": meta.get("manifest_version"),
+                    })
+                    continue
+                response = (
+                    supabase.table("scraped_listings")
+                    .update(record)
+                    .eq("id", existing["id"])
+                    .eq("status", "atlas_shadow")
+                    .contains("raw_payload", {"atlas": {"source_id": source_id}})
+                    .execute()
+                )
+                if response.data:
+                    refreshed += len(response.data)
+                else:
+                    collisions.append({"url": url, "reason": "conditional_shadow_refresh_lost_race"})
+                continue
+
+            try:
+                response = supabase.table("scraped_listings").insert(record).execute()
+            except Exception:
+                current = _existing_by_url(supabase, url)
+                meta = _atlas_meta(current)
+                collisions.append({
+                    "url": url,
+                    "reason": "shadow_insert_collision",
+                    "existing_status": (current or {}).get("status"),
+                    "existing_source_id": meta.get("source_id"),
+                    "existing_manifest_version": meta.get("manifest_version"),
+                })
+                continue
+            if response.data:
+                saved += len(response.data)
+        except Exception as exc:
+            errors.append(str(exc)[:300])
+
+    final_rows = _exact_rows(
+        supabase,
+        status="atlas_shadow",
+        source_id=source_id,
+        manifest_version=manifest_version,
+    )
+    final_validity, valid_final = _validity_payload(final_rows)
+    ready = bool(final_validity["passes_threshold"] and len(valid_final) >= int(body.min_listings))
+
+    return {
+        "result": "imported" if ready else "insufficient_after_collisions",
+        "source_id": source_id,
+        "manifest_version": manifest_version,
+        "input_count": len(body.items),
+        "normalized_count": len(records),
+        "min_listings": int(body.min_listings),
+        **validity,
+        "saved_shadow": saved,
+        "refreshed_shadow": refreshed,
+        "protected_collision_count": len(collisions),
+        "protected_collision_urls": [str(row.get("url") or "") for row in collisions[:100]],
+        "protected_collisions": collisions[:100],
+        "save_errors": errors[:50],
+        "final_shadow_count": len(final_rows),
+        "final_valid_shadow_count": len(valid_final),
+        "final_valid_listing_coverage_pct": final_validity["valid_coverage_pct"],
+        "addressable": False,
+    }
 
 def publish_source(
     supabase: Any,
@@ -317,6 +550,14 @@ def publish_source(
 
 
 def install(app: Any, supabase: Any) -> None:
+    @app.post("/atlas/import-shadow")
+    def atlas_import_shadow(
+        body: AtlasShadowImportRequest,
+        x_atlas_token: str | None = Header(default=None),
+    ):
+        _require_publish_token(x_atlas_token)
+        return import_shadow_items(supabase, body)
+
     @app.post("/atlas/publish-source")
     def atlas_publish_source(
         body: AtlasPublishRequest,
