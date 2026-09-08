@@ -31,6 +31,15 @@ _SKIP_HINTS = (
     "instagram.com", "tiktok.com", "x.com", "wa.me", "mailto:", "tel:",
 )
 _ASSET_EXT = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".pdf", ".zip", ".css", ".js")
+_CATEGORY_PATH_PATTERNS = (
+    re.compile(r"^/(?:buscador|buscar|search)/(?:marca|brand)/[^/]+/?$", re.I),
+)
+
+
+def _is_category_url(url: str) -> bool:
+    path = urlparse(url or "").path or "/"
+    return any(pattern.match(path) for pattern in _CATEGORY_PATH_PATTERNS)
+
 
 
 def _now_iso() -> str:
@@ -375,7 +384,7 @@ class AtlasManifestRunner:
             for node in nodes:
                 href = node.get(attr) if hasattr(node, "get") else None
                 u = _clean_url(page_url, href)
-                if not u or not _same_site(base, u) or u in starts:
+                if not u or not _same_site(base, u) or u in starts or _is_category_url(u):
                     continue
                 score = _url_score(u)
                 if score > candidates.get(u, -999):
