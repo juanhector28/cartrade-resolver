@@ -30,13 +30,13 @@ jobs:
 
       - name: Verify Atlas routes and browser limits
         run: |
-          docker run --rm -i             -e ATLAS_BROWSER_RUN_CONCURRENCY=1             -e ATLAS_BROWSER_PAGE_CONCURRENCY=2             resolver-v23:local python - <<'PY'
+          docker run --rm -i --memory=512m             -e ATLAS_BROWSER_RUN_CONCURRENCY=2             -e ATLAS_BROWSER_PAGE_CONCURRENCY=1             resolver-v23:local python - <<'PY'
           from app.atlas_manifest_runner import AtlasManifestRunner
           from app.main_v41 import app
 
           runner = AtlasManifestRunner(supabase=None)
-          assert runner.browser_run_concurrency == 1
-          assert runner.browser_page_concurrency == 2
+          assert runner.browser_run_concurrency == 2
+          assert runner.browser_page_concurrency == 1
           paths = {getattr(route, 'path', None) for route in app.routes}
           assert '/atlas/run-source' in paths, sorted(x for x in paths if x)
           assert '/atlas/runner/status' in paths, sorted(x for x in paths if x)
@@ -45,7 +45,7 @@ jobs:
 
       - name: Stress three concurrent browser runs
         run: |
-          docker run --rm -i             -e ATLAS_BROWSER_RUN_CONCURRENCY=1             -e ATLAS_BROWSER_PAGE_CONCURRENCY=2             -e ATLAS_RUNNER_TIMEOUT=8             resolver-v23:local python - <<'PY'
+          docker run --rm -i             -e ATLAS_BROWSER_RUN_CONCURRENCY=2             -e ATLAS_BROWSER_PAGE_CONCURRENCY=1             -e ATLAS_RUNNER_TIMEOUT=8             resolver-v23:local python - <<'PY'
           import asyncio
           import threading
           from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -120,7 +120,7 @@ jobs:
                   assert result['ok'] is True, result
                   assert result['valid_listings'] >= 2, result
                   assert result['attempted'] >= 2, result
-              assert runner._browser_run_semaphore._value == 1
+              assert runner._browser_run_semaphore._value == 2
               print('ATLAS_V23_CONCURRENT_BROWSER_SMOKE=PASS')
               print([(r['attempted'], r['valid_listings'], r['elapsed_seconds']) for r in results])
 
