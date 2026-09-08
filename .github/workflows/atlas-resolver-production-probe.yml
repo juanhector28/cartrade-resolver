@@ -19,6 +19,7 @@ jobs:
         run: |
           python - <<'PY'
           import json, urllib.error, urllib.request
+          print("EXPECTED_BROWSER_RUNTIME=2x1")
           bases = [
               "https://resolver.cartrade.live",
               "https://cartrade-resolver-production.up.railway.app",
