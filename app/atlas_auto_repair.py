@@ -5,7 +5,7 @@ import re
 import time
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -31,6 +31,81 @@ _URL_MAKES = {
     "nissan", "peugeot", "porsche", "ram", "renault", "subaru", "suzuki",
     "toyota", "volkswagen", "volvo",
 }
+
+
+# Semantic make universe used by both extraction repair and activation gates.
+# Keep aliases normalized here rather than treating arbitrary non-empty text as a make.
+_KNOWN_MAKE_ALIASES = {
+    "acura": "Acura", "alfa romeo": "Alfa Romeo", "audi": "Audi",
+    "baic": "BAIC", "bmw": "BMW", "buick": "Buick", "byd": "BYD",
+    "cadillac": "Cadillac", "changan": "Changan", "chery": "Chery",
+    "chevrolet": "Chevrolet", "chrysler": "Chrysler", "citroen": "Citroen",
+    "cupra": "Cupra", "daihatsu": "Daihatsu", "dodge": "Dodge",
+    "dongfeng": "Dongfeng", "fiat": "Fiat", "ford": "Ford",
+    "foton": "Foton", "geely": "Geely", "genesis": "Genesis", "gmc": "GMC",
+    "great wall": "Great Wall", "gwm": "GWM", "haval": "Haval",
+    "honda": "Honda", "hyundai": "Hyundai", "infiniti": "Infiniti",
+    "isuzu": "Isuzu", "jac": "JAC", "jaecoo": "Jaecoo", "jeep": "Jeep",
+    "jetour": "Jetour", "jmc": "JMC", "kia": "Kia", "land rover": "Land Rover",
+    "land-rover": "Land Rover", "lexus": "Lexus", "lincoln": "Lincoln",
+    "mazda": "Mazda", "mercedes": "Mercedes-Benz",
+    "mercedes benz": "Mercedes-Benz", "mercedes-benz": "Mercedes-Benz",
+    "mg": "MG", "mini": "MINI", "mitsubishi": "Mitsubishi",
+    "nissan": "Nissan", "omoda": "Omoda", "peugeot": "Peugeot",
+    "porsche": "Porsche", "ram": "RAM", "renault": "Renault",
+    "seat": "SEAT", "skoda": "Skoda", "subaru": "Subaru",
+    "suzuki": "Suzuki", "tesla": "Tesla", "toyota": "Toyota",
+    "volkswagen": "Volkswagen", "volvo": "Volvo",
+}
+
+
+def _norm_make(value: Any) -> str:
+    text = re.sub(r"[^a-z0-9]+", " ", str(_scalar(value) or "").lower()).strip()
+    return re.sub(r"\s+", " ", text)
+
+
+def _canonical_make(value: Any) -> str | None:
+    return _KNOWN_MAKE_ALIASES.get(_norm_make(value))
+
+
+def _plausible_make(value: Any) -> bool:
+    return _canonical_make(value) is not None
+
+
+def _structured_vehicle_identity_fallbacks(html: str) -> dict[str, Any]:
+    """Recover identity from page-declared metadata before inferring from prose.
+
+    Some sites expose an OG image endpoint whose query already contains
+    canonical brand/model data. This is preferable to nearby headings such as
+    "Vehículos Relacionados".
+    """
+    soup = BeautifulSoup(html or "", "lxml")
+    out: dict[str, Any] = {}
+    for selector in (
+        'meta[property="og:image"]',
+        'meta[name="twitter:image"]',
+        'link[rel="image_src"]',
+    ):
+        node = soup.select_one(selector)
+        if node is None:
+            continue
+        raw = node.get("content") or node.get("href")
+        if not raw:
+            continue
+        try:
+            query = parse_qs(urlparse(str(raw)).query)
+        except Exception:
+            continue
+        brand = (query.get("brand") or query.get("make") or [None])[0]
+        model = (query.get("model") or [None])[0]
+        canonical = _canonical_make(brand)
+        if canonical:
+            out["make"] = canonical
+        if model and len(str(model).strip()) <= 80:
+            out["model"] = str(model).strip()
+        if out.get("make"):
+            break
+    return out
 
 
 def _url_vehicle_identity_fallbacks(url: str) -> dict[str, Any]:
@@ -246,16 +321,30 @@ def install(ns: dict[str, Any]) -> None:
 
         original_title = item.get("title")
         visible = _visible_core_fallbacks(html)
+        structured_identity = _structured_vehicle_identity_fallbacks(html)
         url_identity = _url_vehicle_identity_fallbacks(url)
 
-        for field in ("make", "model"):
-            value = _scalar(item.get(field))
-            if value not in (None, "") and not _polluted_vehicle_scalar(value):
-                item[field] = value
-            elif visible.get(field) not in (None, ""):
-                item[field] = visible[field]
-            elif url_identity.get(field) not in (None, ""):
-                item[field] = url_identity[field]
+        make = _scalar(item.get("make"))
+        if _plausible_make(make):
+            item["make"] = _canonical_make(make)
+        elif _plausible_make(structured_identity.get("make")):
+            item["make"] = _canonical_make(structured_identity["make"])
+        elif _plausible_make(visible.get("make")):
+            item["make"] = _canonical_make(visible["make"])
+        elif _plausible_make(url_identity.get("make")):
+            item["make"] = _canonical_make(url_identity["make"])
+        else:
+            item.pop("make", None)
+
+        model = _scalar(item.get("model"))
+        if model not in (None, "") and not _polluted_vehicle_scalar(model):
+            item["model"] = model
+        elif structured_identity.get("model") not in (None, ""):
+            item["model"] = structured_identity["model"]
+        elif visible.get("model") not in (None, ""):
+            item["model"] = visible["model"]
+        elif url_identity.get("model") not in (None, ""):
+            item["model"] = url_identity["model"]
 
         try:
             current_year = int(item.get("year"))
@@ -407,6 +496,7 @@ def install(ns: dict[str, Any]) -> None:
         plausible_year = 0
         usable_photo = 0
         core_scalar = 0
+        plausible_make = 0
 
         for item in sample:
             nested_here = False
@@ -416,6 +506,9 @@ def install(ns: dict[str, Any]) -> None:
                     nested_here = True
             if not nested_here and all(_scalar(item.get(f)) for f in ("title", "make", "model")):
                 core_scalar += 1
+
+            if _plausible_make(item.get("make")):
+                plausible_make += 1
 
             for field in ("fuel_type", "transmission"):
                 value = str(_scalar(item.get(field)) or "").lower()
@@ -449,6 +542,8 @@ def install(ns: dict[str, Any]) -> None:
             issues.append("nested_core_fields")
         if core_scalar / n < 0.80:
             issues.append("core_field_quality_low")
+        if plausible_make / n < 0.80:
+            issues.append("make_quality_low")
         if navigation_pollution:
             issues.append("navigation_text_in_vehicle_fields")
         if non_car / n > 0.20:
@@ -460,7 +555,7 @@ def install(ns: dict[str, Any]) -> None:
         if usable_photo / n < 0.80:
             issues.append("usable_photo_coverage_low")
 
-        checks = 7
+        checks = 8
         return {
             "eligible": not issues,
             "sample_size": n,
@@ -473,6 +568,7 @@ def install(ns: dict[str, Any]) -> None:
             "plausible_year_pct": round(plausible_year / n * 100, 2),
             "usable_photo_coverage_pct": round(usable_photo / n * 100, 2),
             "core_scalar_pct": round(core_scalar / n * 100, 2),
+            "plausible_make_pct": round(plausible_make / n * 100, 2),
         }
 
     # The semantic wrapper resolves this global at runtime, so replacing it
@@ -487,7 +583,7 @@ def install(ns: dict[str, Any]) -> None:
         result = await original_run(self, *args, **kwargs)
         result["auto_repair"] = {
             "enabled": True,
-            "version": "v2-visible-labels",
+            "version": "v3-semantic-make-gate",
             "fx_gtq_available": bool(fx_cache.get("GTQ")),
         }
         return result
