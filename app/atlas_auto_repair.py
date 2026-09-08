@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from bs4 import BeautifulSoup
 
 NAV_VALUES = {
     "inicio", "home", "buscar", "search", "menu", "menú", "vehiculo", "vehículo",
@@ -20,6 +21,76 @@ GENERIC_TITLES = {
     "movilauto", "carros.com", "carros", "encuentra24", "encuentra24.com",
     "vehículos", "vehiculos", "autos", "carros guatemala",
 }
+
+
+_VISIBLE_LABELS = {
+    "make": {"marca", "brand"},
+    "model": {"linea", "línea", "model", "modelo"},
+    "year": {"año", "ano", "year"},
+}
+
+
+def _norm_label(value: Any) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip().lower()
+    return text[:-1].strip() if text.endswith(":") else text
+
+
+def _polluted_vehicle_scalar(value: Any) -> bool:
+    text = str(_scalar(value) or "").strip()
+    if not text:
+        return False
+    low = text.lower()
+    return (
+        len(text) > 80
+        or len(text.split()) >= 8
+        or "@" in text
+        or any(token in low for token in (" inicio ", " inventario ", " contacto ", " calculadora "))
+    )
+
+
+def _visible_core_fallbacks(html: str) -> dict[str, Any]:
+    soup = BeautifulSoup(html or "", "lxml")
+    for tag in soup.select("script,style,noscript,template"):
+        tag.decompose()
+    tokens = [re.sub(r"\s+", " ", x).strip() for x in soup.stripped_strings]
+    out: dict[str, Any] = {}
+
+    for idx, token in enumerate(tokens):
+        label = _norm_label(token)
+        field = next((name for name, labels in _VISIBLE_LABELS.items() if label in labels), None)
+        if not field:
+            continue
+        for candidate in tokens[idx + 1: idx + 4]:
+            value = candidate.strip()
+            if not value or _norm_label(value) in {x for labels in _VISIBLE_LABELS.values() for x in labels}:
+                continue
+            if field == "year":
+                match = re.fullmatch(r"(19\d{2}|20\d{2})", value)
+                if match:
+                    out["year"] = int(match.group(1))
+                    break
+                continue
+            if len(value) <= 60 and len(value.split()) <= 6 and "@" not in value:
+                out[field] = value
+                break
+
+    visible = " ".join(tokens[:1200])
+    prices = []
+    for match in re.finditer(r"(?<![A-Z0-9])(?:(GTQ|Q|USD|US\$|\$)\s*)([0-9][0-9.,\s]{2,})", visible, re.I):
+        cur = (match.group(1) or "").upper()
+        raw = match.group(2).strip()
+        try:
+            value = float(raw.replace(" ", "").replace(",", ""))
+        except ValueError:
+            continue
+        if 500 <= value <= 5_000_000:
+            prices.append((match.start(), cur, value))
+    if prices:
+        _, cur, value = prices[0]
+        out["price_usd"] = value
+        out["currency"] = "GTQ" if cur in {"Q", "GTQ"} else "USD"
+
+    return out
 
 
 def _scalar(value: Any) -> Any:
@@ -72,10 +143,26 @@ def install(ns: dict[str, Any]) -> None:
         item = original_extract(manifest, url, html)
 
         original_title = item.get("title")
+        visible = _visible_core_fallbacks(html)
+
         for field in ("make", "model"):
             value = _scalar(item.get(field))
-            if value not in (None, ""):
+            if value not in (None, "") and not _polluted_vehicle_scalar(value):
                 item[field] = value
+            elif visible.get(field) not in (None, ""):
+                item[field] = visible[field]
+
+        try:
+            current_year = int(item.get("year"))
+        except Exception:
+            current_year = 0
+        if not 1950 <= current_year <= datetime.now(timezone.utc).year + 2 and visible.get("year"):
+            item["year"] = int(visible["year"])
+
+        if item.get("price_usd") in (None, "", []) and visible.get("price_usd") is not None:
+            item["price_usd"] = visible["price_usd"]
+            if visible.get("currency"):
+                item["currency"] = visible["currency"]
 
         title = _scalar(original_title)
         if isinstance(original_title, (dict, list)) or not title or str(title).lower() in GENERIC_TITLES:
@@ -276,7 +363,7 @@ def install(ns: dict[str, Any]) -> None:
         result = await original_run(self, *args, **kwargs)
         result["auto_repair"] = {
             "enabled": True,
-            "version": "v1",
+            "version": "v2-visible-labels",
             "fx_gtq_available": bool(fx_cache.get("GTQ")),
         }
         return result
