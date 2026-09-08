@@ -5,6 +5,7 @@ import re
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -21,6 +22,70 @@ GENERIC_TITLES = {
     "movilauto", "carros.com", "carros", "encuentra24", "encuentra24.com",
     "vehículos", "vehiculos", "autos", "carros guatemala",
 }
+
+_URL_MAKES = {
+    "acura", "audi", "bmw", "buick", "byd", "cadillac", "changan", "chery",
+    "chevrolet", "chrysler", "citroen", "dodge", "fiat", "ford", "geely",
+    "gmc", "honda", "hyundai", "isuzu", "jac", "jeep", "kia", "land-rover",
+    "lexus", "mazda", "mercedes", "mercedes-benz", "mg", "mini", "mitsubishi",
+    "nissan", "peugeot", "porsche", "ram", "renault", "subaru", "suzuki",
+    "toyota", "volkswagen", "volvo",
+}
+
+
+def _url_vehicle_identity_fallbacks(url: str) -> dict[str, Any]:
+    """Conservative vehicle identity recovery from detail-page slugs.
+
+    Used only as a fallback when extracted make/model/year are missing or
+    polluted. It requires both a known make token and an explicit 4-digit model
+    year marker in the final path segment, so generic navigation URLs cannot
+    manufacture vehicle identity.
+    """
+    try:
+        slug = unquote(urlparse(str(url or "")).path.rstrip("/").split("/")[-1])
+    except Exception:
+        return {}
+    slug = re.sub(r"\.(?:html?|php)$", "", slug, flags=re.I)
+    slug = re.sub(r"[_-]+", "-", slug).strip("-").lower()
+    year_match = re.search(r"(?:^|-)m?(19\d{2}|20\d{2})(?:-|$)", slug, re.I)
+    if not year_match:
+        return {}
+
+    year = int(year_match.group(1))
+    head = slug[:year_match.start()].strip("-")
+    if not head:
+        return {}
+
+    make = None
+    remainder = None
+    for candidate in sorted(_URL_MAKES, key=len, reverse=True):
+        if head == candidate:
+            make, remainder = candidate, ""
+            break
+        prefix = candidate + "-"
+        if head.startswith(prefix):
+            make, remainder = candidate, head[len(prefix):]
+            break
+    if not make or not remainder:
+        return {}
+
+    # Normalize common make spellings for display without trying to infer trim.
+    display_make = {
+        "bmw": "BMW",
+        "byd": "BYD",
+        "gmc": "GMC",
+        "jac": "JAC",
+        "mg": "MG",
+    }.get(make, " ".join(part.capitalize() for part in make.split("-")))
+
+    model = re.sub(r"-+", " ", remainder).strip()
+    if not model:
+        return {}
+    return {
+        "make": display_make,
+        "model": model.upper(),
+        "year": year,
+    }
 
 
 _VISIBLE_LABELS = {
@@ -144,6 +209,7 @@ def install(ns: dict[str, Any]) -> None:
 
         original_title = item.get("title")
         visible = _visible_core_fallbacks(html)
+        url_identity = _url_vehicle_identity_fallbacks(url)
 
         for field in ("make", "model"):
             value = _scalar(item.get(field))
@@ -151,13 +217,18 @@ def install(ns: dict[str, Any]) -> None:
                 item[field] = value
             elif visible.get(field) not in (None, ""):
                 item[field] = visible[field]
+            elif url_identity.get(field) not in (None, ""):
+                item[field] = url_identity[field]
 
         try:
             current_year = int(item.get("year"))
         except Exception:
             current_year = 0
-        if not 1950 <= current_year <= datetime.now(timezone.utc).year + 2 and visible.get("year"):
-            item["year"] = int(visible["year"])
+        if not 1950 <= current_year <= datetime.now(timezone.utc).year + 2:
+            if visible.get("year"):
+                item["year"] = int(visible["year"])
+            elif url_identity.get("year"):
+                item["year"] = int(url_identity["year"])
 
         if item.get("price_usd") in (None, "", []) and visible.get("price_usd") is not None:
             item["price_usd"] = visible["price_usd"]
