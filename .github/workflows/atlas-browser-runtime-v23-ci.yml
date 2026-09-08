@@ -45,7 +45,7 @@ jobs:
 
       - name: Stress three concurrent browser runs
         run: |
-          docker run --rm -i             -e ATLAS_BROWSER_RUN_CONCURRENCY=2             -e ATLAS_BROWSER_PAGE_CONCURRENCY=1             -e ATLAS_RUNNER_TIMEOUT=8             resolver-v23:local python - <<'PY'
+          docker run --rm -i --memory=512m             -e ATLAS_BROWSER_RUN_CONCURRENCY=2             -e ATLAS_BROWSER_PAGE_CONCURRENCY=1             -e ATLAS_RUNNER_TIMEOUT=8             resolver-v23:local python - <<'PY'
           import asyncio
           import threading
           from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
