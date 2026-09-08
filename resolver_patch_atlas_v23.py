@@ -10,8 +10,8 @@ if marker not in s:
 '''
     init_new = '''        self.timeout = float(os.getenv("ATLAS_RUNNER_TIMEOUT", "25"))
         self.concurrency = max(1, min(int(os.getenv("ATLAS_RUNNER_CONCURRENCY", "4")), 8))
-        self.browser_run_concurrency = max(1, min(int(os.getenv("ATLAS_BROWSER_RUN_CONCURRENCY", "1")), 2))
-        self.browser_page_concurrency = max(1, min(int(os.getenv("ATLAS_BROWSER_PAGE_CONCURRENCY", "2")), 3))
+        self.browser_run_concurrency = max(1, min(int(os.getenv("ATLAS_BROWSER_RUN_CONCURRENCY", "2")), 2))
+        self.browser_page_concurrency = max(1, min(int(os.getenv("ATLAS_BROWSER_PAGE_CONCURRENCY", "1")), 3))
         self._browser_run_semaphore = asyncio.Semaphore(self.browser_run_concurrency)
 '''
     if init_old not in s:
