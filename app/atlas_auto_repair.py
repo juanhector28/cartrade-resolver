@@ -5,7 +5,7 @@ import re
 import time
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -111,6 +111,43 @@ def _polluted_vehicle_scalar(value: Any) -> bool:
         or "@" in text
         or any(token in low for token in (" inicio ", " inventario ", " contacto ", " calculadora "))
     )
+
+
+def _visible_photo_fallbacks(html: str, page_url: str) -> list[str]:
+    soup = BeautifulSoup(html or "", "lxml")
+    candidates: list[str] = []
+
+    def add(raw: Any):
+        if not raw:
+            return
+        value = str(raw).strip()
+        if not value:
+            return
+        value = urljoin(page_url, value)
+        if not value.startswith(("http://", "https://")):
+            return
+        low = value.lower()
+        if any(token in low for token in ("logo", "favicon", "icon-", "/icons/", "avatar", "wordmark")):
+            return
+        if value not in candidates:
+            candidates.append(value)
+
+    for selector, attr in (
+        ('meta[property="og:image"]', "content"),
+        ('meta[name="twitter:image"]', "content"),
+        ('link[rel="image_src"]', "href"),
+    ):
+        node = soup.select_one(selector)
+        if node is not None:
+            add(node.get(attr))
+
+    if not candidates:
+        for node in soup.select("img[src], img[data-src], img[data-lazy-src]"):
+            add(node.get("src") or node.get("data-src") or node.get("data-lazy-src"))
+            if len(candidates) >= 12:
+                break
+
+    return candidates[:12]
 
 
 def _visible_core_fallbacks(html: str) -> dict[str, Any]:
@@ -234,6 +271,22 @@ def install(ns: dict[str, Any]) -> None:
             item["price_usd"] = visible["price_usd"]
             if visible.get("currency"):
                 item["currency"] = visible["currency"]
+
+        photos = item.get("photos") or []
+        if isinstance(photos, str):
+            photos = [photos]
+        photos = [p for p in photos if isinstance(p, str) and p.startswith("http")]
+        if not photos:
+            images = item.get("images")
+            if isinstance(images, str) and images.startswith("http"):
+                photos = [images]
+            elif isinstance(images, list):
+                photos = [p for p in images if isinstance(p, str) and p.startswith("http")]
+        if not photos:
+            photos = _visible_photo_fallbacks(html, url)
+        if photos:
+            item["photos"] = photos[:12]
+            item["images"] = photos[0]
 
         title = _scalar(original_title)
         if isinstance(original_title, (dict, list)) or not title or str(title).lower() in GENERIC_TITLES:
