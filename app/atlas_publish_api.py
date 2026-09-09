@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
+import json
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -17,6 +19,7 @@ class AtlasPublishRequest(BaseModel):
     idempotency_key: str = Field(min_length=8, max_length=500)
     min_listings: int = Field(default=10, ge=1, le=5000)
     dry_run: bool = False
+    expected_snapshot_hash: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 def _now_iso() -> str:
@@ -87,6 +90,57 @@ def _validity_payload(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], list[
     result = listing_validity(rows)
     valid_rows = list(result.pop("valid_rows"))
     return result, valid_rows
+
+
+def _snapshot_identity(row: dict[str, Any]) -> dict[str, Any]:
+    meta = _atlas_meta(row)
+    return {
+        "id": row.get("id"),
+        "url": row.get("url"),
+        "status": row.get("status"),
+        "source": row.get("source"),
+        "is_addressable": row.get("is_addressable"),
+        "updated_at": row.get("updated_at"),
+        "make": row.get("make"),
+        "model": row.get("model"),
+        "year": row.get("year"),
+        "price_usd": row.get("price_usd"),
+        "source_id": meta.get("source_id"),
+        "manifest_version": meta.get("manifest_version"),
+    }
+
+
+def _candidate_snapshot_hash(rows: list[dict[str, Any]]) -> str:
+    materialized = [_snapshot_identity(row) for row in rows]
+    materialized.sort(key=lambda row: (str(row.get("id") or ""), str(row.get("url") or "")))
+    payload = json.dumps(materialized, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _assertion_row(row: dict[str, Any]) -> dict[str, Any]:
+    meta = _atlas_meta(row)
+    return {
+        "id": row.get("id"),
+        "url": row.get("url"),
+        "make": row.get("make"),
+        "model": row.get("model"),
+        "year": row.get("year"),
+        "price_usd": row.get("price_usd"),
+        "source_id": meta.get("source_id"),
+        "manifest_version": meta.get("manifest_version"),
+    }
+
+
+def _invalid_and_navigation_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    invalid: list[dict[str, Any]] = []
+    navigation: list[dict[str, Any]] = []
+    for row in rows:
+        one = listing_validity([row])
+        if int(one.get("excluded_navigation_count") or 0) > 0:
+            navigation.append(row)
+        elif int(one.get("valid_count") or 0) == 0:
+            invalid.append(row)
+    return invalid, navigation
 
 
 def _publish_rollback_quarantined(row: dict[str, Any] | None) -> bool:
@@ -187,6 +241,18 @@ def publish_source(
     exact_validity, _ = _validity_payload(exact_rows)
     candidate_validity, valid_candidates = _validity_payload(candidates)
     existing_validity, valid_existing = _validity_payload(existing_addressable)
+    invalid_candidates, navigation_candidates = _invalid_and_navigation_rows(candidates)
+
+    valid_exact_rows = valid_candidates + valid_existing
+    assertion_limit = max(
+        1,
+        min(5000, int(os.getenv("ATLAS_PUBLISH_SEMANTIC_ASSERT_MAX_ROWS", "200"))),
+    )
+    semantic_assertion_complete = len(valid_exact_rows) <= assertion_limit
+    semantic_assertion_rows = [
+        _assertion_row(row) for row in valid_exact_rows[:assertion_limit]
+    ]
+    candidate_snapshot_hash = _candidate_snapshot_hash(exact_rows)
 
     ready = bool(
         exact_validity["passes_threshold"]
@@ -201,12 +267,24 @@ def publish_source(
         "publish_rollback_quarantined_count": len(rollback_quarantined),
         "shadow_candidate_count": len(candidates),
         "valid_shadow_candidate_count": candidate_validity["valid_count"],
+        "canonical_invalid_shadow_count": len(invalid_candidates),
+        "canonical_invalid_shadow_urls": [
+            str(row.get("url") or "") for row in invalid_candidates if row.get("url")
+        ][:100],
+        "navigation_excluded_shadow_count": len(navigation_candidates),
+        "navigation_excluded_shadow_urls": [
+            str(row.get("url") or "") for row in navigation_candidates if row.get("url")
+        ][:100],
         "existing_addressable_count": len(existing_addressable),
         "valid_existing_addressable_count": existing_validity["valid_count"],
         "valid_listing_count": exact_validity["valid_count"],
         "valid_listing_coverage_pct": exact_validity["valid_coverage_pct"],
         "valid_listing_threshold_pct": exact_validity["threshold_pct"],
         "min_listings": body.min_listings,
+        "candidate_snapshot_hash": candidate_snapshot_hash,
+        "semantic_assertion_complete": semantic_assertion_complete,
+        "semantic_assertion_row_count": len(semantic_assertion_rows),
+        "semantic_assertion_rows": semantic_assertion_rows,
     }
 
     if not ready:
@@ -225,6 +303,25 @@ def publish_source(
             "protected_collision_count": 0,
             "protected_collision_urls": [],
             "dry_run": body.dry_run,
+        }
+
+    if (
+        not body.dry_run
+        and body.expected_snapshot_hash is not None
+        and not hmac.compare_digest(body.expected_snapshot_hash, candidate_snapshot_hash)
+    ):
+        return {
+            **common,
+            "result": "rejected_precondition",
+            "reason": "candidate_snapshot_changed",
+            "expected_snapshot_hash": body.expected_snapshot_hash,
+            "actual_snapshot_hash": candidate_snapshot_hash,
+            "completed_at": _now_iso(),
+            "final_addressable_count": len(valid_existing),
+            "promoted_count": 0,
+            "protected_collision_count": 0,
+            "protected_collision_urls": [],
+            "dry_run": False,
         }
 
     if body.dry_run:
