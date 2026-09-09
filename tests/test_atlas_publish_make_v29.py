@@ -1,4 +1,5 @@
 from app.atlas_listing_validity import is_valid_listing, listing_validity
+from app.atlas_publish_api import _publish_rollback_quarantined
 
 
 def _row(make: str):
@@ -29,3 +30,28 @@ def test_bad_historical_rows_reduce_publish_coverage():
     assert out["valid_count"] == 8
     assert out["invalid_count"] == 3
     assert out["passes_threshold"] is False
+
+
+def test_publish_rollback_row_is_quarantined_from_future_candidate_cohort():
+    row = _row("Vehículos Relacionados")
+    row["raw_payload"] = {
+        "atlas": {
+            "source_id": "gt-movilauto-com",
+            "manifest_version": 3,
+            "publish_rollback": {
+                "reason": "invalid_make_inference_contamination_v28_guard"
+            },
+        }
+    }
+    assert _publish_rollback_quarantined(row) is True
+
+
+def test_current_valid_row_without_rollback_remains_publish_candidate():
+    row = _row("Mazda")
+    row["raw_payload"] = {
+        "atlas": {
+            "source_id": "gt-movilauto-com",
+            "manifest_version": 3,
+        }
+    }
+    assert _publish_rollback_quarantined(row) is False
