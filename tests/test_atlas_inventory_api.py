@@ -2,6 +2,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.atlas_inventory_api import _require_read_token, inventory_summary, query_inventory
+from app.atlas_publish_api import _publish_rollback_quarantined
 
 
 class Response:
@@ -137,3 +138,30 @@ def test_unsupported_country_rejected():
     with pytest.raises(HTTPException) as invalid:
         query_inventory(Supabase(ROWS), country="us")
     assert invalid.value.status_code == 422
+
+
+def test_publish_rollback_metadata_quarantines_shadow_candidate():
+    row = {
+        "raw_payload": {
+            "atlas": {
+                "source_id": "gt-movilauto-com",
+                "manifest_version": 3,
+                "publish_rollback": {
+                    "reason": "invalid_make_inference_contamination_v28_guard"
+                },
+            }
+        }
+    }
+    assert _publish_rollback_quarantined(row) is True
+
+
+def test_current_shadow_candidate_without_rollback_is_not_quarantined():
+    row = {
+        "raw_payload": {
+            "atlas": {
+                "source_id": "gt-movilauto-com",
+                "manifest_version": 3,
+            }
+        }
+    }
+    assert _publish_rollback_quarantined(row) is False
