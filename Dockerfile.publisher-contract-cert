@@ -1,0 +1,11 @@
+FROM python:3.12-slim
+
+WORKDIR /workspace
+
+RUN python -m pip install --no-cache-dir "pytest>=8,<9" "fastapi>=0.115,<1" "pydantic>=2.9,<3"
+
+COPY app /workspace/app
+COPY tests/test_atlas_publish_exact_snapshot_v30.py /workspace/tests/test_atlas_publish_exact_snapshot_v30.py
+COPY tests/test_atlas_publish_make_v29.py /workspace/tests/test_atlas_publish_make_v29.py
+
+CMD ["pytest", "-q", "tests/test_atlas_publish_exact_snapshot_v30.py", "tests/test_atlas_publish_make_v29.py"]
