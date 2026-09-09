@@ -89,6 +89,12 @@ def _validity_payload(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], list[
     return result, valid_rows
 
 
+def _publish_rollback_quarantined(row: dict[str, Any] | None) -> bool:
+    meta = _atlas_meta(row)
+    rollback = meta.get("publish_rollback")
+    return bool(isinstance(rollback, dict) and rollback.get("reason"))
+
+
 def _inject_test_publish_collision(
     supabase: Any,
     *,
@@ -161,12 +167,14 @@ def publish_source(
         }
 
     started_at = _now_iso()
-    candidates = _exact_rows(
+    raw_candidates = _exact_rows(
         supabase,
         status="atlas_shadow",
         source_id=source_id,
         manifest_version=manifest_version,
     )
+    rollback_quarantined = [row for row in raw_candidates if _publish_rollback_quarantined(row)]
+    candidates = [row for row in raw_candidates if not _publish_rollback_quarantined(row)]
     existing = _exact_rows(
         supabase,
         status="staging",
@@ -189,6 +197,8 @@ def publish_source(
         "manifest_version": manifest_version,
         "idempotency_key": body.idempotency_key,
         "started_at": started_at,
+        "shadow_candidate_raw_count": len(raw_candidates),
+        "publish_rollback_quarantined_count": len(rollback_quarantined),
         "shadow_candidate_count": len(candidates),
         "valid_shadow_candidate_count": candidate_validity["valid_count"],
         "existing_addressable_count": len(existing_addressable),
