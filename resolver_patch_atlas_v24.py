@@ -126,12 +126,10 @@ def _model_ilike_pattern(model: str) -> str:
     s = s.replace(req_anchor, req_new, 1)
 
     parse_anchor = '''    it = parse_intent(body.q)
-    q = supabase.table("scraped_listings").select(CARLY_COLS)
 '''
     parse_new = '''    it = parse_intent(body.q)
     if body.model:
         it.model = str(body.model).strip() or None
-    q = supabase.table("scraped_listings").select(CARLY_COLS)
 '''
     if parse_anchor not in s:
         raise RuntimeError('v24 search parse anchor missing')
