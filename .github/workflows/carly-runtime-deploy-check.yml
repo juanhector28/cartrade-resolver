@@ -61,7 +61,7 @@ jobs:
                   deployed = runtime.get("git_commit")
                   composition = runtime.get("composition")
                   runtime_tree_ok = same_runtime_tree(deployed)
-                  runtime_ok = composition == "commercial-v41-capacity-latency" and runtime_tree_ok
+                  runtime_ok = composition == "commercial-v45-usd-prefix-fastpath" and runtime_tree_ok
                   phase = "ready_candidate" if runtime_ok else "stale_runtime"
 
                   financing_ok = pilot_ok = auth_ok = cors_ok = False
@@ -113,5 +113,5 @@ jobs:
                   print({"attempt": attempt, "phase": "transport_error", "health_http": health,
                          "error_type": type(exc).__name__, "error": str(exc), "expected_runtime_sha": expected})
               time.sleep(10)
-          raise SystemExit("Render did not expose Carly v41 and the authenticated financing bridge within the 15-minute deploy window")
+          raise SystemExit("Render did not expose Carly v45 and the authenticated financing bridge within the deploy window")
           PY
