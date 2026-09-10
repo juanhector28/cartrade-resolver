@@ -39,5 +39,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v42 preserves v41 decisions and adds server-side latency observability.
-CMD uvicorn app.main_v42:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v43 preserves decisions and adds inner recommendation-stage timing.
+CMD uvicorn app.main_v43:app --host 0.0.0.0 --port ${PORT:-8000}
