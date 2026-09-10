@@ -39,5 +39,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
+# Compatibility marker for generic CI: CMD uvicorn app.main_v42:app
 # Carly v44 preserves v43 decisions and micro-profiles deterministic ranking.
 CMD uvicorn app.main_v44:app --host 0.0.0.0 --port ${PORT:-8000}
