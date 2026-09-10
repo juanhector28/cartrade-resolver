@@ -40,5 +40,5 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 # Compatibility marker for generic CI: CMD uvicorn app.main_v42:app
-# Carly v45 preserves v44 profiling and repairs USD-prefix deterministic intake.
-CMD uvicorn app.main_v45:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v46 preserves v45 intake + v44 profiling and bounds interactive ranking pools.
+CMD uvicorn app.main_v46:app --host 0.0.0.0 --port ${PORT:-8000}
