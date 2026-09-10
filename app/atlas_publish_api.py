@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
+import json
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -11,12 +13,16 @@ from pydantic import BaseModel, Field
 from .atlas_listing_validity import listing_validity
 
 
+ATLAS_PUBLISH_CONTRACT_VERSION = 2
+
+
 class AtlasPublishRequest(BaseModel):
     source_id: str = Field(min_length=3, max_length=240)
     manifest_version: int = Field(ge=1, le=1_000_000)
     idempotency_key: str = Field(min_length=8, max_length=500)
     min_listings: int = Field(default=10, ge=1, le=5000)
     dry_run: bool = False
+    expected_snapshot_hash: str | None = Field(default=None, min_length=16, max_length=128)
 
 
 def _now_iso() -> str:
@@ -89,6 +95,27 @@ def _validity_payload(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], list[
     return result, valid_rows
 
 
+def _semantic_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("id"),
+        "url": row.get("url"),
+        "make": row.get("make"),
+        "model": row.get("model"),
+        "year": row.get("year"),
+        "price_usd": row.get("price_usd"),
+    }
+
+
+def _snapshot_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    materialized = [_semantic_row(row) for row in rows]
+    return sorted(materialized, key=lambda row: (str(row.get("url") or ""), str(row.get("id") or "")))
+
+
+def _snapshot_hash(rows: list[dict[str, Any]]) -> str:
+    encoded = json.dumps(_snapshot_rows(rows), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _publish_rollback_quarantined(row: dict[str, Any] | None) -> bool:
     meta = _atlas_meta(row)
     rollback = meta.get("publish_rollback")
@@ -158,6 +185,7 @@ def publish_source(
     natural_key = f"publish:{source_id}:{manifest_version}"
     if body.idempotency_key != natural_key:
         return {
+            "contract_version": ATLAS_PUBLISH_CONTRACT_VERSION,
             "result": "rejected_precondition",
             "reason": "idempotency_key_must_match_natural_key",
             "source_id": source_id,
@@ -184,15 +212,18 @@ def publish_source(
     existing_addressable = [row for row in existing if row.get("is_addressable") is True]
 
     exact_rows = candidates + existing_addressable
-    exact_validity, _ = _validity_payload(exact_rows)
+    exact_validity, valid_exact = _validity_payload(exact_rows)
     candidate_validity, valid_candidates = _validity_payload(candidates)
     existing_validity, valid_existing = _validity_payload(existing_addressable)
+    semantic_rows = _snapshot_rows(valid_exact)
+    candidate_snapshot_hash = _snapshot_hash(valid_exact)
 
     ready = bool(
         exact_validity["passes_threshold"]
         and exact_validity["valid_count"] >= body.min_listings
     )
     common = {
+        "contract_version": ATLAS_PUBLISH_CONTRACT_VERSION,
         "source_id": source_id,
         "manifest_version": manifest_version,
         "idempotency_key": body.idempotency_key,
@@ -207,6 +238,9 @@ def publish_source(
         "valid_listing_coverage_pct": exact_validity["valid_coverage_pct"],
         "valid_listing_threshold_pct": exact_validity["threshold_pct"],
         "min_listings": body.min_listings,
+        "candidate_snapshot_hash": candidate_snapshot_hash,
+        "semantic_assertion_complete": len(semantic_rows) == int(exact_validity["valid_count"]),
+        "semantic_assertion_rows": semantic_rows,
     }
 
     if not ready:
@@ -237,6 +271,32 @@ def publish_source(
             "protected_collision_count": 0,
             "protected_collision_urls": [],
             "dry_run": True,
+        }
+
+    if not body.expected_snapshot_hash:
+        return {
+            **common,
+            "result": "rejected_precondition",
+            "reason": "expected_snapshot_hash_required_v2",
+            "completed_at": _now_iso(),
+            "final_addressable_count": len(valid_existing),
+            "promoted_count": 0,
+            "protected_collision_count": 0,
+            "protected_collision_urls": [],
+            "dry_run": False,
+        }
+    if not hmac.compare_digest(str(body.expected_snapshot_hash), candidate_snapshot_hash):
+        return {
+            **common,
+            "result": "rejected_precondition",
+            "reason": "candidate_snapshot_hash_mismatch",
+            "expected_snapshot_hash": body.expected_snapshot_hash,
+            "completed_at": _now_iso(),
+            "final_addressable_count": len(valid_existing),
+            "promoted_count": 0,
+            "protected_collision_count": 0,
+            "protected_collision_urls": [],
+            "dry_run": False,
         }
 
     # Snapshot is fixed above. Any ownership/status change from this point is a
