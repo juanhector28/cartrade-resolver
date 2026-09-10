@@ -29,7 +29,7 @@ jobs:
           with urllib.request.urlopen('https://cartrade-resolver.onrender.com/carly/runtime', timeout=20) as r:
               data=json.loads(r.read().decode())
           print(data)
-          assert data.get('composition') == 'commercial-v41-capacity-latency', data
+          assert data.get('composition') == 'commercial-v42-latency-observability', data
           PY
       - name: Run representative buyer conversations and capture latency
         run: python tests/daily_carly_product_eval.py
