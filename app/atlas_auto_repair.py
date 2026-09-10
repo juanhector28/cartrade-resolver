@@ -23,6 +23,11 @@ GENERIC_TITLES = {
     "vehículos", "vehiculos", "autos", "carros guatemala",
 }
 
+_UI_MODEL_LABELS = {
+    "descripcion", "descripción", "detalle", "detalles", "ver mas", "ver más",
+    "description", "details", "more", "more info", "informacion", "información",
+}
+
 _URL_MAKES = {
     "acura", "audi", "bmw", "buick", "byd", "cadillac", "changan", "chery",
     "chevrolet", "chrysler", "citroen", "dodge", "fiat", "ford", "geely",
@@ -70,6 +75,61 @@ def _canonical_make(value: Any) -> str | None:
 
 def _plausible_make(value: Any) -> bool:
     return _canonical_make(value) is not None
+
+
+def _norm_ui_value(value: Any) -> str:
+    text = re.sub(r"[^a-z0-9áéíóúüñ]+", " ", str(_scalar(value) or "").lower()).strip()
+    return re.sub(r"\s+", " ", text)
+
+
+def _ui_model_label(value: Any) -> bool:
+    return _norm_ui_value(value) in _UI_MODEL_LABELS
+
+
+def _header_vehicle_identity_fallbacks(html: str) -> dict[str, Any]:
+    """Recover make/model/year from page-declared identity headers.
+
+    This is intentionally conservative: require a known make and explicit year
+    in the same title/OG/H1 signal, then treat the remaining short text as model.
+    It repairs recurrent UI-label-as-data defects without inventing identity.
+    """
+    soup = BeautifulSoup(html or "", "lxml")
+    signals: list[str] = []
+    if soup.title:
+        signals.append(soup.title.get_text(" ", strip=True))
+    for selector in ('meta[property="og:title"]', 'meta[name="twitter:title"]'):
+        node = soup.select_one(selector)
+        if node is not None and node.get("content"):
+            signals.append(str(node.get("content")).strip())
+    for node in soup.select("h1")[:3]:
+        text = node.get_text(" ", strip=True)
+        if text:
+            signals.append(text)
+
+    aliases = sorted(_KNOWN_MAKE_ALIASES.items(), key=lambda kv: len(kv[0]), reverse=True)
+    for raw in signals:
+        text = re.sub(r"\s+", " ", str(raw or "")).strip()
+        if not text:
+            continue
+        year_matches = re.findall(r"\b(19\d{2}|20\d{2})\b", text)
+        if not year_matches:
+            continue
+        norm = _norm_make(text)
+        make_alias = next((alias for alias, _ in aliases if re.search(rf"\b{re.escape(alias)}\b", norm)), None)
+        if not make_alias:
+            continue
+        make = _KNOWN_MAKE_ALIASES[make_alias]
+        year = int(year_matches[0])
+
+        model_text = text
+        model_text = re.sub(rf"(?i)\b{re.escape(make_alias).replace('\\ ', r'[-\\s]+')}\b", " ", model_text)
+        model_text = re.sub(r"\b(?:19\d{2}|20\d{2})\b", " ", model_text)
+        model_text = re.split(r"\s*[|]\s*|\s+-\s+", model_text, maxsplit=1)[0]
+        model_text = re.sub(r"\s+", " ", model_text).strip(" -|:")
+        if not model_text or len(model_text) > 80 or len(model_text.split()) > 7 or _ui_model_label(model_text):
+            continue
+        return {"make": make, "model": model_text, "year": year, "signal": text[:300]}
+    return {}
 
 
 def _structured_vehicle_identity_fallbacks(html: str) -> dict[str, Any]:
@@ -184,6 +244,7 @@ def _polluted_vehicle_scalar(value: Any) -> bool:
         len(text) > 80
         or len(text.split()) >= 8
         or "@" in text
+        or _ui_model_label(text)
         or any(token in low for token in (" inicio ", " inventario ", " contacto ", " calculadora "))
     )
 
@@ -322,6 +383,7 @@ def install(ns: dict[str, Any]) -> None:
         original_title = item.get("title")
         visible = _visible_core_fallbacks(html)
         structured_identity = _structured_vehicle_identity_fallbacks(html)
+        header_identity = _header_vehicle_identity_fallbacks(html)
         url_identity = _url_vehicle_identity_fallbacks(url)
 
         make = _scalar(item.get("make"))
@@ -329,6 +391,8 @@ def install(ns: dict[str, Any]) -> None:
             item["make"] = _canonical_make(make)
         elif _plausible_make(structured_identity.get("make")):
             item["make"] = _canonical_make(structured_identity["make"])
+        elif _plausible_make(header_identity.get("make")):
+            item["make"] = _canonical_make(header_identity["make"])
         elif _plausible_make(visible.get("make")):
             item["make"] = _canonical_make(visible["make"])
         elif _plausible_make(url_identity.get("make")):
@@ -337,20 +401,29 @@ def install(ns: dict[str, Any]) -> None:
             item.pop("make", None)
 
         model = _scalar(item.get("model"))
-        if model not in (None, "") and not _polluted_vehicle_scalar(model):
+        if model not in (None, "") and not _polluted_vehicle_scalar(model) and not _ui_model_label(model):
             item["model"] = model
-        elif structured_identity.get("model") not in (None, ""):
+        elif structured_identity.get("model") not in (None, "") and not _ui_model_label(structured_identity.get("model")):
             item["model"] = structured_identity["model"]
-        elif visible.get("model") not in (None, ""):
+        elif header_identity.get("model") not in (None, ""):
+            item["model"] = header_identity["model"]
+        elif visible.get("model") not in (None, "") and not _ui_model_label(visible.get("model")):
             item["model"] = visible["model"]
         elif url_identity.get("model") not in (None, ""):
             item["model"] = url_identity["model"]
+        else:
+            item.pop("model", None)
 
         try:
             current_year = int(item.get("year"))
         except Exception:
             current_year = 0
-        if not 1950 <= current_year <= datetime.now(timezone.utc).year + 2:
+        header_year = header_identity.get("year")
+        header_make = _canonical_make(header_identity.get("make"))
+        current_make = _canonical_make(item.get("make"))
+        if header_year and header_make and current_make == header_make:
+            item["year"] = int(header_year)
+        elif not 1950 <= current_year <= datetime.now(timezone.utc).year + 2:
             if visible.get("year"):
                 item["year"] = int(visible["year"])
             elif url_identity.get("year"):
@@ -583,7 +656,7 @@ def install(ns: dict[str, Any]) -> None:
         result = await original_run(self, *args, **kwargs)
         result["auto_repair"] = {
             "enabled": True,
-            "version": "v3-semantic-make-gate",
+            "version": "v4-header-identity-persisted",
             "fx_gtq_available": bool(fx_cache.get("GTQ")),
         }
         return result
