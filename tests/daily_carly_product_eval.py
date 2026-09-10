@@ -7,8 +7,10 @@ import urllib.request
 
 BASE = "https://cartrade-resolver.onrender.com"
 COUNTRY = "sv"
+TIMEOUT_S = 45
 
-latencies = []
+completed_latencies = []
+observed_latencies = []
 records = []
 
 
@@ -22,16 +24,41 @@ def post_chat(messages, shown_cars=None, top_n=6):
     req = urllib.request.Request(
         BASE + "/carly/chat",
         data=payload,
-        headers={"Content-Type": "application/json", "User-Agent": "Carly-Daily-Product-Eval/1.0"},
+        headers={"Content-Type": "application/json", "User-Agent": "Carly-Daily-Product-Eval/1.1"},
         method="POST",
     )
     t0 = time.perf_counter()
-    with urllib.request.urlopen(req, timeout=70) as r:
-        raw = r.read()
-    dt = time.perf_counter() - t0
-    latencies.append(dt)
-    data = json.loads(raw.decode())
-    return data, dt
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+            raw = r.read()
+        dt = time.perf_counter() - t0
+        completed_latencies.append(dt)
+        observed_latencies.append(dt)
+        return json.loads(raw.decode()), dt, None
+    except Exception as exc:
+        dt = time.perf_counter() - t0
+        observed_latencies.append(dt)
+        return None, dt, f"{type(exc).__name__}: {exc}"
+
+
+def emit_turn(scenario, user_text, result, dt, error=None):
+    row = {
+        "scenario": scenario,
+        "user": user_text,
+        "latency_s": round(dt, 3),
+        "completed": error is None,
+        "error": error,
+    }
+    if result:
+        row.update({
+            "reply": str(result.get("reply") or "").strip(),
+            "phase": result.get("phase"),
+            "profile": result.get("profile"),
+            "recommendations": result.get("recommendations"),
+            "explore": result.get("explore"),
+        })
+    print("CARLY_EVAL_TURN=" + json.dumps(row, ensure_ascii=False), flush=True)
+    return row
 
 
 def run_scenario(name, turns):
@@ -40,17 +67,12 @@ def run_scenario(name, turns):
     scenario_turns = []
     for user_text in turns:
         messages.append({"role": "user", "content": user_text})
-        result, dt = post_chat(messages)
-        reply = str(result.get("reply") or "").strip()
-        scenario_turns.append({
-            "user": user_text,
-            "reply": reply,
-            "phase": result.get("phase"),
-            "profile": result.get("profile"),
-            "recommendations": result.get("recommendations"),
-            "explore": result.get("explore"),
-            "latency_s": round(dt, 3),
-        })
+        result, dt, error = post_chat(messages)
+        row = emit_turn(name, user_text, result, dt, error)
+        scenario_turns.append(row)
+        if error:
+            break
+        reply = row["reply"]
         messages.append({"role": "assistant", "content": reply})
         last = result
     recs = (last or {}).get("recommendations") or []
@@ -59,16 +81,8 @@ def run_scenario(name, turns):
         car = " ".join(str(x) for x in (a.get("make"), a.get("model"), a.get("year")) if x)
         follow = f"De estas opciones, ¿cuál comprarías tú para mí y qué debería verificar antes de avanzar con {car}?"
         messages.append({"role": "user", "content": follow})
-        result, dt = post_chat(messages, shown_cars=recs)
-        scenario_turns.append({
-            "user": follow,
-            "reply": str(result.get("reply") or "").strip(),
-            "phase": result.get("phase"),
-            "profile": result.get("profile"),
-            "recommendations": result.get("recommendations"),
-            "explore": result.get("explore"),
-            "latency_s": round(dt, 3),
-        })
+        result, dt, error = post_chat(messages, shown_cars=recs)
+        scenario_turns.append(emit_turn(name, follow, result, dt, error))
     records.append({"scenario": name, "turns": scenario_turns})
 
 
@@ -90,12 +104,15 @@ run_scenario("soft_toyota_preference_value", [
 ])
 
 summary = {
-    "request_count": len(latencies),
-    "latency_median_s": round(statistics.median(latencies), 3) if latencies else None,
-    "latency_min_s": round(min(latencies), 3) if latencies else None,
-    "latency_max_s": round(max(latencies), 3) if latencies else None,
-    "latencies_s": [round(x, 3) for x in latencies],
-    "note": "HTTP request-to-complete-response latency from GitHub-hosted runner. Endpoint is non-streaming here, so TTFT is not separately observable.",
+    "completed_request_count": len(completed_latencies),
+    "attempted_request_count": len(observed_latencies),
+    "timeout_s": TIMEOUT_S,
+    "latency_median_completed_s": round(statistics.median(completed_latencies), 3) if completed_latencies else None,
+    "latency_min_completed_s": round(min(completed_latencies), 3) if completed_latencies else None,
+    "latency_max_completed_s": round(max(completed_latencies), 3) if completed_latencies else None,
+    "completed_latencies_s": [round(x, 3) for x in completed_latencies],
+    "all_attempt_durations_s": [round(x, 3) for x in observed_latencies],
+    "note": "HTTP request-to-complete-response latency from GitHub-hosted runner. Non-streaming measurement: TTFT is not separately observable. Timeout attempts are excluded from completed-response median and reported separately.",
     "scenarios": records,
 }
-print("CARLY_DAILY_EVAL_JSON=" + json.dumps(summary, ensure_ascii=False))
+print("CARLY_DAILY_EVAL_JSON=" + json.dumps(summary, ensure_ascii=False), flush=True)
