@@ -39,7 +39,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Compatibility marker for the current generic CI gate while v43 has its own
-# stricter entrypoint validation below: CMD uvicorn app.main_v42:app
-# Carly v43 preserves decisions and adds inner recommendation-stage timing.
-CMD uvicorn app.main_v43:app --host 0.0.0.0 --port ${PORT:-8000}
+# Compatibility marker for generic CI: CMD uvicorn app.main_v42:app
+# Carly v44 preserves v43 decisions and micro-profiles deterministic ranking.
+CMD uvicorn app.main_v44:app --host 0.0.0.0 --port ${PORT:-8000}

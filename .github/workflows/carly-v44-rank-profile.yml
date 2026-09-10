@@ -1,10 +1,11 @@
-name: Carly v43 stage timing
+name: Carly v44 rank profile
 
 on:
   pull_request:
     paths:
-      - 'app/main_v43.py'
+      - 'app/main_v44.py'
       - 'Dockerfile'
+      - '.github/workflows/carly-v44-rank-profile.yml'
       - '.github/workflows/carly-v43-stage-timing.yml'
   workflow_dispatch:
 
@@ -16,8 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      CACHE_DB: /tmp/carly-v43-cache.db
-      TRUSTPLUS_DB: /tmp/carly-v43-trustplus.db
+      CACHE_DB: /tmp/carly-v44-cache.db
+      TRUSTPLUS_DB: /tmp/carly-v44-trustplus.db
       CARLY_VISION_JIT_ENABLED: "0"
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +28,9 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pytest
-      - name: Preserve v41 recommendation regressions
+      - name: Preserve recommendation regressions
         run: python -m pytest -q tests/test_carly_v41.py tests/test_carly_v40.py
-      - name: Validate v43 import
-        run: python -m py_compile app/main_v42.py app/main_v43.py
+      - name: Validate v44 profiler and production entrypoint
+        run: |
+          python -m py_compile app/main_v43.py app/main_v44.py
+          grep -q '^CMD uvicorn app.main_v44:app' Dockerfile
