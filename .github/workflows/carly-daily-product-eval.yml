@@ -1,0 +1,35 @@
+name: Carly daily product eval
+
+on:
+  push:
+    branches:
+      - ops/carly-daily-eval
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: carly-daily-product-eval
+  cancel-in-progress: true
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify production runtime is reachable
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          with urllib.request.urlopen('https://cartrade-resolver.onrender.com/carly/runtime', timeout=20) as r:
+              data=json.loads(r.read().decode())
+          print(data)
+          assert data.get('composition') == 'commercial-v41-capacity-latency', data
+          PY
+      - name: Run representative buyer conversations and capture latency
+        run: python tests/daily_carly_product_eval.py
