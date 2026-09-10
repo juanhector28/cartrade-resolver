@@ -87,11 +87,11 @@ def _ui_model_label(value: Any) -> bool:
 
 
 def _header_vehicle_identity_fallbacks(html: str) -> dict[str, Any]:
-    """Recover make/model/year from page-declared identity headers.
+    """Recover identity only when page-declared headers agree on year.
 
-    This is intentionally conservative: require a known make and explicit year
-    in the same title/OG/H1 signal, then treat the remaining short text as model.
-    It repairs recurrent UI-label-as-data defects without inventing identity.
+    A conflicting title/OG/H1 year is not resolved by preference. The row is
+    marked ambiguous so the semantic gate can fail closed instead of inventing
+    a winner.
     """
     soup = BeautifulSoup(html or "", "lxml")
     signals: list[str] = []
@@ -107,12 +107,11 @@ def _header_vehicle_identity_fallbacks(html: str) -> dict[str, Any]:
             signals.append(text)
 
     aliases = sorted(_KNOWN_MAKE_ALIASES.items(), key=lambda kv: len(kv[0]), reverse=True)
+    candidates: list[dict[str, Any]] = []
     for raw in signals:
         text = re.sub(r"\s+", " ", str(raw or "")).strip()
-        if not text:
-            continue
         year_matches = re.findall(r"\b(19\d{2}|20\d{2})\b", text)
-        if not year_matches:
+        if not text or not year_matches:
             continue
         norm = _norm_make(text)
         make_alias = next((alias for alias, _ in aliases if re.search(rf"\b{re.escape(alias)}\b", norm)), None)
@@ -120,7 +119,6 @@ def _header_vehicle_identity_fallbacks(html: str) -> dict[str, Any]:
             continue
         make = _KNOWN_MAKE_ALIASES[make_alias]
         year = int(year_matches[0])
-
         model_text = text
         model_text = re.sub(rf"(?i)\b{re.escape(make_alias).replace('\\ ', r'[-\\s]+')}\b", " ", model_text)
         model_text = re.sub(r"\b(?:19\d{2}|20\d{2})\b", " ", model_text)
@@ -128,8 +126,18 @@ def _header_vehicle_identity_fallbacks(html: str) -> dict[str, Any]:
         model_text = re.sub(r"\s+", " ", model_text).strip(" -|:")
         if not model_text or len(model_text) > 80 or len(model_text.split()) > 7 or _ui_model_label(model_text):
             continue
-        return {"make": make, "model": model_text, "year": year, "signal": text[:300]}
-    return {}
+        candidates.append({"make": make, "model": model_text, "year": year, "signal": text[:300]})
+
+    if not candidates:
+        return {}
+    years = {int(c["year"]) for c in candidates}
+    if len(years) != 1:
+        return {
+            "ambiguous": True,
+            "reason": "conflicting_header_years",
+            "signals": [{"year": c["year"], "signal": c["signal"]} for c in candidates],
+        }
+    return candidates[0]
 
 
 def _structured_vehicle_identity_fallbacks(html: str) -> dict[str, Any]:
@@ -385,6 +393,15 @@ def install(ns: dict[str, Any]) -> None:
         structured_identity = _structured_vehicle_identity_fallbacks(html)
         header_identity = _header_vehicle_identity_fallbacks(html)
         url_identity = _url_vehicle_identity_fallbacks(url)
+        repair_provenance: dict[str, Any] = {}
+        if header_identity.get("ambiguous"):
+            item["_semantic_reject_reason"] = str(header_identity.get("reason") or "ambiguous_header_identity")
+            repair_provenance["year"] = {
+                "action": "rejected",
+                "original": item.get("year"),
+                "reason": item["_semantic_reject_reason"],
+                "signals": header_identity.get("signals") or [],
+            }
 
         make = _scalar(item.get("make"))
         if _plausible_make(make):
@@ -422,7 +439,16 @@ def install(ns: dict[str, Any]) -> None:
         header_make = _canonical_make(header_identity.get("make"))
         current_make = _canonical_make(item.get("make"))
         if header_year and header_make and current_make == header_make:
-            item["year"] = int(header_year)
+            corrected_year = int(header_year)
+            if current_year and current_year != corrected_year:
+                repair_provenance["year"] = {
+                    "action": "corrected",
+                    "original": current_year,
+                    "corrected": corrected_year,
+                    "signal": header_identity.get("signal"),
+                    "basis": "page_declared_identity_header",
+                }
+            item["year"] = corrected_year
         elif not 1950 <= current_year <= datetime.now(timezone.utc).year + 2:
             if visible.get("year"):
                 item["year"] = int(visible["year"])
@@ -471,9 +497,11 @@ def install(ns: dict[str, Any]) -> None:
             elif value not in (None, ""):
                 item[field] = value
 
-        semantic_reject = _is_non_car(item)
-        if semantic_reject:
+        semantic_reject = _is_non_car(item) or bool(item.get("_semantic_reject_reason"))
+        if _is_non_car(item):
             item["_semantic_reject_reason"] = "non_car_listing"
+        if repair_provenance:
+            item["_repair_provenance"] = repair_provenance
 
         required = item.get("_required_fields") or manifest.get("required_fields") or []
         item["_required_ok"] = bool(
@@ -656,7 +684,7 @@ def install(ns: dict[str, Any]) -> None:
         result = await original_run(self, *args, **kwargs)
         result["auto_repair"] = {
             "enabled": True,
-            "version": "v4-header-identity-persisted",
+            "version": "v5-header-identity-provenance-fail-closed",
             "fx_gtq_available": bool(fx_cache.get("GTQ")),
         }
         return result
