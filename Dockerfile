@@ -44,5 +44,5 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 # Compatibility marker for generic CI: CMD uvicorn app.main_v42:app
-# Carly v48 keeps v47 single-pass and makes typed buyer constraints authoritative.
-CMD uvicorn app.main_v49:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v50 keeps typed/unit-safe constraints and fail-closes focused retrieval to staging + fresh inventory.
+CMD uvicorn app.main_v50:app --host 0.0.0.0 --port ${PORT:-8000}
