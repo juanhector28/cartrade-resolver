@@ -6,6 +6,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 
 COPY app ./app
+COPY canonical_verifier_selftest.py ./canonical_verifier_selftest.py
+RUN python ./canonical_verifier_selftest.py
 COPY resolver_patch_atlas.py /tmp/resolver_patch_atlas.py
 RUN python /tmp/resolver_patch_atlas.py && rm /tmp/resolver_patch_atlas.py
 COPY resolver_patch_atlas_v13.py /tmp/resolver_patch_atlas_v13.py
