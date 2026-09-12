@@ -123,3 +123,11 @@ def test_frontend_radius_context_does_not_become_daily_km():
     facts = extract_explicit_facts(messages)
     assert facts["daily_km"] == 20
     assert facts.get("max_km") is None
+
+
+def test_natural_no_quiero_pasar_de_odometer_is_typed():
+    facts = extract_explicit_facts([
+        {"role": "user", "content": "Es mi primer carro y no quiero pasar de 65,000 km."}
+    ])
+    assert facts["max_km"] == 65000
+    assert facts.get("max_price") is None
