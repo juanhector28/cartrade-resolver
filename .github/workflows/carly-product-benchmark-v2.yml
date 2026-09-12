@@ -35,3 +35,5 @@ jobs:
           PY
       - name: Run Carly Product Benchmark v2
         run: python tests/carly_product_benchmark_v2.py
+
+# baseline-trigger: v49
