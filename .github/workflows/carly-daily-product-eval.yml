@@ -5,6 +5,8 @@ on:
     branches:
       - ops/carly-daily-eval
   workflow_dispatch:
+  schedule:
+    - cron: "0 13 * * *"
 
 permissions:
   contents: read
@@ -22,18 +24,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify v43 production runtime is reachable
+      - name: Verify current Carly production runtime is reachable
         run: |
           python - <<'PY'
           import json, time, urllib.request
-          expected='commercial-v43-stage-timing'
           last=None
           for _ in range(18):
               try:
                   with urllib.request.urlopen('https://cartrade-resolver.onrender.com/carly/runtime', timeout=20) as r:
                       last=json.loads(r.read().decode())
                   print(last)
-                  if last.get('composition') == expected:
+                  composition=str(last.get('composition') or '')
+                  if last.get('ok') and composition.startswith('commercial-v'):
                       break
               except Exception as exc:
                   print(type(exc).__name__, exc)
@@ -41,5 +43,5 @@ jobs:
           else:
               raise AssertionError(last)
           PY
-      - name: Run representative buyer conversations and capture latency
+      - name: Run Carly product benchmark v2
         run: python tests/daily_carly_product_eval.py
