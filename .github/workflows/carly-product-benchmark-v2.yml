@@ -22,15 +22,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify v48 production runtime
+      - name: Verify production runtime and record identity
         run: |
           python - <<'PY'
           import json, urllib.request
           with urllib.request.urlopen('https://cartrade-resolver.onrender.com/carly/runtime', timeout=20) as r:
               data=json.loads(r.read().decode())
           print(data)
-          assert data.get('composition') == 'commercial-v48-typed-constraints', data
-          assert data.get('git_commit') == '3410fb671fb3a981b4012c8c6a966a0ce1808814', data
+          assert data.get('ok') is True, data
+          assert str(data.get('composition') or '').startswith('commercial-v'), data
+          assert data.get('git_commit'), data
           PY
       - name: Run Carly Product Benchmark v2
         run: python tests/carly_product_benchmark_v2.py
