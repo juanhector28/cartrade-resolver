@@ -52,7 +52,7 @@ Estas reglas prevalecen sobre cualquier instruccion anterior que sea mas laxa.
 # be captured as "13,000," and fail parsing, leaving an older budget active.
 _NUMBER = r"[0-9]+(?:[.,][0-9]+)*"
 _MAX_KM_RE = re.compile(
-    rf"\b(?:abajo\s+de|menos\s+de|max(?:imo|imum)?|máximo|hasta|no\s+mas\s+de|no\s+más\s+de)"
+    rf"\b(?:abajo\s+de|menos\s+de|max(?:imo|imum)?|máximo|hasta|no\s+mas\s+de|no\s+más\s+de|no\s+(?:quiero\s+)?(?:pasar|pasarme)\s+de)"
     rf"\s*\$?\s*({_NUMBER})\s*(k|mil)?\s*(?:km|kms|kilometros|kilómetros)\b",
     re.I,
 )
