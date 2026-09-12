@@ -1,0 +1,36 @@
+name: Carly Product Benchmark v2
+
+on:
+  push:
+    branches:
+      - ops/carly-benchmark-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: carly-product-benchmark-v2
+  cancel-in-progress: true
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify v48 production runtime
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          with urllib.request.urlopen('https://cartrade-resolver.onrender.com/carly/runtime', timeout=20) as r:
+              data=json.loads(r.read().decode())
+          print(data)
+          assert data.get('composition') == 'commercial-v48-typed-constraints', data
+          assert data.get('git_commit') == '3410fb671fb3a981b4012c8c6a966a0ce1808814', data
+          PY
+      - name: Run Carly Product Benchmark v2
+        run: python tests/carly_product_benchmark_v2.py
