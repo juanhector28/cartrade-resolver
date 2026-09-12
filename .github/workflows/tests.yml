@@ -121,6 +121,10 @@ jobs:
           CARLY_VISION_JIT_ENABLED: "0"
         run: python -m pytest -q tests/test_carly_v41.py
       - name: Run Carly v48 typed-constraint regression
+        env:
+          CACHE_DB: /tmp/carly-v48-cache.db
+          TRUSTPLUS_DB: /tmp/carly-v48-trustplus.db
+          CARLY_VISION_JIT_ENABLED: "0"
         run: python -m pytest -q tests/test_carly_v48.py
       - name: Check Carly production entrypoint
         run: |
