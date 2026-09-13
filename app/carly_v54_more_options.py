@@ -22,6 +22,7 @@ _MORE_RE = re.compile(
     r"\b(?:ver|mostrar|muestrame|muéstrame|dame)\s+(?:mas|más)\b)",
     re.I,
 )
+_CONTEXT_MARKER = "[CONTEXTO ACTIVO DE CARTRADE:"
 
 
 def _get(obj: Any, key: str, default: Any = None) -> Any:
@@ -30,12 +31,20 @@ def _get(obj: Any, key: str, default: Any = None) -> Any:
     return getattr(obj, key, default)
 
 
+def _buyer_text(value: Any) -> str:
+    text = str(value or "")
+    idx = text.find(_CONTEXT_MARKER)
+    if idx >= 0:
+        text = text[:idx]
+    return text.strip()
+
+
 def _latest_user(body: Any) -> str:
     messages = list(_get(body, "messages", []) or [])
     for message in reversed(messages):
         role = str(_get(message, "role", "") or "").lower()
         if role == "user":
-            return str(_get(message, "content", "") or "").strip()
+            return _buyer_text(_get(message, "content", ""))
     return ""
 
 
