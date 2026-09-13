@@ -51,6 +51,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Carly v51 gives visible-vehicle detail questions outermost precedence and
-# removes unstated household-size assumptions from family wording.
-CMD uvicorn app.main_v51:app --host 0.0.0.0 --port ${PORT:-8000}
+# Carly v52 blocks unstated daily-km claims and strengthens visible-vehicle advice.
+CMD uvicorn app.main_v52:app --host 0.0.0.0 --port ${PORT:-8000}
