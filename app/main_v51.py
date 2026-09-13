@@ -108,3 +108,9 @@ _v54_more_options.install(app)
 # the frontend's hidden routing context before semantic follow-up processing.
 from . import carly_v55_model_intelligence as _v55_model_intelligence
 _v55_model_intelligence.install(app)
+
+# v56 gives explicit purchase-decision turns their own unit-level verdict path.
+# It combines model fit, unit facts, market position and buyer fit instead of
+# falling back to a generic pre-purchase checklist.
+from . import carly_v56_buy_decision as _v56_buy_decision
+_v56_buy_decision.install(app)
