@@ -33,6 +33,7 @@ v47 = v48.v47
 v46 = v47.v46
 v39 = v47.v39
 v31 = v39.v31
+v28 = v31.v29.v28
 legacy = v39.legacy
 
 log = logging.getLogger("carly.retrieval.v50")
@@ -101,8 +102,6 @@ v46._ORIG_QUERY_ROWS = _safe_focused_query_rows
 # P0 demo latency hotfix: v46 already bounds explicit body searches, but its
 # action parser recognized "busco un SUV" and missed the equally explicit
 # "busco un Mazda SUV" because a make appeared between the verb and body type.
-# That miss prevented v47's single-pass route and allowed an unnecessary broad
-# 900-row inherited rank before the bounded authoritative rebuild.
 _brand_token = "|".join(
     sorted((re.escape(alias) for alias in v31._BRAND_ALIASES), key=len, reverse=True)
 )
@@ -115,11 +114,23 @@ v46._BODY_ACTION = re.compile(
 if v46._explicit_body("Busco un Mazda SUV entre USD 12,000 y 25,000") != "suv":
     raise RuntimeError("Carly branded-body fastpath self-check failed")
 
-# The zero-token fast profile used to treat a bare brand mention as ambiguous
-# unless the buyer said "solo" or "prefiero". A direct purchase request such as
-# "busco un Mazda SUV" is not casual brand context: it is an explicit requested
-# make. Promote only this narrow action+brand syntax to a hard brand constraint;
-# all softer mentions keep the previous conservative behavior.
+# Direct buyer requests such as "busco un Mazda SUV" are hard make intent.
+# This narrow parser is buyer-text-only; assistant text can never create or
+# widen a brand constraint.
+def _direct_requested_brand(text: str) -> str | None:
+    normalized = v28._norm(text or "")
+    for alias, canonical in v31._BRAND_ALIASES.items():
+        if re.search(
+            r"\b(?:estoy\s+buscando|ando\s+buscando|busco|quiero|necesito)\s+"
+            r"(?:un|una)?\s*" + re.escape(v28._norm(alias)) + r"\b",
+            normalized,
+            re.I,
+        ):
+            return canonical
+    return None
+
+
+# Keep the zero-token fast profile aligned for common journeys.
 _original_brand_constraints = fastpath._brand_constraints
 
 
@@ -127,66 +138,80 @@ def _brand_constraints_with_direct_request(text: str):
     required, preferred, mentioned = _original_brand_constraints(text)
     required = list(required or [])
     preferred = list(preferred or [])
-    if mentioned and not required and not preferred:
-        normalized = fastpath._norm(text)
-        for brand in fastpath._BRANDS:
-            normalized_brand = fastpath._norm(brand)
-            direct = re.search(
-                r"\b(?:estoy\s+buscando|ando\s+buscando|busco|quiero|necesito)\s+"
-                r"(?:un|una)?\s*" + re.escape(normalized_brand) + r"\b",
-                normalized,
-                re.I,
-            )
-            if direct:
-                required.append(brand)
-                break
+    direct = _direct_requested_brand(text)
+    if direct and not required:
+        required = [direct]
     return required, preferred, mentioned
 
 
 fastpath._brand_constraints = _brand_constraints_with_direct_request
 
-# v47 merged monthly/body facts from the fast profile but historically dropped
-# required make constraints. Propagate only hard require_brands into the focused
-# retrieval contract; preferred brands remain ranking preferences and are not
-# turned into filters.
+# Authoritative user-truth wrapper. v47's fast profile is an optimization, not
+# the owner of hard facts. Re-derive explicit make and monthly ceiling from the
+# buyer-only request body immediately before retrieval so stale/incorrect Carly
+# prose cannot contaminate the search contract.
+_prior_constraints = v46.v40._constraints
+
+
+def _constraints_with_user_truth(body: Any) -> dict[str, Any]:
+    out = dict(_prior_constraints(body))
+    buyer_text = v31._text(body)
+    brand = _direct_requested_brand(buyer_text)
+    if brand:
+        out["allowed_brands"] = [brand]
+    monthly = v28._extract_monthly(body)
+    if monthly is not None:
+        out["monthly_max"] = float(monthly)
+    return out
+
+
+v46.v40._constraints = _constraints_with_user_truth
+v39._constraints = _constraints_with_user_truth
+v46.v37._constraints = _constraints_with_user_truth
+v31._constraints = _constraints_with_user_truth
+
+# Retain fast-profile propagation as defense in depth for hard brand intent.
 _original_merge_fast_constraints = v47._merge_fast_constraints
 
 
 def _merge_fast_constraints_with_required_brands(c: dict[str, Any], fast: dict[str, Any]) -> dict[str, Any]:
     out = dict(_original_merge_fast_constraints(c, fast))
     required = [str(x).strip() for x in (fast.get("require_brands") or []) if str(x).strip()]
-    if required:
+    if required and not out.get("allowed_brands"):
         out["allowed_brands"] = required
     return out
 
 
 v47._merge_fast_constraints = _merge_fast_constraints_with_required_brands
 
-# Exact regression fixture from the live G&T demo rehearsal. It protects the
-# complete intent contract: Mazda + SUV + $550/month must survive all deterministic
-# parsing and constraint merging before any inventory query is allowed to run.
+# Byte-for-byte regression fixture from the live G&T demo failure, including
+# Carly's incorrect 100-km sentence. Hard buyer facts must remain Mazda + SUV +
+# $550/month regardless of assistant prose.
 _demo_messages = [
     {"role": "user", "content": "Busco un Mazda SUV entre USD 12,000 y 25,000 en Guatemala"},
-    {"role": "assistant", "content": "Entendido, buscas un Mazda SUV en Guatemala con un rango de $12,000 a $25,000. ¿Para qué lo vas a usar principalmente?"},
+    {"role": "assistant", "content": "Entendido, buscas un Mazda SUV en Guatemala con un rango de $12,000 a $25,000 y ya sé que manejas unos 100 km al día. ¿Para qué lo vas a usar principalmente: trabajo diario, familia, negocio, o algo más?"},
     {"role": "user", "content": "trabajo y dejar a mis hijos al colegio"},
     {"role": "assistant", "content": "Entendido. ¿Qué cuota mensual te queda cómoda?"},
     {"role": "user", "content": "550 al mes"},
 ]
+_demo_body = {"messages": _demo_messages, "country": "gt", "shown_cars": []}
+_demo_constraints = _constraints_with_user_truth(_demo_body)
+if [x.lower() for x in (_demo_constraints.get("allowed_brands") or [])] != ["mazda"]:
+    raise RuntimeError(f"Carly exact demo authoritative brand failed: {_demo_constraints.get('allowed_brands')!r}")
+if float(_demo_constraints.get("monthly_max") or 0) != 550.0:
+    raise RuntimeError(f"Carly exact demo authoritative monthly failed: {_demo_constraints.get('monthly_max')!r}")
+if _demo_constraints.get("require_body") != "suv":
+    raise RuntimeError(f"Carly exact demo authoritative body failed: {_demo_constraints.get('require_body')!r}")
+
 _demo_repaired = v47.commercial._repair_missing_monthly_context(_demo_messages, country="gt")
 _demo_fast = v47.commercial.preview.extract_fast_profile(_demo_repaired, country="gt")
 if not isinstance(_demo_fast, dict):
     raise RuntimeError("Carly exact demo fast-profile self-check failed")
-if float(_demo_fast.get("max_monthly") or 0) != 550.0:
-    raise RuntimeError(f"Carly exact demo monthly self-check failed: {_demo_fast.get('max_monthly')!r}")
-if [x.lower() for x in (_demo_fast.get("require_brands") or [])] != ["mazda"]:
-    raise RuntimeError(f"Carly exact demo brand self-check failed: {_demo_fast.get('require_brands')!r}")
-_demo_merged = v47._merge_fast_constraints({"monthly_max": 700.0, "require_body": None}, _demo_fast)
+_demo_merged = v47._merge_fast_constraints(_demo_constraints, _demo_fast)
 if float(_demo_merged.get("monthly_max") or 0) != 550.0:
-    raise RuntimeError(f"Carly exact demo constraint merge failed: {_demo_merged.get('monthly_max')!r}")
+    raise RuntimeError(f"Carly exact demo merged monthly failed: {_demo_merged.get('monthly_max')!r}")
 if [x.lower() for x in (_demo_merged.get("allowed_brands") or [])] != ["mazda"]:
-    raise RuntimeError(f"Carly exact demo brand merge failed: {_demo_merged.get('allowed_brands')!r}")
-if v46._explicit_body(_demo_messages[0]["content"]) != "suv":
-    raise RuntimeError("Carly exact demo SUV self-check failed")
+    raise RuntimeError(f"Carly exact demo merged brand failed: {_demo_merged.get('allowed_brands')!r}")
 
 try:
     v47.v44.v31.v29.v28.v27.v26.v25.v20.commercial.RUNTIME_COMPOSITION = (
@@ -197,5 +222,5 @@ except Exception:
 
 log.warning(
     "CARLY_V50_SAFE_RETRIEVAL installed staging=true freshness=true fail_closed=true "
-    "branded_body_fastpath=true exact_demo_brand=mazda exact_demo_monthly=550 brand_filter=true"
+    "buyer_truth=true exact_demo_brand=mazda exact_demo_body=suv exact_demo_monthly=550"
 )
