@@ -1,0 +1,58 @@
+name: Rehearsal 2 live probe
+
+on:
+  push:
+    branches: [ops/rehearsal2-live-probe-20260913]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe live Carly read-only
+        env:
+          BASE: https://cartrade-resolver.onrender.com
+        run: |
+          python - <<'PY'
+          import json, os, time, urllib.request
+          base=os.environ['BASE']
+          allowed={
+            'gt-agautoventas-com','gt-autogogt-com','gt-hgmotors-movilauto-com',
+            'gt-movilauto-com','gt-enlacesautomotrices-com'
+          }
+          def get(path):
+            t=time.perf_counter()
+            with urllib.request.urlopen(base+path, timeout=20) as r:
+              body=json.loads(r.read().decode())
+              return r.status, (time.perf_counter()-t)*1000, body
+          def post(payload):
+            data=json.dumps(payload).encode()
+            req=urllib.request.Request(base+'/carly/search', data=data, method='POST', headers={'Content-Type':'application/json'})
+            t=time.perf_counter()
+            with urllib.request.urlopen(req, timeout=30) as r:
+              body=json.loads(r.read().decode())
+              return r.status, (time.perf_counter()-t)*1000, body
+          hs,hm,h=get('/health')
+          rs,rm,rt=get('/carly/runtime')
+          print(json.dumps({'health_http':hs,'health_ms':round(hm,1),'runtime_http':rs,'runtime_ms':round(rm,1),'runtime':rt},default=str))
+          cases=[
+            ('ferrari', {'q':'Ferrari','country':'gt','limit':12}),
+            ('mazda', {'q':'Mazda','country':'gt','limit':12}),
+            ('toyota_budget', {'q':'Toyota menos de $15000','country':'gt','limit':12}),
+          ]
+          for name,p in cases:
+            s,ms,b=post(p)
+            results=b.get('results') or []
+            sources=sorted(set((x.get('source_id') or '') for x in results))
+            bad=[x for x in sources if x and x not in allowed]
+            out={'case':name,'http':s,'latency_ms':round(ms,1),'count':b.get('count'),'pool_matching':b.get('pool_matching'),'sources':sources,'bad_sources':bad,'sample':[{'make':x.get('make'),'model':x.get('model'),'year':x.get('year'),'price_usd':x.get('price_usd'),'source_id':x.get('source_id')} for x in results[:3]]}
+            print(json.dumps(out,ensure_ascii=False))
+            if bad: raise SystemExit('FAIL non-certified source surfaced')
+            if name=='ferrari' and results: raise SystemExit('FAIL Ferrari fabricated/nonempty')
+            if name=='mazda' and not results: raise SystemExit('FAIL Mazda empty')
+            if name=='toyota_budget' and not results: raise SystemExit('FAIL Toyota budget empty')
+          print('REHEARSAL2_LIVE_SEARCH=PASS')
+          PY
