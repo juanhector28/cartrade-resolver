@@ -7,12 +7,12 @@ from .eligibility import filter_eligible
 from .ranking import POLICY_VERSION, rank_candidates
 from .routing import classify, latest_user, Route
 from .response_policy import opening_reply, recommendation_reply
-from .session_store import SessionStore
+from .session_store import MemorySessionStore
 
 class CarlyRuntime:
     def __init__(self, inventory, state_store=None):
         self.inventory = inventory
-        self.state_store = state_store or SessionStore()
+        self.state_store = state_store or MemorySessionStore()
 
     def handle(self, request):
         request_id = uuid.uuid4().hex[:12]
