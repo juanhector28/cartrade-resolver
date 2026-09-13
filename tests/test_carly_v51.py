@@ -10,6 +10,7 @@ from app import main_v14 as v14
 from app import main_v51 as v51
 from app import carly_v52_hotfix as v52
 from app import carly_v53_latency as v53
+from app import carly_v54_more_options as v54
 
 
 def _family_constraints(passengers=None):
@@ -148,8 +149,10 @@ def test_model_intelligence_prompt_is_installed_on_compact_followup_path():
 
 def test_production_route_installs_v52_over_v51():
     route = next(r for r in v51.app.routes if getattr(r, "path", None) == "/carly/chat")
-    assert getattr(route.endpoint, "_carly_v52_opening_truth", False) is True
-    prior = getattr(route.endpoint, "_carly_v52_prior", None)
+    assert getattr(route.endpoint, "_carly_v54_more_options", False) is True
+    v54_prior = getattr(route.endpoint, "_carly_v54_prior", None)
+    assert getattr(v54_prior, "_carly_v52_opening_truth", False) is True
+    prior = getattr(v54_prior, "_carly_v52_prior", None)
     assert getattr(prior, "_carly_v51_vehicle_detail", False) is True
 
 
@@ -182,3 +185,54 @@ def test_v53_slow_vision_cannot_hold_interactive_request_open(monkeypatch):
 
     assert completed == 0
     assert elapsed < 0.10
+
+
+def _more_options_body():
+    return SimpleNamespace(
+        country="gt",
+        messages=[
+            {"role": "user", "content": "SUV cómodo para la ciudad"},
+            {"role": "assistant", "content": "¿Qué cuota mensual te queda cómoda?"},
+            {"role": "user", "content": "500-600"},
+            {"role": "assistant", "content": "Estas son mis mejores recomendaciones."},
+            {
+                "role": "user",
+                "content": "Muéstrame más opciones que mantengan mis criterios, incluyendo alternativas con distintos trade-offs.",
+            },
+        ],
+        shown_cars=[
+            {"id": "hrv", "make": "Honda", "model": "HR-V", "year": 2022, "body_type": "suv"},
+            {"id": "cx30", "make": "Mazda", "model": "CX-30", "year": 2024, "body_type": "suv"},
+            {"id": "hrv-ex", "make": "Honda", "model": "HR-V EX", "year": 2020, "body_type": "suv"},
+        ],
+    )
+
+
+def test_v54_detects_exact_demo_more_options_turn():
+    body = _more_options_body()
+    assert v54._is_more_options(body) is True
+    body.shown_cars = []
+    assert v54._is_more_options(body) is False
+
+
+def test_v54_more_options_returns_fresh_continuation_not_generic(monkeypatch):
+    body = _more_options_body()
+    fresh = [
+        {"id": "rav4", "make": "Toyota", "model": "RAV4", "year": 2021},
+        {"id": "tucson", "make": "Hyundai", "model": "Tucson", "year": 2022},
+    ]
+    monkeypatch.setattr(v54.v16, "_dynamic_search", lambda _body: {
+        "phase": "recommendation",
+        "recommendations": fresh,
+        "explore": [],
+        "more_options_available": True,
+        "more_options_count": 4,
+    })
+    out = v54._continuation(body)
+    assert out is not None
+    assert out["route_precedence"] == "more_options_v54"
+    assert out["append_recommendations"] is True
+    assert out["replace_recommendations"] is False
+    assert out["llm_calls"] == 0
+    assert "2 opciones adicionales" in out["reply"]
+    assert "Tomé tus requisitos como filtros duros" not in out["reply"]
