@@ -1,0 +1,34 @@
+name: Carly Next
+
+on:
+  pull_request:
+    paths:
+      - "app/carly_next/**"
+      - "tests/test_carly_next_*.py"
+      - ".github/workflows/carly-next.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/carly_next/**"
+      - "tests/test_carly_next_*.py"
+
+permissions:
+  contents: read
+
+jobs:
+  clean-room:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pytest
+        run: python -m pip install pytest
+      - name: Compile Carly Next
+        run: python -m py_compile app/carly_next/*.py
+      - name: Run Carly Next tests
+        run: python -m pytest -q tests/test_carly_next_*.py
+      - name: Enforce clean-room boundary
+        run: "! grep -R -E 'from app\\.main_v|from \\.?main_v|import app\\.main_v|import main_v' app/carly_next"
