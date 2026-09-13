@@ -74,9 +74,6 @@ def _recent_focus(body: Any, visible: list[dict]) -> dict | None:
     if len(visible) == 1:
         return visible[0]
 
-    # "¿Es buena compra?" often comes immediately after Carly discussed one car.
-    # Resolve that conversational pronoun from the most recent prior turn that
-    # names exactly one visible model. Do not guess from rank if the reference is ambiguous.
     messages = list(_get(body, "messages", []) or [])
     candidates = []
     for message in reversed(messages[:-1]):
@@ -174,6 +171,18 @@ def _unit_read(car: dict) -> tuple[list[str], list[str]]:
     return positives[:2], cautions[:2]
 
 
+def _safe_model_guidance(car: dict) -> tuple[str, str]:
+    """Keep real model knowledge, but drop the old generic listing fallback."""
+    pro, con = v52._model_guidance(car)
+    np = v14._norm(pro)
+    nc = v14._norm(con)
+    if "precio y disponibilidad" in np:
+        pro = ""
+    if "necesita mas evidencia antes de saber" in nc:
+        con = ""
+    return pro, con
+
+
 def _verdict(focus: dict, profile: Any, rank: int | None, market_state: str, score: float | None) -> str:
     monthly = _num(focus.get("monthly_est"))
     ceiling = _monthly_ceiling(profile)
@@ -210,7 +219,7 @@ def buy_decision(body: Any) -> dict | None:
     score = v14.advisor_score(focus, profile) if profile is not None else None
     market_state, market_text = _market_read(focus)
     positives, cautions = _unit_read(focus)
-    model_pro, model_con = v52._model_guidance(focus)
+    model_pro, model_con = _safe_model_guidance(focus)
     name = _name(focus)
     ceiling = _monthly_ceiling(profile)
     monthly = _num(focus.get("monthly_est"))
