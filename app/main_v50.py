@@ -111,6 +111,30 @@ v46._BODY_ACTION = re.compile(
 if v46._explicit_body("Busco un Mazda SUV entre USD 12,000 y 25,000") != "suv":
     raise RuntimeError("Carly branded-body fastpath self-check failed")
 
+# Exact regression fixture from the live G&T demo rehearsal. It protects both
+# pieces of the contract that matter here: the branded SUV must reach the bounded
+# path and the buyer's explicit $550/month answer must remain $550 when merged
+# into the authoritative constraints. A later parser change must fail startup
+# rather than silently widen affordability.
+_demo_messages = [
+    {"role": "user", "content": "Busco un Mazda SUV entre USD 12,000 y 25,000 en Guatemala"},
+    {"role": "assistant", "content": "Entendido, buscas un Mazda SUV en Guatemala con un rango de $12,000 a $25,000. ¿Para qué lo vas a usar principalmente?"},
+    {"role": "user", "content": "trabajo y dejar a mis hijos al colegio"},
+    {"role": "assistant", "content": "Entendido. ¿Qué cuota mensual te queda cómoda?"},
+    {"role": "user", "content": "550 al mes"},
+]
+_demo_repaired = v47.commercial._repair_missing_monthly_context(_demo_messages, country="gt")
+_demo_fast = v47.commercial.preview.extract_fast_profile(_demo_repaired, country="gt")
+if not isinstance(_demo_fast, dict):
+    raise RuntimeError("Carly exact demo fast-profile self-check failed")
+if float(_demo_fast.get("max_monthly") or 0) != 550.0:
+    raise RuntimeError(f"Carly exact demo monthly self-check failed: {_demo_fast.get('max_monthly')!r}")
+_demo_merged = v47._merge_fast_constraints({"monthly_max": 700.0, "require_body": None}, _demo_fast)
+if float(_demo_merged.get("monthly_max") or 0) != 550.0:
+    raise RuntimeError(f"Carly exact demo constraint merge failed: {_demo_merged.get('monthly_max')!r}")
+if v46._explicit_body(_demo_messages[0]["content"]) != "suv":
+    raise RuntimeError("Carly exact demo SUV self-check failed")
+
 try:
     v47.v44.v31.v29.v28.v27.v26.v25.v20.commercial.RUNTIME_COMPOSITION = (
         "commercial-v50-safe-fresh-retrieval"
@@ -119,5 +143,5 @@ except Exception:
     pass
 
 log.warning(
-    "CARLY_V50_SAFE_RETRIEVAL installed staging=true freshness=true fail_closed=true branded_body_fastpath=true"
+    "CARLY_V50_SAFE_RETRIEVAL installed staging=true freshness=true fail_closed=true branded_body_fastpath=true exact_demo_monthly=550"
 )
