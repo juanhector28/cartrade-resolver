@@ -30,10 +30,12 @@ if const_marker not in s:
     const = '''# GT_DEMO_CERTIFIED_BOUNDARY_V1\nGT_DEMO_CERTIFIED_SOURCES = [\n    "atlas:www.agautoventas.com",\n    "atlas:autogogt.com",\n    "atlas:hgmotors.movilauto.com",\n    "atlas:movilauto.com",\n    "atlas:www.enlacesautomotrices.com",\n]\n\n\n'''
     s = s.replace(route_anchor, const + route_anchor, 1)
 
-    search_anchor = '''    if body.country:\n        q = q.eq("country", body.country)\n    if it.body_types:\n'''
-    search_new = '''    if body.country:\n        q = q.eq("country", body.country)\n    if (body.country or "").lower() == "gt":\n        q = q.eq("status", "staging").in_("source", GT_DEMO_CERTIFIED_SOURCES)\n    if it.body_types:\n'''
+    # v19 installs source_id provenance filtering before this patch runs, so anchor
+    # immediately before that block rather than against the pre-v19 source form.
+    search_anchor = '''    if body.country:\n        q = q.eq("country", body.country)\n    if body.source_id:\n'''
+    search_new = '''    if body.country:\n        q = q.eq("country", body.country)\n    if (body.country or "").lower() == "gt":\n        q = q.eq("status", "staging").in_("source", GT_DEMO_CERTIFIED_SOURCES)\n    if body.source_id:\n'''
     if search_anchor not in s:
-        raise RuntimeError('carly_search country filter anchor missing')
+        raise RuntimeError('carly_search post-v19 country filter anchor missing')
     s = s.replace(search_anchor, search_new, 1)
 
     chat_anchor = '''        if country:\n            q = q.eq("country", country)\n        if profile.max_monthly:\n'''
