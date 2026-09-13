@@ -72,17 +72,20 @@ def _safe_focused_query_rows(c: dict[str, Any], country: str) -> list[dict]:
         if price_cap:
             q = q.lte("price_usd", round(price_cap, 2))
 
-        allowed = list(c.get("allowed_brands") or [])
-        if allowed:
+        allowed = [str(x).strip() for x in (c.get("allowed_brands") or []) if str(x).strip()]
+        if len(allowed) == 1:
+            q = q.ilike("make", allowed[0])
+        elif allowed:
             q = q.in_("make", allowed)
 
         response = q.order("updated_at", desc=True).limit(900).execute()
         rows = [dict(r) for r in (response.data or [])]
         log.warning(
-            "CARLY_V50_SAFE_RETRIEVAL country=%s rows=%s cutoff=%s",
+            "CARLY_V50_SAFE_RETRIEVAL country=%s rows=%s cutoff=%s allowed_brands=%s",
             country,
             len(rows),
             freshness_cutoff_iso(),
+            allowed,
         )
         return rows
     except Exception:
@@ -142,11 +145,26 @@ def _brand_constraints_with_direct_request(text: str):
 
 fastpath._brand_constraints = _brand_constraints_with_direct_request
 
-# Exact regression fixture from the live G&T demo rehearsal. It protects both
-# pieces of the contract that matter here: the branded SUV must reach the bounded
-# path and the buyer's explicit $550/month answer must remain $550 when merged
-# into the authoritative constraints. A later parser change must fail startup
-# rather than silently widen affordability.
+# v47 merged monthly/body facts from the fast profile but historically dropped
+# required make constraints. Propagate only hard require_brands into the focused
+# retrieval contract; preferred brands remain ranking preferences and are not
+# turned into filters.
+_original_merge_fast_constraints = v47._merge_fast_constraints
+
+
+def _merge_fast_constraints_with_required_brands(c: dict[str, Any], fast: dict[str, Any]) -> dict[str, Any]:
+    out = dict(_original_merge_fast_constraints(c, fast))
+    required = [str(x).strip() for x in (fast.get("require_brands") or []) if str(x).strip()]
+    if required:
+        out["allowed_brands"] = required
+    return out
+
+
+v47._merge_fast_constraints = _merge_fast_constraints_with_required_brands
+
+# Exact regression fixture from the live G&T demo rehearsal. It protects the
+# complete intent contract: Mazda + SUV + $550/month must survive all deterministic
+# parsing and constraint merging before any inventory query is allowed to run.
 _demo_messages = [
     {"role": "user", "content": "Busco un Mazda SUV entre USD 12,000 y 25,000 en Guatemala"},
     {"role": "assistant", "content": "Entendido, buscas un Mazda SUV en Guatemala con un rango de $12,000 a $25,000. ¿Para qué lo vas a usar principalmente?"},
@@ -165,6 +183,8 @@ if [x.lower() for x in (_demo_fast.get("require_brands") or [])] != ["mazda"]:
 _demo_merged = v47._merge_fast_constraints({"monthly_max": 700.0, "require_body": None}, _demo_fast)
 if float(_demo_merged.get("monthly_max") or 0) != 550.0:
     raise RuntimeError(f"Carly exact demo constraint merge failed: {_demo_merged.get('monthly_max')!r}")
+if [x.lower() for x in (_demo_merged.get("allowed_brands") or [])] != ["mazda"]:
+    raise RuntimeError(f"Carly exact demo brand merge failed: {_demo_merged.get('allowed_brands')!r}")
 if v46._explicit_body(_demo_messages[0]["content"]) != "suv":
     raise RuntimeError("Carly exact demo SUV self-check failed")
 
@@ -177,5 +197,5 @@ except Exception:
 
 log.warning(
     "CARLY_V50_SAFE_RETRIEVAL installed staging=true freshness=true fail_closed=true "
-    "branded_body_fastpath=true exact_demo_brand=mazda exact_demo_monthly=550"
+    "branded_body_fastpath=true exact_demo_brand=mazda exact_demo_monthly=550 brand_filter=true"
 )
