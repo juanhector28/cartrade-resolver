@@ -31,6 +31,46 @@ def test_standalone_monthly_answer_reuses_assistant_context():
     assert profile["primary_job"] == "city_runabout"
 
 
+def test_family_suv_monthly_range_is_ready_without_repeating_budget_question():
+    messages = [
+        {"role": "user", "content": "SUV Familiar para ir a dejar a mis hijos"},
+        {"role": "assistant", "content": "Entendido. ¿Qué cuota mensual te queda cómoda?"},
+        {"role": "user", "content": "500-600"},
+    ]
+    profile = extract_fast_profile(messages, country="gt")
+    assert profile is not None
+    assert profile["primary_job"] == "family_transport"
+    assert profile["require_body"] == ["suv"]
+    assert profile["small_children"] is True
+    assert profile["target_monthly"] == 500
+    assert profile["max_monthly"] == 600
+    assert deterministic_intake_reply(messages, country="gt") is None
+
+
+def test_usd_monthly_range_survives_missing_assistant_turn():
+    messages = [
+        {"role": "user", "content": "SUV Familiar para ir a dejar a mis hijos"},
+        {"role": "user", "content": "USD 500-600"},
+    ]
+    profile = extract_fast_profile(messages, country="gt")
+    assert profile is not None
+    assert profile["primary_job"] == "family_transport"
+    assert profile["require_body"] == ["suv"]
+    assert profile["target_monthly"] == 500
+    assert profile["max_monthly"] == 600
+    assert profile["max_price"] is None
+    assert deterministic_intake_reply(messages, country="gt") is None
+
+
+def test_large_total_price_range_is_not_misread_as_monthly():
+    messages = [
+        {"role": "user", "content": "SUV familiar para mis hijos"},
+        {"role": "user", "content": "USD 15,000-20,000"},
+    ]
+    state = intake_state(messages, country="gt")
+    assert state["max_monthly"] is None
+
+
 def test_specific_model_falls_back_to_richer_path():
     messages = [
         {"role": "user", "content": "Quiero un Toyota Corolla para ciudad, máximo $500 al mes"}
