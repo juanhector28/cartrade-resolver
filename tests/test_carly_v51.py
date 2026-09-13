@@ -27,14 +27,18 @@ def _family_constraints(passengers=None):
     }
 
 
+def _candidate():
+    return {"make": "Mazda", "model": "CX-30", "year": 2023}
+
+
 def test_family_intent_without_explicit_size_never_claims_five():
-    reply = v51._truthful_reply(_family_constraints(), [])
+    reply = v51._truthful_reply(_family_constraints(), [_candidate()])
     assert "familia de cinco" not in reply.lower()
     assert "uso familiar" in reply.lower()
 
 
 def test_explicit_family_of_five_can_keep_five_person_wording():
-    reply = v51._truthful_reply(_family_constraints(5), [])
+    reply = v51._truthful_reply(_family_constraints(5), [_candidate()])
     assert "familia de cinco" in reply.lower()
 
 
