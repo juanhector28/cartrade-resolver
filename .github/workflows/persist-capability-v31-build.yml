@@ -1,0 +1,29 @@
+name: Resolver persist capability v31 build
+
+on:
+  pull_request:
+    paths:
+      - 'resolver_patch_atlas_v31.py'
+      - 'Dockerfile'
+      - 'app/**'
+      - '.github/workflows/persist-capability-v31-build.yml'
+  workflow_dispatch:
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build exact production Dockerfile
+        run: docker build --progress=plain -t resolver-persist-v31-ci .
+      - name: Assert hardening marker exists in built runtime
+        run: |
+          docker run --rm --entrypoint python resolver-persist-v31-ci - <<'PY'
+          from pathlib import Path
+          s = Path('/app/app/main.py').read_text(encoding='utf-8')
+          assert '# ATLAS_PERSIST_CAPABILITY_V31' in s
+          assert 'persist: bool = False' in s
+          assert 'X-Atlas-Publisher-Token' in s
+          assert 'persist_true_job_missing_publisher_capability' in s
+          print('PERSIST_CAPABILITY_V31_BUILD=PASS')
+          PY
