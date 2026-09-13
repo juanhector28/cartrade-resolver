@@ -2,14 +2,14 @@
 
 Model intelligence, unit assessment and shortlist continuation are different jobs.
 This layer gives explicit purchase-decision questions outer precedence and combines
-four inputs Carly already has: model fit, the concrete unit, market positioning,
-and buyer fit. It never treats verification-pending facts as confirmed.
+model fit, concrete unit facts, market positioning and buyer fit. Verification-
+pending facts remain pending.
 """
 from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from typing import Any
 
@@ -56,6 +56,17 @@ def _name(car: dict) -> str:
     return " ".join(str(x) for x in (car.get("make"), car.get("model"), car.get("year")) if x).strip() or "esta unidad"
 
 
+def _unique(cars: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    seen = set()
+    for car in cars:
+        k = _key(car)
+        if k not in seen:
+            seen.add(k)
+            out.append(car)
+    return out
+
+
 def _latest_buyer(body: Any) -> str:
     return v55._latest_buyer_text(body)
 
@@ -67,6 +78,12 @@ def _is_buy_decision(body: Any) -> bool:
 
 
 def _recent_focus(body: Any, visible: list[dict]) -> dict | None:
+    """Resolve the unit named now, or the last unambiguous unit discussed.
+
+    Year-specific mentions win. A model-only mention is accepted only when that
+    model identifies exactly one visible unit. This avoids confusing two HR-Vs
+    from different years when the next buyer turn says only "esta unidad".
+    """
     latest = _latest_buyer(body)
     focus = v14._focus(latest, visible)
     if focus is not None:
@@ -75,28 +92,29 @@ def _recent_focus(body: Any, visible: list[dict]) -> dict | None:
         return visible[0]
 
     messages = list(_get(body, "messages", []) or [])
-    candidates = []
     for message in reversed(messages[:-1]):
         text = str(_get(message, "content", "") or "")
-        matches = []
         n = v14._norm(text)
+
+        exact_year: list[dict] = []
         for car in visible:
             model = v14._norm(car.get("model"))
-            make = v14._norm(car.get("make"))
             year = str(car.get("year") or "")
-            if model and model in n and ((make and make in n) or (year and year in text) or len(model) >= 4):
-                matches.append(car)
-        uniq = []
-        seen = set()
-        for car in matches:
-            k = _key(car)
-            if k not in seen:
-                seen.add(k); uniq.append(car)
-        if len(uniq) == 1:
-            return uniq[0]
-        candidates.extend(uniq)
-        if len(candidates) > 4:
-            break
+            if model and model in n and year and year in text:
+                exact_year.append(car)
+        exact_year = _unique(exact_year)
+        if len(exact_year) == 1:
+            return exact_year[0]
+
+        by_model: dict[str, list[dict]] = {}
+        for car in visible:
+            model = v14._norm(car.get("model"))
+            if model:
+                by_model.setdefault(model, []).append(car)
+        model_only = [cars[0] for model, cars in by_model.items() if model in n and len(cars) == 1]
+        model_only = _unique(model_only)
+        if len(model_only) == 1:
+            return model_only[0]
     return None
 
 
@@ -132,15 +150,16 @@ def _market_read(car: dict) -> tuple[str, str]:
     label = str(car.get("value_label") or "").strip()
     if delta is not None:
         if delta <= 0:
-            return ("favorable", f"El precio está bien posicionado frente a comparables ({abs(delta):.0f}% {'por debajo' if delta < 0 else 'en línea'} del benchmark reportado).")
+            position = "por debajo" if delta < 0 else "en línea"
+            return "favorable", f"El precio está bien posicionado frente a comparables ({abs(delta):.0f}% {position} del benchmark reportado)."
         if delta <= 5:
-            return ("fair", f"El precio está razonablemente en línea con comparables; el diferencial reportado es de ~{delta:.0f}%.")
+            return "fair", f"El precio está razonablemente en línea con comparables; el diferencial reportado es de ~{delta:.0f}%."
         if delta <= 10:
-            return ("soft_high", f"El precio luce algo alto frente a comparables (~{delta:.0f}%); la compraría solo si condición/equipamiento justifican esa prima.")
-        return ("high", f"El precio luce caro frente a comparables (~{delta:.0f}% arriba); no la llamaría buena compra a este precio sin una razón muy clara.")
+            return "soft_high", f"El precio luce algo alto frente a comparables (~{delta:.0f}%); la compraría solo si condición/equipamiento justifican esa prima."
+        return "high", f"El precio luce caro frente a comparables (~{delta:.0f}% arriba); no la llamaría buena compra a este precio sin una razón muy clara."
     if label:
-        return ("label", f"La señal de mercado disponible la clasifica como: {label}.")
-    return ("unknown", "No tengo un benchmark de mercado suficientemente firme para llamarla ganga o cara solo por precio.")
+        return "label", f"La señal de mercado disponible la clasifica como: {label}."
+    return "unknown", "No tengo un benchmark de mercado suficientemente firme para llamarla ganga o cara solo por precio."
 
 
 def _unit_read(car: dict) -> tuple[list[str], list[str]]:
@@ -150,7 +169,7 @@ def _unit_read(car: dict) -> tuple[list[str], list[str]]:
     km = _num(car.get("km"))
     monthly = _num(car.get("monthly_est"))
     price = _num(car.get("price_usd"))
-    current_year = datetime.utcnow().year
+    current_year = datetime.now(timezone.utc).year
 
     if monthly is not None:
         positives.append(f"cuota estimada de ~${monthly:,.0f}/mes")
@@ -172,13 +191,10 @@ def _unit_read(car: dict) -> tuple[list[str], list[str]]:
 
 
 def _safe_model_guidance(car: dict) -> tuple[str, str]:
-    """Keep real model knowledge, but drop the old generic listing fallback."""
     pro, con = v52._model_guidance(car)
-    np = v14._norm(pro)
-    nc = v14._norm(con)
-    if "precio y disponibilidad" in np:
+    if "precio y disponibilidad" in v14._norm(pro):
         pro = ""
-    if "necesita mas evidencia antes de saber" in nc:
+    if "necesita mas evidencia antes de saber" in v14._norm(con):
         con = ""
     return pro, con
 
