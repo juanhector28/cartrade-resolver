@@ -44,6 +44,8 @@ COPY resolver_patch_atlas_v28.py /tmp/resolver_patch_atlas_v28.py
 RUN python /tmp/resolver_patch_atlas_v28.py && rm /tmp/resolver_patch_atlas_v28.py
 COPY resolver_patch_atlas_v29.py /tmp/resolver_patch_atlas_v29.py
 RUN python /tmp/resolver_patch_atlas_v29.py && rm /tmp/resolver_patch_atlas_v29.py
+COPY resolver_patch_atlas_v30.py /tmp/resolver_patch_atlas_v30.py
+RUN python /tmp/resolver_patch_atlas_v30.py && rm /tmp/resolver_patch_atlas_v30.py
 
 RUN mkdir -p /data
 ENV CACHE_DB=/data/resolver_cache.db
