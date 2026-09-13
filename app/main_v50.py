@@ -20,6 +20,7 @@ strict retrieval path.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from . import main_v49 as v49
@@ -93,6 +94,23 @@ def _safe_focused_query_rows(c: dict[str, Any], country: str) -> list[dict]:
 # pool fail-closed and consistent with the canonical Atlas visibility contract.
 v46._ORIG_QUERY_ROWS = _safe_focused_query_rows
 
+# P0 demo latency hotfix: v46 already bounds explicit body searches, but its
+# action parser recognized "busco un SUV" and missed the equally explicit
+# "busco un Mazda SUV" because a make appeared between the verb and body type.
+# That miss prevented v47's single-pass route and allowed an unnecessary broad
+# 900-row inherited rank before the bounded authoritative rebuild.
+_brand_token = "|".join(
+    sorted((re.escape(alias) for alias in v31._BRAND_ALIASES), key=len, reverse=True)
+)
+v46._BODY_ACTION = re.compile(
+    r"\b(?:estoy\s+buscando|ando\s+buscando|busco|quiero|necesito)\s+"
+    r"(?:un|una)?\s*(?:(?:" + _brand_token + r")\s+)?"
+    r"(suv|pickup|pick[- ]?up|sed[aá]n|hatch(?:back)?)\b",
+    re.I,
+)
+if v46._explicit_body("Busco un Mazda SUV entre USD 12,000 y 25,000") != "suv":
+    raise RuntimeError("Carly branded-body fastpath self-check failed")
+
 try:
     v47.v44.v31.v29.v28.v27.v26.v25.v20.commercial.RUNTIME_COMPOSITION = (
         "commercial-v50-safe-fresh-retrieval"
@@ -100,4 +118,6 @@ try:
 except Exception:
     pass
 
-log.warning("CARLY_V50_SAFE_RETRIEVAL installed staging=true freshness=true fail_closed=true")
+log.warning(
+    "CARLY_V50_SAFE_RETRIEVAL installed staging=true freshness=true fail_closed=true branded_body_fastpath=true"
+)
