@@ -55,3 +55,31 @@ if const_marker not in s:
     print('Installed GT_DEMO_CERTIFIED_BOUNDARY_V1: 5-source staging allowlist')
 else:
     print('GT demo certified boundary already installed')
+
+# GT_DEMO_CERTIFIED_BOUNDARY_V2
+# Carly v50 owns the active focused retrieval path used by /carly/chat.
+p = Path('/app/app/main_v50.py')
+s = p.read_text(encoding='utf-8')
+marker_v50 = '# GT_DEMO_CERTIFIED_BOUNDARY_V2'
+if marker_v50 not in s:
+    log_anchor = 'log = logging.getLogger("carly.retrieval.v50")\n\n\n'
+    if log_anchor not in s:
+        raise RuntimeError('v50 logger anchor missing')
+    const_v50 = '''log = logging.getLogger("carly.retrieval.v50")\n\n# GT_DEMO_CERTIFIED_BOUNDARY_V2\nGT_DEMO_CERTIFIED_SOURCES = [\n    "atlas:www.agautoventas.com",\n    "atlas:autogogt.com",\n    "atlas:hgmotors.movilauto.com",\n    "atlas:movilauto.com",\n    "atlas:www.enlacesautomotrices.com",\n]\n\n\n'''
+    s = s.replace(log_anchor, const_v50, 1)
+
+    query_anchor = '''        exact = c.get("exact")\n'''
+    query_new = '''        if (country or "").lower() == "gt":\n            q = q.in_("source", GT_DEMO_CERTIFIED_SOURCES)\n\n        exact = c.get("exact")\n'''
+    if query_anchor not in s:
+        raise RuntimeError('v50 focused retrieval anchor missing')
+    s = s.replace(query_anchor, query_new, 1)
+
+    if s.count('GT_DEMO_CERTIFIED_SOURCES') != 2:
+        raise RuntimeError('unexpected v50 GT boundary reference count')
+    if 'q = q.in_("source", GT_DEMO_CERTIFIED_SOURCES)' not in s:
+        raise RuntimeError('v50 allowlist boundary missing')
+
+    p.write_text(s, encoding='utf-8')
+    print('Installed GT_DEMO_CERTIFIED_BOUNDARY_V2 in Carly v50 focused retrieval')
+else:
+    print('GT Carly v50 certified boundary already installed')
