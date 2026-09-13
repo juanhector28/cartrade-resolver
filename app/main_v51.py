@@ -96,3 +96,9 @@ _v52_hotfix.install(app)
 # the browser's request deadline.
 from . import carly_v53_latency as _v53_latency
 _v53_latency.install()
+
+# v54 gives post-shortlist "more options" explicit outermost precedence. Without
+# this, later recommendation wrappers can overwrite the deterministic continuation
+# and Carly answers with a generic explanation instead of fresh unseen vehicles.
+from . import carly_v54_more_options as _v54_more_options
+_v54_more_options.install(app)
