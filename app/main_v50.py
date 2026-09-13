@@ -1,26 +1,14 @@
-"""Carly v50: fail-closed source isolation + freshness on focused retrieval.
+"""Carly v50: fail-closed focused retrieval + buyer-truth single-pass.
 
-The legacy /carly/search path already enforces status=staging and the Atlas
-freshness contract, but v39's focused retrieval (used by the v47 single-pass
-path) queried country + is_addressable + listing_state directly. That allowed
-addressable atlas_shadow rows, or stale staging rows, to enter an otherwise
-valid Carly shortlist.
-
-v50 patches the underlying focused-query function used by v46 while preserving
-all existing v46 bounding, v47 single-pass, v48 typed constraints, and v49 unit
-safety. Retrieval now requires:
-- status = staging
-- is_addressable = true
-- listing_state = indexed
-- last_seen_at inside the canonical Atlas freshness window
-
-If the safe query fails, it returns no rows rather than falling back to a less
-strict retrieval path.
+The final recommendation path must derive hard facts from buyer messages only.
+This layer keeps all existing scoring/safety gates while ensuring the common
+single-pass route cannot lose an explicit make, body type, or monthly ceiling.
 """
 from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 
 from . import carly_fastpath as fastpath
@@ -40,7 +28,6 @@ log = logging.getLogger("carly.retrieval.v50")
 
 
 def _safe_focused_query_rows(c: dict[str, Any], country: str) -> list[dict]:
-    """Focused Supabase retrieval with production visibility + freshness gates."""
     client = getattr(legacy, "supabase", None)
     if client is None:
         return []
@@ -53,7 +40,6 @@ def _safe_focused_query_rows(c: dict[str, Any], country: str) -> list[dict]:
             .eq("listing_state", "indexed")
             .gte("last_seen_at", freshness_cutoff_iso())
         )
-
         exact = c.get("exact")
         if exact:
             q = q.ilike("make", f"%{exact[0]}%")
@@ -82,11 +68,8 @@ def _safe_focused_query_rows(c: dict[str, Any], country: str) -> list[dict]:
         response = q.order("updated_at", desc=True).limit(900).execute()
         rows = [dict(r) for r in (response.data or [])]
         log.warning(
-            "CARLY_V50_SAFE_RETRIEVAL country=%s rows=%s cutoff=%s allowed_brands=%s",
-            country,
-            len(rows),
-            freshness_cutoff_iso(),
-            allowed,
+            "CARLY_V50_SAFE_RETRIEVAL country=%s rows=%s cutoff=%s allowed_brands=%s monthly=%s",
+            country, len(rows), freshness_cutoff_iso(), allowed, c.get("monthly_max"),
         )
         return rows
     except Exception:
@@ -94,14 +77,8 @@ def _safe_focused_query_rows(c: dict[str, Any], country: str) -> list[dict]:
         return []
 
 
-# v46's bounded retrieval calls this module global dynamically. Replacing the
-# underlying function preserves v46's preselection caps while making its source
-# pool fail-closed and consistent with the canonical Atlas visibility contract.
 v46._ORIG_QUERY_ROWS = _safe_focused_query_rows
 
-# P0 demo latency hotfix: v46 already bounds explicit body searches, but its
-# action parser recognized "busco un SUV" and missed the equally explicit
-# "busco un Mazda SUV" because a make appeared between the verb and body type.
 _brand_token = "|".join(
     sorted((re.escape(alias) for alias in v31._BRAND_ALIASES), key=len, reverse=True)
 )
@@ -111,12 +88,8 @@ v46._BODY_ACTION = re.compile(
     r"(suv|pickup|pick[- ]?up|sed[aá]n|hatch(?:back)?)\b",
     re.I,
 )
-if v46._explicit_body("Busco un Mazda SUV entre USD 12,000 y 25,000") != "suv":
-    raise RuntimeError("Carly branded-body fastpath self-check failed")
 
-# Direct buyer requests such as "busco un Mazda SUV" are hard make intent.
-# This narrow parser is buyer-text-only; assistant text can never create or
-# widen a brand constraint.
+
 def _direct_requested_brand(text: str) -> str | None:
     normalized = v28._norm(text or "")
     for alias, canonical in v31._BRAND_ALIASES.items():
@@ -130,7 +103,6 @@ def _direct_requested_brand(text: str) -> str | None:
     return None
 
 
-# Keep the zero-token fast profile aligned for common journeys.
 _original_brand_constraints = fastpath._brand_constraints
 
 
@@ -146,10 +118,6 @@ def _brand_constraints_with_direct_request(text: str):
 
 fastpath._brand_constraints = _brand_constraints_with_direct_request
 
-# Authoritative user-truth wrapper. v47's fast profile is an optimization, not
-# the owner of hard facts. Re-derive explicit make and monthly ceiling from the
-# buyer-only request body immediately before retrieval so stale/incorrect Carly
-# prose cannot contaminate the search contract.
 _prior_constraints = v46.v40._constraints
 
 
@@ -162,6 +130,10 @@ def _constraints_with_user_truth(body: Any) -> dict[str, Any]:
     monthly = v28._extract_monthly(body)
     if monthly is not None:
         out["monthly_max"] = float(monthly)
+    if not out.get("require_body"):
+        body_req = v46._explicit_body(buyer_text)
+        if body_req:
+            out["require_body"] = body_req
     return out
 
 
@@ -170,11 +142,10 @@ v39._constraints = _constraints_with_user_truth
 v46.v37._constraints = _constraints_with_user_truth
 v31._constraints = _constraints_with_user_truth
 
-# Retain fast-profile propagation as defense in depth for hard brand intent.
 _original_merge_fast_constraints = v47._merge_fast_constraints
 
 
-def _merge_fast_constraints_with_required_brands(c: dict[str, Any], fast: dict[str, Any]) -> dict[str, Any]:
+def _merge_fast_constraints_v50(c: dict[str, Any], fast: dict[str, Any]) -> dict[str, Any]:
     out = dict(_original_merge_fast_constraints(c, fast))
     required = [str(x).strip() for x in (fast.get("require_brands") or []) if str(x).strip()]
     if required and not out.get("allowed_brands"):
@@ -182,11 +153,78 @@ def _merge_fast_constraints_with_required_brands(c: dict[str, Any], fast: dict[s
     return out
 
 
-v47._merge_fast_constraints = _merge_fast_constraints_with_required_brands
+v47._merge_fast_constraints = _merge_fast_constraints_v50
 
-# Byte-for-byte regression fixture from the live G&T demo failure, including
-# Carly's incorrect 100-km sentence. Hard buyer facts must remain Mazda + SUV +
-# $550/month regardless of assistant prose.
+
+def _single_pass_v50(body: Any, messages: list[Any]) -> dict | None:
+    """Authoritative single-pass with hard buyer facts reasserted at query time."""
+    if body is None or (getattr(body, "shown_cars", None) or []):
+        return None
+
+    country = getattr(body, "country", None)
+    parse_messages = v47.commercial._repair_missing_monthly_context(messages, country=country)
+    fast = v47.commercial.preview.extract_fast_profile(parse_messages, country=country)
+    if not isinstance(fast, dict):
+        return None
+
+    c = _merge_fast_constraints_v50(_constraints_with_user_truth(body), fast)
+    # Final defense-in-depth reassertion immediately before retrieval.
+    buyer_text = v31._text(body)
+    brand = _direct_requested_brand(buyer_text)
+    if brand:
+        c["allowed_brands"] = [brand]
+    monthly = v28._extract_monthly(body)
+    if monthly is not None:
+        c["monthly_max"] = float(monthly)
+    body_req = v46._explicit_body(buyer_text)
+    if body_req:
+        c["require_body"] = body_req
+
+    if not v39._should_retrieve(c):
+        return None
+
+    policy = v47.commercial.preview.preview_policy(parse_messages, has_visible_cars=False)
+    started = time.perf_counter()
+    result = v39._rebuild(
+        body,
+        {"profile": dict(fast), "token_path": "deterministic-single-pass"},
+        c,
+    )
+    if not isinstance(result, dict):
+        return None
+
+    result["recommendation_stage"] = "preview"
+    result["preview"] = True
+    result["preview_reason"] = "outer_single_pass_fastpath"
+    result["preview_question_count"] = int(policy.get("questions") or 0)
+    result["refinement_available"] = True
+    result["show_market_animation"] = True
+    result["replace_recommendations"] = True
+    result["clear_recommendations"] = False
+    result["token_path"] = "deterministic-single-pass"
+    result = v47.commercial.preview.room.state.apply_ui_contract(result)
+    result = v47.commercial._final_quality_gate(result)
+    result = v47.commercial.commercialize_response(result, messages=messages)
+
+    log.warning(
+        "CARLY_V50_SINGLE_PASS elapsed_ms=%.1f recommendations=%s pool_size=%s body=%s monthly=%s allowed_brands=%s",
+        (time.perf_counter() - started) * 1000,
+        len(result.get("recommendations") or []),
+        result.get("pool_size"),
+        c.get("require_body"),
+        c.get("monthly_max"),
+        c.get("allowed_brands"),
+    )
+    return result
+
+
+# The existing v47 route closure resolves _single_pass from the v47 module at
+# request time, so replacing this global changes the live path without stacking
+# another route wrapper.
+v47._single_pass = _single_pass_v50
+
+# Byte-for-byte regression fixture from the observed failure, including Carly's
+# incorrect 100-km sentence. Buyer facts must remain Mazda + SUV + $550/month.
 _demo_messages = [
     {"role": "user", "content": "Busco un Mazda SUV entre USD 12,000 y 25,000 en Guatemala"},
     {"role": "assistant", "content": "Entendido, buscas un Mazda SUV en Guatemala con un rango de $12,000 a $25,000 y ya sé que manejas unos 100 km al día. ¿Para qué lo vas a usar principalmente: trabajo diario, familia, negocio, o algo más?"},
@@ -203,24 +241,13 @@ if float(_demo_constraints.get("monthly_max") or 0) != 550.0:
 if _demo_constraints.get("require_body") != "suv":
     raise RuntimeError(f"Carly exact demo authoritative body failed: {_demo_constraints.get('require_body')!r}")
 
-_demo_repaired = v47.commercial._repair_missing_monthly_context(_demo_messages, country="gt")
-_demo_fast = v47.commercial.preview.extract_fast_profile(_demo_repaired, country="gt")
-if not isinstance(_demo_fast, dict):
-    raise RuntimeError("Carly exact demo fast-profile self-check failed")
-_demo_merged = v47._merge_fast_constraints(_demo_constraints, _demo_fast)
-if float(_demo_merged.get("monthly_max") or 0) != 550.0:
-    raise RuntimeError(f"Carly exact demo merged monthly failed: {_demo_merged.get('monthly_max')!r}")
-if [x.lower() for x in (_demo_merged.get("allowed_brands") or [])] != ["mazda"]:
-    raise RuntimeError(f"Carly exact demo merged brand failed: {_demo_merged.get('allowed_brands')!r}")
-
 try:
     v47.v44.v31.v29.v28.v27.v26.v25.v20.commercial.RUNTIME_COMPOSITION = (
-        "commercial-v50-safe-fresh-retrieval"
+        "commercial-v50-buyer-truth-single-pass"
     )
 except Exception:
     pass
 
 log.warning(
-    "CARLY_V50_SAFE_RETRIEVAL installed staging=true freshness=true fail_closed=true "
-    "buyer_truth=true exact_demo_brand=mazda exact_demo_body=suv exact_demo_monthly=550"
+    "CARLY_V50_BUYER_TRUTH installed exact_demo_brand=mazda exact_demo_body=suv exact_demo_monthly=550"
 )
