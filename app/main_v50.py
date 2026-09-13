@@ -23,6 +23,7 @@ import logging
 import re
 from typing import Any
 
+from . import carly_fastpath as fastpath
 from . import main_v49 as v49
 from .atlas_freshness_api import freshness_cutoff_iso
 
@@ -111,6 +112,36 @@ v46._BODY_ACTION = re.compile(
 if v46._explicit_body("Busco un Mazda SUV entre USD 12,000 y 25,000") != "suv":
     raise RuntimeError("Carly branded-body fastpath self-check failed")
 
+# The zero-token fast profile used to treat a bare brand mention as ambiguous
+# unless the buyer said "solo" or "prefiero". A direct purchase request such as
+# "busco un Mazda SUV" is not casual brand context: it is an explicit requested
+# make. Promote only this narrow action+brand syntax to a hard brand constraint;
+# all softer mentions keep the previous conservative behavior.
+_original_brand_constraints = fastpath._brand_constraints
+
+
+def _brand_constraints_with_direct_request(text: str):
+    required, preferred, mentioned = _original_brand_constraints(text)
+    required = list(required or [])
+    preferred = list(preferred or [])
+    if mentioned and not required and not preferred:
+        normalized = fastpath._norm(text)
+        for brand in fastpath._BRANDS:
+            normalized_brand = fastpath._norm(brand)
+            direct = re.search(
+                r"\b(?:estoy\s+buscando|ando\s+buscando|busco|quiero|necesito)\s+"
+                r"(?:un|una)?\s*" + re.escape(normalized_brand) + r"\b",
+                normalized,
+                re.I,
+            )
+            if direct:
+                required.append(brand)
+                break
+    return required, preferred, mentioned
+
+
+fastpath._brand_constraints = _brand_constraints_with_direct_request
+
 # Exact regression fixture from the live G&T demo rehearsal. It protects both
 # pieces of the contract that matter here: the branded SUV must reach the bounded
 # path and the buyer's explicit $550/month answer must remain $550 when merged
@@ -129,6 +160,8 @@ if not isinstance(_demo_fast, dict):
     raise RuntimeError("Carly exact demo fast-profile self-check failed")
 if float(_demo_fast.get("max_monthly") or 0) != 550.0:
     raise RuntimeError(f"Carly exact demo monthly self-check failed: {_demo_fast.get('max_monthly')!r}")
+if [x.lower() for x in (_demo_fast.get("require_brands") or [])] != ["mazda"]:
+    raise RuntimeError(f"Carly exact demo brand self-check failed: {_demo_fast.get('require_brands')!r}")
 _demo_merged = v47._merge_fast_constraints({"monthly_max": 700.0, "require_body": None}, _demo_fast)
 if float(_demo_merged.get("monthly_max") or 0) != 550.0:
     raise RuntimeError(f"Carly exact demo constraint merge failed: {_demo_merged.get('monthly_max')!r}")
@@ -143,5 +176,6 @@ except Exception:
     pass
 
 log.warning(
-    "CARLY_V50_SAFE_RETRIEVAL installed staging=true freshness=true fail_closed=true branded_body_fastpath=true exact_demo_monthly=550"
+    "CARLY_V50_SAFE_RETRIEVAL installed staging=true freshness=true fail_closed=true "
+    "branded_body_fastpath=true exact_demo_brand=mazda exact_demo_monthly=550"
 )
