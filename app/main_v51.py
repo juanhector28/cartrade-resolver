@@ -71,7 +71,15 @@ _patch_vehicle_detail_precedence()
 
 # Regression guard for the exact semantic failure: family intent without an
 # explicit passenger count must never assert five people.
-_probe = {"family": True, "passengers": None}
+_probe = {
+    "family": True,
+    "passengers": None,
+    "exact": None,
+    "intent": {},
+    "delivery": False,
+    "require_body": None,
+    "require_transmission": None,
+}
 _probe_text = _truthful_reply(_probe, [])
 if "familia de cinco" in _probe_text.lower():
     raise RuntimeError("Carly v51 family-size truth regression")
