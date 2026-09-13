@@ -40,6 +40,58 @@ def _country(body: Any) -> str:
 
 _SEARCH_RE = re.compile(r"\b(?:busco|quiero|necesito|estoy\s+buscando|ando\s+buscando)\b", re.I)
 _RANGE_RE = re.compile(r"\b(?:entre|de)\s*(?:usd\s*)?\$?\s*([0-9][0-9.,]*)\s*(?:y|a|hasta|-|–|—)\s*(?:usd\s*)?\$?\s*([0-9][0-9.,]*)", re.I)
+_MODEL_INTELLIGENCE_RE = re.compile(
+    r"(?:\bpros?\s*(?:y|/|&|versus)\s*(?:contras?|cons?)\b|"
+    r"\bventajas?\s*(?:y|/|&|versus)\s*desventajas?\b|"
+    r"\b(?:problemas?|fallas?)\s+(?:conocidos?|conocidas?|comunes?|tipicos?|tipicas?)\b|"
+    r"\b(?:confiabilidad|fiabilidad|reliability)\b|"
+    r"\b(?:que\s+tal\s+sale|como\s+sale)\s+(?:este|ese|el|la)?\s*modelo\b|"
+    r"\b(?:este|ese|el|la)\s+modelo\b)",
+    re.I,
+)
+
+_MODEL_INTELLIGENCE_PROMPT = r"""
+
+# MODEL INTELLIGENCE
+Cuando la ultima pregunta sea sobre pros/contras DEL MODELO, confiabilidad del
+modelo, problemas conocidos/comunes o "que tal sale este modelo", cambia de
+nivel: responde sobre el MODELO como producto, no sobre la unidad/listing.
+
+En ese modo:
+- Empieza por el modelo/año/generacion si se conoce. No abras con precio, cuota,
+  kilometraje, VIN, vendedor, historial o disponibilidad de la unidad visible.
+- Da criterio real, no una checklist: 3-4 fortalezas, 2-3 debilidades/trade-offs,
+  para quien lo ves y un veredicto breve. Usa encabezados cortos si ayudan:
+  **LO MEJOR**, **LO MENOS BUENO**, **PARA QUIEN LA VEO**.
+- Prioriza diferencias utiles frente a rivales del segmento: conduccion/potencia,
+  consumo, espacio/confort, confiabilidad/mantenimiento, seguridad/tecnologia,
+  reventa/costo de propiedad, solo cuando realmente aporten.
+- Puedes usar conocimiento general del modelo. No inventes especificaciones ni
+  problemas. Si motor, trim, mercado o generacion cambian el dato, haz la
+  salvedad. Evita cifras exactas no confirmadas.
+- No conviertas una pregunta de modelo en "validaria VIN/accidentes/documentos".
+  Eso pertenece a la unidad concreta o a una pregunta de pre-compra.
+- Solo al final, opcionalmente y en 1-2 frases, puedes añadir **SOBRE ESTA UNIDAD**
+  para conectar con precio/km/valor relativo visibles. Ese puente nunca debe
+  reemplazar la respuesta sobre el modelo.
+- Si la pregunta es "es buena compra esta unidad", "que opinas de este anuncio"
+  o equivalente, entonces SI analiza la unidad concreta. No mezcles ambos niveles.
+"""
+
+
+def _is_model_intelligence(text: str) -> bool:
+    return bool(_MODEL_INTELLIGENCE_RE.search(v14._norm(text or "")))
+
+
+def _install_model_intelligence_prompt() -> None:
+    """Teach the compact follow-up LLM path to answer at model scope when asked."""
+    try:
+        decision = v50.v47.commercial.preview.room.state.decision
+        current = str(getattr(decision, "_LOW_TOKEN_FOLLOWUP_PROMPT", "") or "")
+        if "# MODEL INTELLIGENCE" not in current:
+            decision._LOW_TOKEN_FOLLOWUP_PROMPT = current + _MODEL_INTELLIGENCE_PROMPT
+    except Exception:
+        log.exception("Carly model-intelligence prompt install failed")
 
 
 def _price_range(text: str) -> tuple[float, float] | None:
@@ -185,6 +237,11 @@ def advisor_brief(body: Any) -> dict | None:
     if body is None:
         return None
     latest = v14._latest(body)
+    # A model-level question must not be swallowed by the zero-token unit brief.
+    # Fall through to Carly's compact LLM follow-up, which now has an explicit
+    # MODEL INTELLIGENCE contract and can answer with actual model knowledge.
+    if _is_model_intelligence(latest):
+        return None
     n = v14._norm(latest)
     if not any(x in n for x in ("cuentame", "por que", "recomiendas", "preocupa", "preocuparme", "validar", "revisar", "que tal", "como lo ves", "que opinas")):
         return None
@@ -239,6 +296,7 @@ def advisor_brief(body: Any) -> dict | None:
 def install(app: Any) -> None:
     """Install over the already-composed v51 app without changing its entrypoint."""
     v14._advisor_brief = advisor_brief
+    _install_model_intelligence_prompt()
     for route in getattr(app, "routes", []):
         if getattr(route, "path", None) != "/carly/chat":
             continue
@@ -255,4 +313,4 @@ def install(app: Any) -> None:
         route.endpoint = endpoint
         dependant.call = endpoint
         break
-    log.warning("CARLY_V52_HOTFIX installed opening_truth=true useful_vehicle_brief=true")
+    log.warning("CARLY_V52_HOTFIX installed opening_truth=true useful_vehicle_brief=true model_intelligence=true")
