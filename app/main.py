@@ -359,7 +359,7 @@ CARLY_COLS = (
 MAKES = [
     "toyota", "nissan", "honda", "hyundai", "kia", "mitsubishi", "ford", "chevrolet", "mazda",
     "volkswagen", "suzuki", "jeep", "bmw", "mercedes", "audi", "lexus", "subaru", "land rover",
-    "porsche", "cadillac",
+    "porsche", "cadillac", "bugatti",
 ]
 TAGS = ["Mejor match", "Alternativa sólida", "Vale la pena"]
 
@@ -384,6 +384,18 @@ class Intent(BaseModel):
 def parse_intent(text: str) -> Intent:
     t = _norm(text)
     it = Intent()
+    range_match = re.search(
+        r"(?:entre|de)\s*\$?\s*(\d+(?:[.,]\d+)?)(?:\s*(k|mil))?\s*(?:y|a|-)\s*\$?\s*(\d+(?:[.,]\d+)?)(?:\s*(k|mil))?",
+        t,
+    )
+    if range_match:
+        def _range_value(raw: str, unit: str | None) -> int:
+            value = float(raw.replace(",", "."))
+            return int(value * 1000) if unit in {"k", "mil"} else int(value)
+        lo = _range_value(range_match.group(1), range_match.group(2))
+        hi = _range_value(range_match.group(3), range_match.group(4))
+        it.price_min, it.price_max = sorted((lo, hi))
+
     m_k = re.search(r"(\d+)\s*k\b", t)
     m_mil = re.search(r"(\d+)\s*mil", t)
     m_num = re.search(r"\$?\s*(\d{4,6})", t)
@@ -394,7 +406,7 @@ def parse_intent(text: str) -> Intent:
         val = int(m_mil.group(1)) * 1000
     elif m_num:
         val = int(m_num.group(1))
-    if val:
+    if val and not range_match:
         if re.search(r"(mas de|arriba|desde|minimo|min)", t):
             it.price_min = val
         else:
