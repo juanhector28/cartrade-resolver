@@ -76,17 +76,57 @@ _MONTHLY_EXPLICIT = re.compile(
     re.I,
 )
 _MONTHLY_QUESTION = re.compile(r"\b(?:cuota|mensual|al mes|por mes|/mes)\b", re.I)
+_MONTHLY_RANGE = re.compile(
+    rf"^\s*(?:(?:usd|us\$)\s*)?\$?\s*({_NUMBER})\s*"
+    rf"(?:-|–|—|a|hasta)\s*(?:(?:usd|us\$)\s*)?\$?\s*({_NUMBER})\s*"
+    r"(?:usd|dolares|dólares)?\s*(?:(?:al|por)\s+mes|mensuales?|mensual)?\s*$",
+    re.I,
+)
+_MONTHLY_RANGE_EXPLICIT = re.compile(r"\b(?:al|por)\s+mes\b|\bmensuales?\b|\bmensual\b", re.I)
 _PRICE_MAX = re.compile(
     rf"\b(?:max(?:imo)?|máximo|hasta|tope|techo|no\s+mas\s+de|no\s+más\s+de)\s*(?:de\s*)?\$?\s*({_NUMBER})\s*(k|mil)?\b",
     re.I,
 )
-_STANDALONE_MONEY = re.compile(rf"^\s*\$?\s*({_NUMBER})\s*(k|mil)?\s*(?:usd|dolares|dólares)?\s*$", re.I)
+_STANDALONE_MONEY = re.compile(rf"^\s*(?:(?:usd|us\$)\s*)?\$?\s*({_NUMBER})\s*(k|mil)?\s*(?:usd|dolares|dólares)?\s*$", re.I)
+
+
+def _monthly_range_from_messages(messages: list[Any] | None) -> tuple[float, float] | None:
+    """Recover compact monthly ranges such as 500-600 or USD 500-600.
+
+    A bare sub-$2k range is accepted when Carly just asked for a monthly payment,
+    when the user explicitly says it is monthly, or when the conversation already
+    contains a clear vehicle-use intent. This covers the UI race where the visible
+    assistant question is occasionally absent from the payload without confusing
+    year ranges or normal total-price ranges with monthly budget.
+    """
+    rows = list(messages or [])
+    previous_role = ""
+    previous_text = ""
+    has_vehicle_intent = bool(_infer_job(user_text(rows))[0])
+    found = None
+    for m in rows:
+        role = _role(m).lower()
+        text = _content(m).strip()
+        if role == "user":
+            match = _MONTHLY_RANGE.match(text)
+            if match:
+                lo = _parse_number(match.group(1))
+                hi = _parse_number(match.group(2))
+                if lo is not None and hi is not None:
+                    lo, hi = sorted((lo, hi))
+                    monthly_context = previous_role == "assistant" and bool(_MONTHLY_QUESTION.search(previous_text))
+                    explicit_monthly = bool(_MONTHLY_RANGE_EXPLICIT.search(text))
+                    if 25 <= lo <= hi < 2000 and (monthly_context or explicit_monthly or has_vehicle_intent):
+                        found = (lo, hi)
+        previous_role, previous_text = role, text
+    return found
 
 
 def _monthly_from_messages(messages: list[Any] | None) -> float | None:
     value = None
     previous_role = ""
     previous_text = ""
+    monthly_range = _monthly_range_from_messages(messages)
     for m in messages or []:
         role = _role(m).lower()
         text = _content(m).strip()
@@ -103,6 +143,8 @@ def _monthly_from_messages(messages: list[Any] | None) -> float | None:
                 if parsed is not None and 25 <= parsed < 2000:
                     value = parsed
         previous_role, previous_text = role, text
+    if monthly_range is not None:
+        value = monthly_range[1]
     return value
 
 
@@ -133,7 +175,7 @@ def _max_price_from_messages(messages: list[Any] | None) -> float | None:
 _JOB_PATTERNS = (
     ("delivery", re.compile(r"\b(?:delivery|reparto|repartir|entregas)\b", re.I), "trabajo"),
     ("work_vehicle", re.compile(r"\b(?:negocio|herramientas|materiales|carga|trabajo pesado|vehiculo de trabajo|vehículo de trabajo)\b", re.I), "trabajo"),
-    ("family_transport", re.compile(r"\b(?:familia|hijos?|bebe|bebé|niños?|ninos?)\b", re.I), "familia"),
+    ("family_transport", re.compile(r"\b(?:familia|familiar|hijos?|bebe|bebé|niños?|ninos?)\b", re.I), "familia"),
     ("first_car", re.compile(r"\b(?:primer carro|primer auto|mi primer vehiculo|mi primer vehículo)\b", re.I), "ciudad"),
     ("long_distance", re.compile(r"\b(?:carretera|viajes largos|larga distancia|highway)\b", re.I), "carretera"),
     ("daily_commute", re.compile(r"\b(?:ir al trabajo|ir a la oficina|commute|trayecto diario)\b", re.I), "ciudad"),
@@ -162,10 +204,10 @@ def _priority(text: str) -> tuple[str | None, str | None]:
 
 
 _STRONG_BODY = {
-    "pickup": re.compile(r"\b(?:necesito|busco|quiero|solo|tiene que ser|debe ser)\s+(?:una\s+)?(?:pickup|pick-up|pick up)\b", re.I),
-    "suv": re.compile(r"\b(?:necesito|busco|quiero|solo|tiene que ser|debe ser)\s+(?:una\s+)?suv\b", re.I),
-    "sedan": re.compile(r"\b(?:necesito|busco|quiero|solo|tiene que ser|debe ser)\s+(?:un\s+)?sed[aá]n\b", re.I),
-    "hatchback": re.compile(r"\b(?:necesito|busco|quiero|solo|tiene que ser|debe ser)\s+(?:un\s+)?hatch(?:back)?\b", re.I),
+    "pickup": re.compile(r"(?:^\s*(?:una\s+)?(?:pickup|pick-up|pick up)\b)|(?:\b(?:necesito|busco|quiero|solo|tiene que ser|debe ser)\s+(?:una\s+)?(?:pickup|pick-up|pick up)\b)", re.I),
+    "suv": re.compile(r"(?:^\s*(?:una\s+)?suv\b)|(?:\b(?:necesito|busco|quiero|solo|tiene que ser|debe ser)\s+(?:una\s+)?suv\b)", re.I),
+    "sedan": re.compile(r"(?:^\s*(?:un\s+)?sed[aá]n\b)|(?:\b(?:necesito|busco|quiero|solo|tiene que ser|debe ser)\s+(?:un\s+)?sed[aá]n\b)", re.I),
+    "hatchback": re.compile(r"(?:^\s*(?:un\s+)?hatch(?:back)?\b)|(?:\b(?:necesito|busco|quiero|solo|tiene que ser|debe ser)\s+(?:un\s+)?hatch(?:back)?\b)", re.I),
 }
 
 _BRANDS = (
@@ -206,7 +248,8 @@ def extract_fast_profile(messages: list[Any] | None, country: str | None = None)
     if not text:
         return None
     job, usage = _infer_job(text)
-    monthly = _monthly_from_messages(messages)
+    monthly_range = _monthly_range_from_messages(messages)
+    monthly = monthly_range[1] if monthly_range is not None else _monthly_from_messages(messages)
     max_price = _max_price_from_messages(messages)
     if not job or (monthly is None and max_price is None):
         return None
@@ -230,7 +273,7 @@ def extract_fast_profile(messages: list[Any] | None, country: str | None = None)
     n = _norm(text)
     data = {
         "country": _norm(country) or None,
-        "target_monthly": None,
+        "target_monthly": monthly_range[0] if monthly_range is not None else None,
         "max_monthly": monthly,
         "target_price": None,
         "max_price": max_price,
@@ -240,7 +283,7 @@ def extract_fast_profile(messages: list[Any] | None, country: str | None = None)
         "usage": usage,
         "daily_km": None,
         "passengers": None,
-        "small_children": True if re.search(r"\b(?:bebe|bebé|niñ[oa]s?|ninos?)\b", text, re.I) else None,
+        "small_children": True if re.search(r"\b(?:bebe|bebé|niñ[oa]s?|ninos?|hijos?)\b", text, re.I) else None,
         "road_mix": "city" if job in {"city_runabout", "daily_commute", "first_car"} else ("highway" if job == "long_distance" else None),
         "cargo_level": "medium" if job in {"work_vehicle", "delivery"} else None,
         "holding_period": None,
@@ -279,13 +322,15 @@ def extract_fast_profile(messages: list[Any] | None, country: str | None = None)
 def intake_state(messages: list[Any] | None, country: str | None = None) -> dict:
     text = user_text(messages)
     job, usage = _infer_job(text)
-    monthly = _monthly_from_messages(messages)
+    monthly_range = _monthly_range_from_messages(messages)
+    monthly = monthly_range[1] if monthly_range is not None else _monthly_from_messages(messages)
     price = _max_price_from_messages(messages)
     return {
         "intent_known": bool(job),
         "budget_known": monthly is not None or price is not None,
         "job": job,
         "usage": usage,
+        "target_monthly": monthly_range[0] if monthly_range is not None else None,
         "max_monthly": monthly,
         "max_price": price,
         "country": _norm(country) or None,
