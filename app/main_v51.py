@@ -102,3 +102,9 @@ _v53_latency.install()
 # and Carly answers with a generic explanation instead of fresh unseen vehicles.
 from . import carly_v54_more_options as _v54_more_options
 _v54_more_options.install(app)
+
+# v55 sits outermost so questions about the MODEL (pros/cons, reliability,
+# known issues) cannot be swallowed by the listing/unit brief. It also strips
+# the frontend's hidden routing context before semantic follow-up processing.
+from . import carly_v55_model_intelligence as _v55_model_intelligence
+_v55_model_intelligence.install(app)
