@@ -11,6 +11,7 @@ from app import main_v51 as v51
 from app import carly_v52_hotfix as v52
 from app import carly_v53_latency as v53
 from app import carly_v54_more_options as v54
+from app import carly_v55_model_intelligence as v55
 
 
 def _family_constraints(passengers=None):
@@ -236,3 +237,91 @@ def test_v54_more_options_returns_fresh_continuation_not_generic(monkeypatch):
     assert out["llm_calls"] == 0
     assert "2 opciones adicionales" in out["reply"]
     assert "Tomé tus requisitos como filtros duros" not in out["reply"]
+
+
+def _model_intelligence_body():
+    hidden = (
+        "[CONTEXTO ACTIVO DE CARTRADE: estás viendo recomendaciones con precio, kilometraje y cuota. "
+        "La interfaz también mantiene la posibilidad de ver más opciones. "
+        "FOLLOW-UP INTENT = MODEL_INTELLIGENCE.]"
+    )
+    return SimpleNamespace(
+        country="gt",
+        messages=[
+            {"role": "user", "content": "SUV familiar para llevar a mis hijos"},
+            {"role": "assistant", "content": "¿Qué cuota mensual te queda cómoda?"},
+            {"role": "user", "content": "650"},
+            {"role": "assistant", "content": "Estas son mis mejores recomendaciones."},
+            {"role": "user", "content": "Dame los pros y cons del Honda HR-V 2023\n\n" + hidden},
+        ],
+        shown_cars=[
+            {
+                "id": "hrv23",
+                "url": "https://example.test/hrv23",
+                "make": "Honda",
+                "model": "HR-V",
+                "year": 2023,
+                "km": 19,
+                "monthly_est": 402,
+                "price_usd": 16900,
+                "body_type": "suv",
+            },
+            {
+                "id": "hrv22",
+                "url": "https://example.test/hrv22",
+                "make": "Honda",
+                "model": "HR-V",
+                "year": 2022,
+                "km": 38000,
+                "monthly_est": 362,
+                "price_usd": 15200,
+                "body_type": "suv",
+            },
+        ],
+    )
+
+
+def test_v55_classifies_visible_buyer_text_not_hidden_frontend_context():
+    body = _model_intelligence_body()
+    assert v55._latest_buyer_text(body) == "Dame los pros y cons del Honda HR-V 2023"
+    assert v55._is_model_intelligence(body) is True
+    # Hidden UI metadata says "ver más opciones"; it must not hijack routing.
+    assert v54._is_more_options(body) is False
+
+
+def test_v55_model_intelligence_gets_outer_precedence_and_clean_prompt(monkeypatch):
+    body = _model_intelligence_body()
+    captured = {}
+    decision = v55.v50.v47.commercial.preview.room.state.decision
+
+    def fake_followup(clean_body):
+        captured["latest"] = clean_body.messages[-1]["content"]
+        return {
+            "phase": "conversation",
+            "reply": "LO MEJOR · Buen espacio y practicidad. LO MENOS BUENO · No prioriza desempeño.",
+            "token_path": "compact_llm",
+        }
+
+    monkeypatch.setattr(decision, "_answer_followup_integrity", fake_followup)
+    out = v55._model_intelligence_response(body)
+    assert out is not None
+    assert out["route_precedence"] == "model_intelligence_v55"
+    assert out["model_scope"] is True
+    assert "[CONTEXTO ACTIVO" not in captured["latest"]
+    assert "precio" not in captured["latest"].lower()
+    assert "vin" not in captured["latest"].lower()
+    assert "pros y cons" in captured["latest"].lower()
+
+
+def test_v55_does_not_intercept_unit_purchase_question():
+    body = _model_intelligence_body()
+    body.messages[-1]["content"] = (
+        "¿Es buena compra esta unidad?\n\n"
+        "[CONTEXTO ACTIVO DE CARTRADE: FOLLOW-UP INTENT = UNIT_ASSESSMENT.]"
+    )
+    assert v55._is_model_intelligence(body) is False
+
+
+def test_v55_is_outermost_production_route_guard():
+    route = next(r for r in v51.app.routes if getattr(r, "path", None) == "/carly/chat")
+    assert getattr(route.endpoint, "_carly_v55_model_intelligence", False) is True
