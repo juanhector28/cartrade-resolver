@@ -1,4 +1,5 @@
 import os
+import time
 from types import SimpleNamespace
 
 os.environ.setdefault("CACHE_DB", "/tmp/carly-v51-cache.db")
@@ -8,6 +9,7 @@ os.environ.setdefault("CARLY_VISION_JIT_ENABLED", "0")
 from app import main_v14 as v14
 from app import main_v51 as v51
 from app import carly_v52_hotfix as v52
+from app import carly_v53_latency as v53
 
 
 def _family_constraints(passengers=None):
@@ -149,3 +151,34 @@ def test_production_route_installs_v52_over_v51():
     assert getattr(route.endpoint, "_carly_v52_opening_truth", False) is True
     prior = getattr(route.endpoint, "_carly_v52_prior", None)
     assert getattr(prior, "_carly_v51_vehicle_detail", False) is True
+
+
+def test_v53_installs_bounded_scanner_under_existing_v41_wrapper():
+    assert getattr(v53.v41, "_carly_v53_bounded_vision", False) is True
+    assert v53.v41._ORIG_SCAN_UNCACHED is v53._bounded_scan_uncached_finalists
+    assert 0 <= v53.INLINE_MAX_LISTINGS <= 3
+    assert v53.INLINE_BUDGET_SECONDS <= 8.0
+
+
+def test_v53_slow_vision_cannot_hold_interactive_request_open(monkeypatch):
+    monkeypatch.setattr(v53.v36, "JIT_ENABLED", True)
+    monkeypatch.setattr(v53, "INLINE_BUDGET_SECONDS", 0.02)
+    monkeypatch.setattr(v53, "INLINE_MAX_LISTINGS", 1)
+
+    def slow_vision(_row):
+        time.sleep(0.18)
+        return None
+
+    monkeypatch.setattr(v53.v36, "_vision_result", slow_vision)
+    row = {
+        "id": 1,
+        "url": "https://example.test/pickup",
+        "primary_photo": "https://example.test/pickup.jpg",
+        "visible_damage_risk": None,
+    }
+    started = time.monotonic()
+    completed = v53._bounded_scan_uncached_finalists([row])
+    elapsed = time.monotonic() - started
+
+    assert completed == 0
+    assert elapsed < 0.10
