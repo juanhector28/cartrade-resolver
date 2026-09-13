@@ -85,3 +85,8 @@ if "familia de cinco" in _probe_text.lower():
     raise RuntimeError("Carly v51 family-size truth regression")
 
 log.warning("CARLY_V51 installed vehicle_detail_precedence=true family_size_truth=true")
+
+# v52 keeps the stable v51 production entrypoint and installs two narrowly
+# scoped behavior fixes after the full v51 route composition exists.
+from . import carly_v52_hotfix as _v52_hotfix
+_v52_hotfix.install(app)
