@@ -90,3 +90,9 @@ log.warning("CARLY_V51 installed vehicle_detail_precedence=true family_size_trut
 # scoped behavior fixes after the full v51 route composition exists.
 from . import carly_v52_hotfix as _v52_hotfix
 _v52_hotfix.install(app)
+
+# v53 keeps the same production entrypoint but puts a hard interactive budget on
+# optional finalist vision so a healthy recommendation request cannot outlive
+# the browser's request deadline.
+from . import carly_v53_latency as _v53_latency
+_v53_latency.install()
