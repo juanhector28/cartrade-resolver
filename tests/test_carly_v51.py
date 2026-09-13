@@ -117,6 +117,33 @@ def test_production_vehicle_brief_is_concrete_not_generic():
     assert "\n\n" in out["reply"]
 
 
+def test_model_intelligence_detection_covers_model_questions_not_unit_questions():
+    assert v52._is_model_intelligence("¿Cuáles son los pros y contras de este modelo?")
+    assert v52._is_model_intelligence("¿Qué problemas conocidos tiene este modelo?")
+    assert v52._is_model_intelligence("¿Qué tal sale este modelo?")
+    assert v52._is_model_intelligence("¿Cómo es la confiabilidad del Honda HR-V 2023?")
+    assert not v52._is_model_intelligence("¿Es buena compra esta unidad?")
+    assert not v52._is_model_intelligence("¿Qué opinas de este anuncio?")
+
+
+def test_model_intelligence_bypasses_unit_brief():
+    body = _detail_body()
+    body.messages[-1] = {
+        "role": "user",
+        "content": "Cuéntame los pros y contras del Mazda CX-30 2024 como modelo",
+    }
+    assert v52.advisor_brief(body) is None
+    assert v14._advisor_brief(body) is None
+
+
+def test_model_intelligence_prompt_is_installed_on_compact_followup_path():
+    decision = v52.v50.v47.commercial.preview.room.state.decision
+    prompt = str(decision._LOW_TOKEN_FOLLOWUP_PROMPT)
+    assert "# MODEL INTELLIGENCE" in prompt
+    assert "pros/contras DEL MODELO" in prompt
+    assert "No abras con precio" in prompt
+
+
 def test_production_route_installs_v52_over_v51():
     route = next(r for r in v51.app.routes if getattr(r, "path", None) == "/carly/chat")
     assert getattr(route.endpoint, "_carly_v52_opening_truth", False) is True
