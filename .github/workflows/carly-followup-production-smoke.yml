@@ -34,8 +34,22 @@ jobs:
                   data = json.loads(r.read().decode("utf-8"))
               expected = os.environ.get("GITHUB_SHA")
               deployed = data.get("git_commit")
-              ok = data.get("composition") == "commercial-v13-presentation-market-truth" and (not deployed or deployed == expected)
-              print({"composition": data.get("composition"), "deployed": deployed, "expected": expected, "ready": ok})
+              ok = (
+                  deployed == expected
+                  and str(data.get("composition") or "").startswith("commercial-v")
+                  and data.get("more_options_precedence") is True
+                  and data.get("model_intelligence_precedence") is True
+                  and data.get("buy_decision_precedence") is True
+              )
+              print({
+                  "composition": data.get("composition"),
+                  "deployed": deployed,
+                  "expected": expected,
+                  "more_options": data.get("more_options_precedence"),
+                  "model_intelligence": data.get("model_intelligence_precedence"),
+                  "buy_decision": data.get("buy_decision_precedence"),
+                  "ready": ok,
+              })
               raise SystemExit(0 if ok else 1)
           except Exception as exc:
               print(f"not ready: {exc}")
@@ -46,7 +60,7 @@ jobs:
             fi
             sleep 10
           done
-          echo "Render never exposed the expected Carly runtime"
+          echo "Render never exposed the expected Carly follow-up capabilities"
           exit 1
       - name: Verify Carly follow-up/reset/UI-context quality
         env:
@@ -55,3 +69,4 @@ jobs:
           python tests/live_carly_followup_smoke_v2.py
           python tests/live_carly_reset_smoke.py
           python tests/live_carly_ui_context_smoke.py
+          python tests/live_carly_v56_decision_smoke.py

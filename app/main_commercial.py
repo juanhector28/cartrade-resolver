@@ -230,6 +230,22 @@ except Exception:
     pass
 
 
+def _runtime_followup_capabilities() -> dict[str, bool]:
+    """Report installed route capabilities instead of relying on a frozen version string."""
+    chat = next((r for r in getattr(app, "routes", []) if getattr(r, "path", None) == "/carly/chat"), None)
+    endpoint = getattr(chat, "endpoint", None) if chat is not None else None
+    buy = bool(getattr(endpoint, "_carly_v56_buy_decision", False))
+    model_endpoint = getattr(endpoint, "_carly_v56_prior", None) if buy else endpoint
+    model = bool(getattr(model_endpoint, "_carly_v55_model_intelligence", False))
+    more_endpoint = getattr(model_endpoint, "_carly_v55_prior", None) if model else model_endpoint
+    more = bool(getattr(more_endpoint, "_carly_v54_more_options", False))
+    return {
+        "buy_decision_precedence": buy,
+        "model_intelligence_precedence": model,
+        "more_options_precedence": more,
+    }
+
+
 @app.get("/carly/runtime")
 def carly_runtime():
     return {
@@ -241,6 +257,7 @@ def carly_runtime():
         "explore_quality_gate": True,
         "default_curated_recommendations": 3,
         "followup_max_tokens": 320,
+        **_runtime_followup_capabilities(),
         "git_commit": os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or None,
     }
 
