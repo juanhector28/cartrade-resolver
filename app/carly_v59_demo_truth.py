@@ -14,6 +14,7 @@ from . import carly_v58_conversation_scope as v58
 
 log = logging.getLogger("carly.v59")
 
+_CONTEXT_MARKER = "[CONTEXTO ACTIVO DE CARTRADE:"
 _STOPWORDS = {
     "busco","quiero","necesito","estoy","ando","buscando","un","una","el","la","de","en","y","o","con","para","por","entre","hasta",
     "usd","gt","sv","cr","pa","guatemala","salvador","costa","rica","panama","panamá","suv","pickup","pick-up","sedan","sedán",
@@ -23,6 +24,14 @@ _STOPWORDS = {
 _YEARISH = re.compile(r"^(19|20)\d{2}$")
 _NUMBERISH = re.compile(r"^[\d.,$]+k?$", re.I)
 _COUNTRY_NAMES = {"gt":"Guatemala","sv":"El Salvador","cr":"Costa Rica","pa":"Panamá"}
+
+
+def _visible_user_text(value: Any) -> str:
+    text = str(value or "")
+    idx = text.find(_CONTEXT_MARKER)
+    if idx >= 0:
+        text = text[:idx]
+    return text.strip()
 
 
 def _known_makes_normed() -> set[str]:
@@ -53,7 +62,7 @@ def _last_range(body: Any) -> tuple[float,float] | None:
     rng=None
     for m in v52._messages(body):
         if v52._role(m)!="user": continue
-        found=v52._price_range(v58._clean_user(v52._content(m)))
+        found=v52._price_range(_visible_user_text(v52._content(m)))
         if found: rng=found
     return rng
 
@@ -127,7 +136,7 @@ def _sanitize_user_context_inplace(body:Any)->Any:
     msgs=v52._messages(body)
     for m in msgs:
         if v52._role(m)!="user": continue
-        clean=v58._clean_user(v52._content(m))
+        clean=_visible_user_text(v52._content(m))
         if isinstance(m,dict): m["content"]=clean
         else:
             try: setattr(m,"content",clean)
@@ -151,7 +160,7 @@ def install(app:Any)->None:
             try:
                 users=[m for m in v52._messages(body) if v52._role(m)=="user"]
                 if users:
-                    latest=v58._clean_user(v52._content(users[-1])).strip(); token=_unknown_make_token(latest)
+                    latest=_visible_user_text(v52._content(users[-1])); token=_unknown_make_token(latest)
                     if token: return _no_inventory_reply(token,v52._country(body))
             except Exception: log.exception("Carly v59 unknown-make guard failed; falling through")
             return __prior(*args,**kwargs)
@@ -166,3 +175,4 @@ _probe_rng=v52._price_range("SUV confiable entre USD 15,000 y 25,000")
 if _probe_rng!=(15000.0,25000.0): raise RuntimeError(f"Carly v59 range parse regression: {_probe_rng!r}")
 _probe_ready={"country":"gt","messages":[{"role":"user","content":"Busco un SUV confiable entre USD 15,000 y 25,000 para trabajo diario"}]}
 if not _ready_to_search(_probe_ready): raise RuntimeError("Carly v59 ready-search regression")
+if _visible_user_text("Hola [CONTEXTO ACTIVO DE CARTRADE: radio=100km]") != "Hola": raise RuntimeError("Carly v59 context-strip regression")
