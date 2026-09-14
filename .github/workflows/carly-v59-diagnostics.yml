@@ -11,6 +11,7 @@ jobs:
       CARLY_VISION_INLINE_MAX: "0"
       CACHE_DB: /tmp/carly-v59-diag-cache.db
       TRUSTPLUS_DB: /tmp/carly-v59-diag-trustplus.db
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
