@@ -114,3 +114,8 @@ _v55_model_intelligence.install(app)
 # falling back to a generic pre-purchase checklist.
 from . import carly_v56_buy_decision as _v56_buy_decision
 _v56_buy_decision.install(app)
+
+# v57 makes search-radius metadata non-semantic. A frontend radius such as
+# "radio = 100 km" is market UI state, never buyer daily driving.
+from . import carly_v57_radius_context as _v57_radius_context
+_v57_radius_context.install()
