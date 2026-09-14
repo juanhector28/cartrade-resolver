@@ -13,7 +13,7 @@ from typing import Any
 
 from . import carly_fastpath as fastpath
 from . import main_v49 as v49
-from .atlas_freshness_api import freshness_cutoff_iso
+from .atlas_freshness_api import freshness_policy
 
 app = v49.app
 v48 = v49.v48
@@ -32,13 +32,15 @@ def _safe_focused_query_rows(c: dict[str, Any], country: str) -> list[dict]:
     if client is None:
         return []
     try:
+        fresh = freshness_policy(country)
+        cutoff = str(fresh["cutoff"])
         q = (
             client.table("scraped_listings").select(v31._SELECT)
             .eq("country", country)
             .eq("status", "staging")
             .eq("is_addressable", True)
             .eq("listing_state", "indexed")
-            .gte("last_seen_at", freshness_cutoff_iso())
+            .gte("last_seen_at", cutoff)
         )
         exact = c.get("exact")
         if exact:
@@ -68,8 +70,16 @@ def _safe_focused_query_rows(c: dict[str, Any], country: str) -> list[dict]:
         response = q.order("updated_at", desc=True).limit(900).execute()
         rows = [dict(r) for r in (response.data or [])]
         log.warning(
-            "CARLY_V50_SAFE_RETRIEVAL country=%s rows=%s cutoff=%s allowed_brands=%s monthly=%s",
-            country, len(rows), freshness_cutoff_iso(), allowed, c.get("monthly_max"),
+            "CARLY_V50_SAFE_RETRIEVAL country=%s rows=%s freshness_mode=%s cutoff=%s freeze_until=%s allowed_brands=%s monthly=%s total_budget=%s price_cap=%s",
+            country,
+            len(rows),
+            fresh.get("mode"),
+            cutoff,
+            fresh.get("freeze_until"),
+            allowed,
+            c.get("monthly_max"),
+            c.get("total_budget"),
+            round(price_cap, 2) if price_cap else None,
         )
         return rows
     except Exception:
