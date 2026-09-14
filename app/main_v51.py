@@ -119,3 +119,9 @@ _v56_buy_decision.install(app)
 # "radio = 100 km" is market UI state, never buyer daily driving.
 from . import carly_v57_radius_context as _v57_radius_context
 _v57_radius_context.install()
+
+# v58 restores Carly's original conversational contract: a make/model preference
+# is not enough to skip intake, and later scope changes such as "Cualquier Toyota"
+# replace stale exact-model constraints instead of inheriting them forever.
+from . import carly_v58_conversation_scope as _v58_conversation_scope
+_v58_conversation_scope.install(app)
