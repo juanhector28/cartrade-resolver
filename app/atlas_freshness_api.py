@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
 
 
 FRESHNESS_CONTRACT_VERSION = 1
+_GT_FREEZE_CUTOFF_ENV = "ATLAS_GT_DEMO_FREEZE_CUTOFF"
+_GT_FREEZE_UNTIL_ENV = "ATLAS_GT_DEMO_FREEZE_UNTIL"
 
 
 def _now() -> datetime:
@@ -28,8 +30,52 @@ def freshness_max_age_seconds() -> int:
     return max(60, int(os.getenv("ATLAS_SEARCH_FRESHNESS_MAX_AGE_SECONDS", "86400")))
 
 
-def freshness_cutoff_iso() -> str:
-    return (_now() - timedelta(seconds=freshness_max_age_seconds())).isoformat()
+def _parse_utc(value: str | None) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def freshness_policy(country: str | None = None, *, now: datetime | None = None) -> dict[str, Any]:
+    """Return the effective freshness cutoff and why it is in force.
+
+    Normal search freshness remains rolling. During the deliberately frozen GT
+    demo window, only GT may use a fixed cutoff, and only until an explicit hard
+    expiry. This prevents a certified snapshot from aging out merely because the
+    harvest is intentionally frozen without broadening freshness elsewhere.
+    """
+    current = (now or _now()).astimezone(timezone.utc)
+    rolling = current - timedelta(seconds=freshness_max_age_seconds())
+    normalized_country = str(country or "").strip().lower()
+
+    if normalized_country == "gt":
+        pinned = _parse_utc(os.getenv(_GT_FREEZE_CUTOFF_ENV))
+        until = _parse_utc(os.getenv(_GT_FREEZE_UNTIL_ENV))
+        if pinned and until and pinned <= current <= until:
+            return {
+                "mode": "gt_demo_freeze_pin",
+                "cutoff": pinned.isoformat(),
+                "freeze_until": until.isoformat(),
+                "max_age_seconds": freshness_max_age_seconds(),
+            }
+
+    return {
+        "mode": "rolling",
+        "cutoff": rolling.isoformat(),
+        "freeze_until": None,
+        "max_age_seconds": freshness_max_age_seconds(),
+    }
+
+
+def freshness_cutoff_iso(country: str | None = None, *, now: datetime | None = None) -> str:
+    return str(freshness_policy(country, now=now)["cutoff"])
 
 
 def _require_token(provided: str | None) -> None:
@@ -109,6 +155,7 @@ def install(app: Any, supabase: Any) -> None:
             "clock_field": "last_seen_at",
             "max_age_seconds": freshness_max_age_seconds(),
             "cutoff": freshness_cutoff_iso(),
+            "gt_demo_policy": freshness_policy("gt"),
             "test_mutation_enabled": os.getenv("ATLAS_FRESHNESS_TEST_MUTATION_ENABLED", "0") == "1",
         }
 
