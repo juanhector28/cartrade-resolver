@@ -1,0 +1,22 @@
+name: Carly v59 diagnostics
+on:
+  push:
+    branches: [carly-v59-diagnostics]
+  workflow_dispatch:
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    env:
+      CARLY_VISION_JIT_ENABLED: "0"
+      CARLY_VISION_INLINE_MAX: "0"
+      CACHE_DB: /tmp/carly-v59-diag-cache.db
+      TRUSTPLUS_DB: /tmp/carly-v59-diag-trustplus.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Dump exact constraints
+        run: python scripts/carly_v59_diag_constraints.py
