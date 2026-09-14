@@ -118,7 +118,7 @@ _v56_buy_decision.install(app)
 # v57 makes search-radius metadata non-semantic. A frontend radius such as
 # "radio = 100 km" is market UI state, never buyer daily driving.
 from . import carly_v57_radius_context as _v57_radius_context
-_v57_radius_context.install()
+_v57_radius_context.install(app)
 
 # v58 restores Carly's original conversational contract: a make/model preference
 # is not enough to skip intake, and later scope changes such as "Cualquier Toyota"
@@ -130,3 +130,8 @@ _v58_conversation_scope.install(app)
 # makes, and makes explicit price ranges authoritative at retrieval time.
 from . import carly_v59_demo_truth as _v59_demo_truth
 _v59_demo_truth.install(app)
+
+# Fail-closed insurance for a mechanically empty focused query. It is constrained
+# to the exact GT certified universe and emits a loud activation log every time.
+from . import carly_v59_safe_fallback as _v59_safe_fallback
+_v59_safe_fallback.install()
