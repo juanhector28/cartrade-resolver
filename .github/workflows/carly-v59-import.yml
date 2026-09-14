@@ -1,0 +1,28 @@
+name: Carly v59 import guard
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  import-real-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Import v59 against real v31/v28/v46/v50 stack
+        env:
+          CACHE_DB: /tmp/carly-v59-cache.db
+          TRUSTPLUS_DB: /tmp/carly-v59-trustplus.db
+          CARLY_VISION_JIT_ENABLED: "0"
+          CARLY_VISION_INLINE_MAX: "0"
+        run: python -m pytest -q tests/test_carly_v59_import.py

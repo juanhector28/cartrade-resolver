@@ -125,3 +125,8 @@ _v57_radius_context.install()
 # replace stale exact-model constraints instead of inheriting them forever.
 from . import carly_v58_conversation_scope as _v58_conversation_scope
 _v58_conversation_scope.install(app)
+
+# v59 is the demo-truth capsule. It sits outermost, fails honestly for unknown
+# makes, and makes explicit price ranges authoritative at retrieval time.
+from . import carly_v59_demo_truth as _v59_demo_truth
+_v59_demo_truth.install(app)
