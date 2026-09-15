@@ -1,0 +1,22 @@
+name: Carly v59 golden live
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run 19 golden checks against production
+        env:
+          CARLY_URL: https://cartrade-resolver.onrender.com
+        run: python scripts/carly_golden_demo_tests.py
