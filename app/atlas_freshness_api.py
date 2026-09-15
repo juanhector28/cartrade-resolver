@@ -30,6 +30,22 @@ def freshness_max_age_seconds() -> int:
     return max(60, int(os.getenv("ATLAS_SEARCH_FRESHNESS_MAX_AGE_SECONDS", "86400")))
 
 
+def effective_search_country(country: str | None = None, source_id: str | None = None) -> str | None:
+    """Normalize an explicit market or infer it from Atlas provenance.
+
+    The public frontend supplies two-letter market ids (for example ``gt``), but
+    source-scoped certification probes historically omitted ``country`` and sent
+    only ``source_id=gt-...``. Search freshness must use the same market policy
+    in both cases or a frozen certified cohort can age out of one path while
+    remaining valid in another.
+    """
+    explicit = str(country or "").strip().lower()
+    if explicit:
+        return explicit
+    match = re.match(r"^([a-z]{2})-", str(source_id or "").strip().lower())
+    return match.group(1) if match else None
+
+
 def _parse_utc(value: str | None) -> datetime | None:
     raw = str(value or "").strip()
     if not raw:
@@ -160,7 +176,7 @@ def install(app: Any, supabase: Any) -> None:
         }
 
     @app.post("/atlas/freshness/revalidate")
-    async def atlas_freshness_revalidate(
+    async def atlas_active_freshness_revalidate(
         body: FreshnessRevalidateRequest,
         x_atlas_token: str | None = Header(default=None),
     ):
@@ -225,7 +241,7 @@ def install(app: Any, supabase: Any) -> None:
         }
 
     @app.post("/atlas/freshness/test-age")
-    def atlas_freshness_test_age(
+    def atlas_active_freshness_test_age(
         body: FreshnessAgeFixtureRequest,
         x_atlas_token: str | None = Header(default=None),
     ):
