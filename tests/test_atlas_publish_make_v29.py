@@ -55,3 +55,15 @@ def test_current_valid_row_without_rollback_remains_publish_candidate():
         }
     }
     assert _publish_rollback_quarantined(row) is False
+
+
+def test_publisher_contract_rejects_description_placeholder_model():
+    row = _row("Honda")
+    row["model"] = "Descripción"
+    assert is_valid_listing(row) is False
+
+
+def test_publisher_contract_rejects_generic_model_placeholder():
+    row = _row("Toyota")
+    row["model"] = "Modelo"
+    assert is_valid_listing(row) is False
