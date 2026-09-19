@@ -526,6 +526,11 @@ class AtlasManifestRunner:
             "persist": persist,
             "addressable": False,
             "elapsed_seconds": round(elapsed, 2),
+            "observed_urls": [
+                str(item.get("url"))
+                for item in valid
+                if item.get("url")
+            ],
             "sample": [
                 {k: v for k, v in item.items() if not k.startswith("_")}
                 for item in valid[:5]
