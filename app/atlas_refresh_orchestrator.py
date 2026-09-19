@@ -211,6 +211,15 @@ async def refresh_source_once(
     if not source.get("active", True):
         return {"source_id": source_id, "result": "skipped_inactive"}
 
+    # The runtime ledger is an allowed bootstrap source, not the long-term
+    # registry. Promote a recovered manifest immediately so future scheduler
+    # cycles do not depend on historical job retention.
+    if source.get("registry_backend") == "atlas_runtime_jobs_fallback":
+        source = put_source(
+            supabase,
+            {k: v for k, v in source.items() if not k.startswith("registry_")},
+        )
+
     manifest = source.get("manifest")
     if not isinstance(manifest, dict) or not manifest:
         raise HTTPException(status_code=409, detail="atlas_source_manifest_missing")
@@ -249,12 +258,23 @@ async def refresh_source_once(
             persist=True,
         )
         quality = run_result.get("activation_quality") if isinstance(run_result.get("activation_quality"), dict) else {}
-        if not run_result.get("ok"):
-            raise RuntimeError(f"run_source_failed:{run_result}")
+        min_listings = max(1, int(source.get("min_listings") or 10))
+        observed = _observed_urls(run_result)
+        # A refresh can legitimately save zero shadow rows when every observed
+        # URL is already production-owned by this exact source. Treat live
+        # extraction evidence as the gate; writes are not proof of freshness.
+        run_evidence_ok = bool(
+            len(observed) >= min_listings
+            and int(run_result.get("valid_listings") or 0) >= min_listings
+            and float(run_result.get("required_success_pct") or 0) >= 20
+            and not (run_result.get("save_errors") or [])
+        )
+        if not run_evidence_ok:
+            raise RuntimeError(f"run_source_evidence_failed:{run_result}")
         if quality and not quality.get("eligible"):
             raise RuntimeError(f"activation_quality_failed:{quality}")
 
-        observed = _observed_urls(run_result)
+
         touched = _refresh_observed_existing(
             supabase,
             source_id=source_id,
@@ -277,7 +297,6 @@ async def refresh_source_once(
             )
 
         natural_key = f"publish:{source_id}:{manifest_version}"
-        min_listings = max(1, int(source.get("min_listings") or 10))
         dry_req = AtlasPublishRequest(
             source_id=source_id,
             manifest_version=manifest_version,
