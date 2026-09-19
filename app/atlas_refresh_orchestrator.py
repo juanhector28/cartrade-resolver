@@ -448,10 +448,19 @@ def install(app: Any, supabase: Any, runner: Any, require_token) -> None:
     @app.on_event("startup")
     async def _atlas_refresh_scheduler_startup():
         async def loop():
+            print("ATLAS_REFRESH_SCHEDULER_STARTED=" + str({
+                "version": 32,
+                "poll_seconds": poll_seconds,
+            }), flush=True)
             await asyncio.sleep(5)
             while True:
                 try:
-                    for source in list_sources(supabase):
+                    sources = list_sources(supabase)
+                    print("ATLAS_REFRESH_SCHEDULER_POLL=" + str({
+                        "source_count": len(sources),
+                        "sources": [str(s.get("source_id") or "") for s in sources],
+                    }), flush=True)
+                    for source in sources:
                         source_id = str(source.get("source_id") or "")
                         if not source_id or not source.get("active", True) or source_id in _REFRESH_RUNNING:
                             continue
@@ -459,17 +468,31 @@ def install(app: Any, supabase: Any, runner: Any, require_token) -> None:
                         if manifest_version < 1:
                             continue
                         snapshot = source_snapshot(supabase, source_id, manifest_version)
-                        if not source_is_due(snapshot, int(source.get("cadence_seconds") or 86400)):
+                        due = source_is_due(snapshot, int(source.get("cadence_seconds") or 86400))
+                        print("ATLAS_REFRESH_SOURCE_CHECK=" + str({
+                            "source_id": source_id,
+                            "manifest_version": manifest_version,
+                            "due": due,
+                            "snapshot": snapshot,
+                        }), flush=True)
+                        if not due:
                             continue
                         _REFRESH_RUNNING.add(source_id)
                         try:
-                            await refresh_source_once(supabase, runner, source_id, force=True)
+                            result = await refresh_source_once(supabase, runner, source_id, force=True)
+                            print("ATLAS_REFRESH_PUBLISHED=" + str({
+                                "source_id": source_id,
+                                "result": result.get("result"),
+                                "receipt_id": (result.get("canonical") or {}).get("receipt_id"),
+                                "count": (result.get("publish") or {}).get("final_addressable_count"),
+                            }), flush=True)
                         except Exception as exc:
-                            print("ATLAS_REFRESH_FAILED=" + str({"source_id": source_id, "error": str(exc)[:500]}), flush=True)
+                            print("ATLAS_REFRESH_FAILED=" + str({"source_id": source_id, "error": str(exc)[:1000]}), flush=True)
                         finally:
                             _REFRESH_RUNNING.discard(source_id)
                 except Exception as exc:
-                    print("ATLAS_REFRESH_SCHEDULER_ERROR=" + str(exc)[:500], flush=True)
+                    print("ATLAS_REFRESH_SCHEDULER_ERROR=" + str(exc)[:1000], flush=True)
                 await asyncio.sleep(poll_seconds)
 
-        asyncio.create_task(loop())
+        task = asyncio.create_task(loop())
+        app.state._atlas_refresh_scheduler_task_v32 = task
