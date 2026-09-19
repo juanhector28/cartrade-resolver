@@ -17,6 +17,7 @@ import random
 import asyncio
 import sqlite3
 import logging
+import inspect
 import httpx
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -447,10 +448,31 @@ def build_why(car: dict, it: Intent) -> str:
     return " · ".join(bits) + "."
 
 
+async def _run_registered_lifecycle_handlers(handlers):
+    """Run FastAPI legacy lifecycle handlers when a custom lifespan is active.
+
+    FastAPI treats a custom lifespan as an alternative to startup/shutdown
+    events. Atlas durable-job recovery and refresh orchestration are registered
+    through those events, so the production lifespan must bridge them explicitly.
+    """
+    for handler in list(handlers or []):
+        result = handler()
+        if inspect.isawaitable(result):
+            await result
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cache.init_db()
-    yield
+    if not getattr(app.state, "_legacy_startup_handlers_ran", False):
+        await _run_registered_lifecycle_handlers(app.router.on_startup)
+        app.state._legacy_startup_handlers_ran = True
+    try:
+        yield
+    finally:
+        if not getattr(app.state, "_legacy_shutdown_handlers_ran", False):
+            await _run_registered_lifecycle_handlers(app.router.on_shutdown)
+            app.state._legacy_shutdown_handlers_ran = True
 
 
 app = FastAPI(title="CarTrade Link Resolver", version="1.5.0", lifespan=lifespan)
