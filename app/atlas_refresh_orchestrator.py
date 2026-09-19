@@ -10,6 +10,7 @@ from fastapi import Header, HTTPException
 from pydantic import BaseModel, Field
 
 from .atlas_canonical_verifier import CanonicalVerifyRequest, verify_and_write
+from .atlas_listing_validity import is_valid_listing
 from .atlas_publish_api import AtlasPublishRequest, publish_source
 from .atlas_source_registry import list_sources, put_source, resolve_source
 
@@ -30,11 +31,20 @@ def _atlas_meta(row: dict[str, Any] | None) -> dict[str, Any]:
     return atlas if isinstance(atlas, dict) else {}
 
 
-def _exact_staging_rows(supabase: Any, source_id: str, manifest_version: int) -> list[dict[str, Any]]:
+def _exact_rows(
+    supabase: Any,
+    source_id: str,
+    manifest_version: int,
+    *,
+    status: str,
+) -> list[dict[str, Any]]:
     rows = (
         supabase.table("scraped_listings")
-        .select("id,url,status,listing_state,is_addressable,last_seen_at,updated_at,raw_payload")
-        .eq("status", "staging")
+        .select(
+            "id,url,status,listing_state,is_addressable,last_seen_at,updated_at,"
+            "raw_payload,make,model,year,price_usd"
+        )
+        .eq("status", status)
         .contains("raw_payload", {"atlas": {"source_id": source_id}})
         .limit(5000)
         .execute().data or []
@@ -44,6 +54,24 @@ def _exact_staging_rows(supabase: Any, source_id: str, manifest_version: int) ->
         if _atlas_meta(row).get("source_id") == source_id
         and int(_atlas_meta(row).get("manifest_version") or 0) == manifest_version
     ]
+
+
+def _exact_staging_rows(supabase: Any, source_id: str, manifest_version: int) -> list[dict[str, Any]]:
+    return _exact_rows(
+        supabase,
+        source_id,
+        manifest_version,
+        status="staging",
+    )
+
+
+def _exact_shadow_rows(supabase: Any, source_id: str, manifest_version: int) -> list[dict[str, Any]]:
+    return _exact_rows(
+        supabase,
+        source_id,
+        manifest_version,
+        status="atlas_shadow",
+    )
 
 
 def source_snapshot(supabase: Any, source_id: str, manifest_version: int) -> dict[str, Any]:
@@ -158,6 +186,63 @@ def _retire_missing_existing(
     return retired
 
 
+def _quarantine_invalid_shadow_candidates(
+    supabase: Any,
+    *,
+    source_id: str,
+    manifest_version: int,
+) -> dict[str, Any]:
+    """Fail closed on exact-source shadows that cannot be real listings.
+
+    Publisher coverage should measure the candidate vehicle cohort, not obvious
+    navigation pages or incomplete/placeholder vehicle rows. Invalid shadows are
+    retained for audit but explicitly quarantined with rollback metadata so the
+    publisher excludes them from future candidate cohorts.
+    """
+    now = _now_iso()
+    quarantined: list[str] = []
+    for row in _exact_shadow_rows(supabase, source_id, manifest_version):
+        atlas = _atlas_meta(row)
+        rollback = atlas.get("publish_rollback")
+        if isinstance(rollback, dict) and rollback.get("reason"):
+            continue
+        if is_valid_listing(row):
+            continue
+
+        raw = row.get("raw_payload") if isinstance(row.get("raw_payload"), dict) else {}
+        raw = dict(raw)
+        atlas = dict(atlas)
+        atlas["publish_rollback"] = {
+            "reason": "invalid_listing_current_refresh",
+            "at": now,
+            "source_id": source_id,
+            "manifest_version": manifest_version,
+        }
+        raw["atlas"] = atlas
+        response = (
+            supabase.table("scraped_listings")
+            .update({
+                "listing_state": "rejected",
+                "raw_payload": raw,
+                "updated_at": now,
+            })
+            .eq("id", row["id"])
+            .eq("status", "atlas_shadow")
+            .contains(
+                "raw_payload",
+                {"atlas": {"source_id": source_id, "manifest_version": manifest_version}},
+            )
+            .execute()
+        )
+        if response.data:
+            quarantined.append(str(row.get("url") or ""))
+
+    return {
+        "count": len(quarantined),
+        "urls": quarantined[:100],
+    }
+
+
 def _record_publish_job(
     supabase: Any,
     *,
@@ -192,7 +277,13 @@ def _record_publish_job(
 def _write_registry_outcome(supabase: Any, source: dict[str, Any], **updates: Any) -> None:
     if source.get("registry_backend") != "registry_private_config":
         return
-    payload = {k: v for k, v in source.items() if not k.startswith("registry_")}
+    current = resolve_source(supabase, str(source.get("source_id") or ""))
+    base = (
+        current
+        if current and current.get("registry_backend") == "registry_private_config"
+        else source
+    )
+    payload = {k: v for k, v in base.items() if not k.startswith("registry_")}
     payload.update(updates)
     put_source(supabase, payload)
 
@@ -229,7 +320,8 @@ async def refresh_source_once(
 
     before = source_snapshot(supabase, source_id, manifest_version)
     cadence_seconds = max(300, int(source.get("cadence_seconds") or 86400))
-    if not force and not source_is_due(before, cadence_seconds):
+    retry_failed = str(source.get("last_refresh_status") or "").strip().lower() == "failed"
+    if not force and not retry_failed and not source_is_due(before, cadence_seconds):
         return {
             "source_id": source_id,
             "manifest_version": manifest_version,
@@ -296,6 +388,12 @@ async def refresh_source_once(
                 observed_urls=observed,
             )
 
+        quarantined = _quarantine_invalid_shadow_candidates(
+            supabase,
+            source_id=source_id,
+            manifest_version=manifest_version,
+        )
+
         natural_key = f"publish:{source_id}:{manifest_version}"
         dry_req = AtlasPublishRequest(
             source_id=source_id,
@@ -354,7 +452,12 @@ async def refresh_source_once(
                 "observed_count": len(observed),
                 "full_observation": full_observation,
             },
-            "reconciled": {"touched_existing": touched, "retired_missing": retired},
+            "reconciled": {
+                "touched_existing": touched,
+                "retired_missing": retired,
+                "quarantined_invalid": quarantined["count"],
+                "quarantined_invalid_urls": quarantined["urls"],
+            },
             "publish": {
                 "final_addressable_count": expected_count,
                 "promoted_count": published.get("promoted_count"),
@@ -468,11 +571,16 @@ def install(app: Any, supabase: Any, runner: Any, require_token) -> None:
                         if manifest_version < 1:
                             continue
                         snapshot = source_snapshot(supabase, source_id, manifest_version)
-                        due = source_is_due(snapshot, int(source.get("cadence_seconds") or 86400))
+                        retry_failed = str(source.get("last_refresh_status") or "").strip().lower() == "failed"
+                        due = retry_failed or source_is_due(
+                            snapshot,
+                            int(source.get("cadence_seconds") or 86400),
+                        )
                         print("ATLAS_REFRESH_SOURCE_CHECK=" + str({
                             "source_id": source_id,
                             "manifest_version": manifest_version,
                             "due": due,
+                            "retry_failed": retry_failed,
                             "snapshot": snapshot,
                         }), flush=True)
                         if not due:
