@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Iterable
 import re
+import unicodedata
 from urllib.parse import urlparse
 
 CORE_FIELDS = ("make", "model", "year", "price_usd")
@@ -41,7 +42,9 @@ _PLACEHOLDER_MODELS = {
 
 
 def _normalized_model(value: Any) -> str:
-    text = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch)).lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text).strip()
     return re.sub(r"\s+", " ", text)
 
 
