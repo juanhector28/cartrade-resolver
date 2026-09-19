@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Iterable
 import re
+import unicodedata
 from urllib.parse import urlparse
 
 CORE_FIELDS = ("make", "model", "year", "price_usd")
@@ -32,6 +33,20 @@ def _normalized_make(value: Any) -> str:
 
 def _plausible_make(value: Any) -> bool:
     return _normalized_make(value) in _PLAUSIBLE_MAKES
+
+
+_PLACEHOLDER_MODELS = {
+    "description", "descripcion", "details", "detalle", "model", "modelo",
+    "vehicle", "vehiculo",
+}
+
+
+def _normalized_model(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch)).lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text).strip()
+    return re.sub(r"\s+", " ", text)
+
 
 _CATEGORY_PATH_PATTERNS = (
     re.compile(r"^/(?:buscador|buscar|search)/(?:marca|brand)/[^/]+/?$", re.I),
@@ -64,6 +79,8 @@ def is_valid_listing(row: dict[str, Any] | None, *, current_year: int | None = N
     if not all(_nonempty(row.get(field)) for field in CORE_FIELDS):
         return False
     if not _plausible_make(row.get("make")):
+        return False
+    if _normalized_model(row.get("model")) in _PLACEHOLDER_MODELS:
         return False
 
     try:

@@ -6,6 +6,7 @@ on:
       - "app/atlas_manifest_runner.py"
       - "app/atlas_source_registry.py"
       - "app/atlas_refresh_orchestrator.py"
+      - "app/atlas_listing_validity.py"
       - "resolver_patch_atlas_v32.py"
       - "Dockerfile"
       - "tests/test_atlas_refresh_orchestrator_v32.py"
@@ -24,6 +25,6 @@ jobs:
           cache: pip
       - run: python -m pip install -r requirements.txt pytest
       - name: Compile Atlas v32
-        run: python -m py_compile app/atlas_manifest_runner.py app/atlas_source_registry.py app/atlas_refresh_orchestrator.py resolver_patch_atlas_v32.py
+        run: python -m py_compile app/atlas_manifest_runner.py app/atlas_source_registry.py app/atlas_refresh_orchestrator.py app/atlas_listing_validity.py resolver_patch_atlas_v32.py
       - name: Run Atlas v32 tests
-        run: python -m pytest -q tests/test_atlas_refresh_orchestrator_v32.py
+        run: python -m pytest -q tests/test_atlas_refresh_orchestrator_v32.py tests/test_atlas_publish_make_v29.py
