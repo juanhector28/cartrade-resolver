@@ -47,3 +47,10 @@ def test_v32_is_wired_after_v31():
     patch = Path("resolver_patch_atlas_v32.py").read_text(encoding="utf-8")
     assert "ATLAS_REFRESH_ORCHESTRATOR_V32" in patch
     assert "_install_atlas_refresh_orchestrator" in patch
+
+
+def test_scheduler_keeps_strong_task_reference():
+    source = Path("app/atlas_refresh_orchestrator.py").read_text(encoding="utf-8")
+    assert "app.state._atlas_refresh_scheduler_task_v32 = task" in source
+    assert "ATLAS_REFRESH_SCHEDULER_STARTED" in source
+    assert "ATLAS_REFRESH_SCHEDULER_POLL" in source
