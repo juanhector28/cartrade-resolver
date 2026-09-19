@@ -61,3 +61,17 @@ def test_custom_lifespan_bridges_registered_startup_handlers():
     assert "await _run_registered_lifecycle_handlers(app.router.on_startup)" in main_source
     assert "await _run_registered_lifecycle_handlers(app.router.on_shutdown)" in main_source
     assert "_legacy_startup_handlers_ran" in main_source
+
+
+def test_failed_refresh_is_retryable_and_invalid_shadows_are_quarantined():
+    source = Path("app/atlas_refresh_orchestrator.py").read_text(encoding="utf-8")
+    assert 'retry_failed = str(source.get("last_refresh_status") or "").strip().lower() == "failed"' in source
+    assert "due = retry_failed or source_is_due(" in source
+    assert "_quarantine_invalid_shadow_candidates(" in source
+    assert '"reason": "invalid_listing_current_refresh"' in source
+    assert '"quarantined_invalid": quarantined["count"]' in source
+
+
+def test_registry_outcome_preserves_existing_lifecycle_fields():
+    source = Path("app/atlas_refresh_orchestrator.py").read_text(encoding="utf-8")
+    assert 'current = resolve_source(supabase, str(source.get("source_id") or ""))' in source
