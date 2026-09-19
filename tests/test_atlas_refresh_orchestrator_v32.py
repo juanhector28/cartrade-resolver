@@ -54,3 +54,10 @@ def test_scheduler_keeps_strong_task_reference():
     assert "app.state._atlas_refresh_scheduler_task_v32 = task" in source
     assert "ATLAS_REFRESH_SCHEDULER_STARTED" in source
     assert "ATLAS_REFRESH_SCHEDULER_POLL" in source
+
+
+def test_custom_lifespan_bridges_registered_startup_handlers():
+    main_source = Path("app/main.py").read_text(encoding="utf-8")
+    assert "await _run_registered_lifecycle_handlers(app.router.on_startup)" in main_source
+    assert "await _run_registered_lifecycle_handlers(app.router.on_shutdown)" in main_source
+    assert "_legacy_startup_handlers_ran" in main_source
