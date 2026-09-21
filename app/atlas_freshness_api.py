@@ -74,13 +74,26 @@ def freshness_policy(country: str | None = None, *, now: datetime | None = None)
     if normalized_country == "gt":
         pinned = _parse_utc(os.getenv(_GT_FREEZE_CUTOFF_ENV))
         until = _parse_utc(os.getenv(_GT_FREEZE_UNTIL_ENV))
-        if pinned and until and pinned <= current <= until:
-            return {
-                "mode": "gt_demo_freeze_pin",
-                "cutoff": pinned.isoformat(),
-                "freeze_until": until.isoformat(),
-                "max_age_seconds": freshness_max_age_seconds(),
-            }
+        if pinned and until:
+            effective_until = until
+            mode = "gt_demo_freeze_pin"
+            if current > until:
+                emergency_until = _parse_utc(
+                    os.getenv(
+                        _GT_FREEZE_EMERGENCY_UNTIL_ENV,
+                        _GT_FREEZE_EMERGENCY_UNTIL_DEFAULT,
+                    )
+                )
+                if emergency_until and current <= emergency_until:
+                    effective_until = emergency_until
+                    mode = "gt_demo_emergency_extension"
+            if pinned <= current <= effective_until:
+                return {
+                    "mode": mode,
+                    "cutoff": pinned.isoformat(),
+                    "freeze_until": effective_until.isoformat(),
+                    "max_age_seconds": freshness_max_age_seconds(),
+                }
 
     return {
         "mode": "rolling",
