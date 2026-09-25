@@ -42,8 +42,8 @@ def test_freeze_pin_is_gt_only_and_hard_expires(monkeypatch):
     monkeypatch.setenv("ATLAS_GT_DEMO_FREEZE_UNTIL", "2026-09-16T23:59:59+00:00")
 
     during = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
-    emergency = datetime(2026, 9, 21, 12, 0, tzinfo=timezone.utc)
-    after = datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
+    emergency = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
+    after = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 
     assert freshness_policy("gt", now=during)["mode"] == "gt_demo_freeze_pin"
     assert freshness_policy("sv", now=during)["mode"] == "rolling"
@@ -51,6 +51,6 @@ def test_freeze_pin_is_gt_only_and_hard_expires(monkeypatch):
     emergency_policy = freshness_policy("gt", now=emergency)
     assert emergency_policy["mode"] == "gt_demo_emergency_extension"
     assert emergency_policy["cutoff"] == "2026-09-12T18:00:00+00:00"
-    assert emergency_policy["freeze_until"] == "2026-09-22T23:59:59+00:00"
+    assert emergency_policy["freeze_until"] == "2026-09-30T23:59:59+00:00"
 
     assert freshness_policy("gt", now=after)["mode"] == "rolling"
