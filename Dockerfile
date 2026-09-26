@@ -50,6 +50,8 @@ COPY resolver_patch_atlas_v31.py /tmp/resolver_patch_atlas_v31.py
 RUN python /tmp/resolver_patch_atlas_v31.py && rm /tmp/resolver_patch_atlas_v31.py
 COPY resolver_patch_atlas_v32.py /tmp/resolver_patch_atlas_v32.py
 RUN python /tmp/resolver_patch_atlas_v32.py && rm /tmp/resolver_patch_atlas_v32.py
+COPY resolver_patch_carly_v60_body_fallback.py /tmp/resolver_patch_carly_v60_body_fallback.py
+RUN python /tmp/resolver_patch_carly_v60_body_fallback.py && rm /tmp/resolver_patch_carly_v60_body_fallback.py
 
 RUN mkdir -p /data
 ENV CACHE_DB=/data/resolver_cache.db
