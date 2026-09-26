@@ -9,33 +9,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify selected SV listings live
+      - name: Verify alternate SV sources
         run: |
           python - <<'PY'
           import urllib.request, urllib.error, re
-          listings=[
-            (2082272,"https://www.encuentra24.com/el-salvador-es/autos-usados/toyota-raize/33014736","Toyota","Raize","2025"),
-            (1993304,"https://www.encuentra24.com/el-salvador-es/autos-usados/honda-hrv-2025/32996677","Honda","HR-V","2025"),
-            (2032288,"https://www.encuentra24.com/el-salvador-es/autos-usados/vendomitsubishi-outlander-sport-4wd-ano-2024/33007783","Mitsubishi","Outlander","2024"),
-            (2012942,"https://www.encuentra24.com/el-salvador-es/autos-usados/mitsubishi-outlander-sport-2024-se-bolsas-buenas-todas-awd-4x4/33002766","Mitsubishi","Outlander","2024"),
-            (2032296,"https://www.encuentra24.com/el-salvador-es/autos-usados/venta-directa/33008007","Honda","HR-V","2025"),
-            (983008,"https://www.encuentra24.com/el-salvador-es/autos-usados/vendo-nissan-kicks-s-2025/32802295","Nissan","Kicks","2025"),
-            (1026015,"https://www.encuentra24.com/el-salvador-es/autos-usados/honda-hr-v-2025/32802233","Honda","HR-V","2025"),
-            (1702568,"https://www.encuentra24.com/el-salvador-es/autos-usados/mitsubishi-outlander-se-3-filas-de-asientos-2022/32924456","Mitsubishi","Outlander","2022"),
+          tests=[
+            (1753705,"https://www.carroselsalvador.com/anuncios/kia-sportage-2006/","sportage"),
+            (1753695,"https://www.carroselsalvador.com/anuncios/ford-escape-2015-2/","escape"),
+            (1932619,"https://www.carroselsalvador.com/anuncios/bmw-x5-2011-ambulancias-ahuachapan-3434/","x5"),
+            (1183121,"https://www.disazautos.com/product-page/honda-hr-v-exl-2025-awd","hr-v"),
+            (1183128,"https://www.disazautos.com/product-page/mazda-cx-30-select-2023-awd","cx-30"),
+            (1183117,"https://www.disazautos.com/product-page/chevrolet-trax-lt-2021-awd","trax"),
           ]
-          hdr={"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36","Accept-Language":"es-SV,es;q=0.9,en;q=0.7"}
-          for id,url,make,model,year in listings:
+          hdr={"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36","Accept-Language":"es-SV,es;q=0.9"}
+          for id,url,needle in tests:
               try:
                   req=urllib.request.Request(url,headers=hdr)
-                  with urllib.request.urlopen(req,timeout=20) as r:
-                      raw=r.read(800000).decode("utf-8","ignore")
-                      norm=re.sub(r"[^a-z0-9]+"," ",raw.lower())
-                      mt=make.lower().replace("-"," ")
-                      mod=model.lower().replace("-"," ")
-                      ok=(r.status==200 and year in raw and (mt.split()[0] in norm) and any(tok in norm for tok in mod.split() if len(tok)>=3))
-                      print("VERIFY",id,"HTTP",r.status,"OK",ok,"FINAL",r.geturl(),"MAKE",make,"MODEL",model,"YEAR",year,"LEN",len(raw))
+                  with urllib.request.urlopen(req,timeout=25) as r:
+                      raw=r.read(1000000).decode("utf-8","ignore").lower()
+                      compact=re.sub(r"[^a-z0-9]+","",raw)
+                      want=re.sub(r"[^a-z0-9]+","",needle.lower())
+                      ok=r.status==200 and want in compact
+                      print("VERIFY",id,"HTTP",r.status,"OK",ok,"NEEDLE",needle,"FINAL",r.geturl(),"LEN",len(raw))
               except urllib.error.HTTPError as e:
-                  print("VERIFY",id,"HTTPERR",e.code,"OK",False,"URL",url)
+                  print("VERIFY",id,"HTTPERR",e.code,"OK",False)
               except Exception as e:
-                  print("VERIFY",id,"ERR",repr(e),"OK",False,"URL",url)
+                  print("VERIFY",id,"ERR",repr(e),"OK",False)
           PY
