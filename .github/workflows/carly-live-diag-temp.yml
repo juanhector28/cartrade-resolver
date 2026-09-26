@@ -9,30 +9,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify alternate SV sources
+      - name: Verify SV Carly after live source refresh
         run: |
           python - <<'PY'
-          import urllib.request, urllib.error, re
-          tests=[
-            (1753705,"https://www.carroselsalvador.com/anuncios/kia-sportage-2006/","sportage"),
-            (1753695,"https://www.carroselsalvador.com/anuncios/ford-escape-2015-2/","escape"),
-            (1932619,"https://www.carroselsalvador.com/anuncios/bmw-x5-2011-ambulancias-ahuachapan-3434/","x5"),
-            (1183121,"https://www.disazautos.com/product-page/honda-hr-v-exl-2025-awd","hr-v"),
-            (1183128,"https://www.disazautos.com/product-page/mazda-cx-30-select-2023-awd","cx-30"),
-            (1183117,"https://www.disazautos.com/product-page/chevrolet-trax-lt-2021-awd","trax"),
-          ]
-          hdr={"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36","Accept-Language":"es-SV,es;q=0.9"}
-          for id,url,needle in tests:
-              try:
-                  req=urllib.request.Request(url,headers=hdr)
-                  with urllib.request.urlopen(req,timeout=25) as r:
-                      raw=r.read(1000000).decode("utf-8","ignore").lower()
-                      compact=re.sub(r"[^a-z0-9]+","",raw)
-                      want=re.sub(r"[^a-z0-9]+","",needle.lower())
-                      ok=r.status==200 and want in compact
-                      print("VERIFY",id,"HTTP",r.status,"OK",ok,"NEEDLE",needle,"FINAL",r.geturl(),"LEN",len(raw))
-              except urllib.error.HTTPError as e:
-                  print("VERIFY",id,"HTTPERR",e.code,"OK",False)
-              except Exception as e:
-                  print("VERIFY",id,"ERR",repr(e),"OK",False)
+          import json, urllib.request
+          base="https://cartrade-resolver.onrender.com"
+          payload={"country":"sv","top_n":3,"shown_cars":[],"messages":[
+            {"role":"user","content":"Busco un SUV familiar confiable, hasta USD 500 al mes, para uso diario."}
+          ]}
+          data=json.dumps(payload).encode()
+          req=urllib.request.Request(base+"/carly/chat",data=data,headers={"Content-Type":"application/json"},method="POST")
+          with urllib.request.urlopen(req,timeout=45) as r:
+              out=json.loads(r.read().decode("utf-8"))
+              print("HTTP",r.status)
+              print("PHASE",out.get("phase"))
+              print("REPLY",out.get("reply"))
+              print("RECOMMENDATIONS",len(out.get("recommendations") or []))
+              print("EXPLORE",len(out.get("explore") or []))
+              print("POOL",out.get("pool_size"),out.get("market_pool_size"))
+              for x in (out.get("recommendations") or []):
+                  print("CARD",{k:x.get(k) for k in ("id","country","make","model","year","body_type","price_usd","monthly_est","url")})
           PY
