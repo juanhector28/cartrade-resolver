@@ -7,49 +7,43 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Probe live Carly production
+      - name: Refresh SV inventory and probe Carly
         run: |
           python - <<'PY'
-          import json, urllib.request, urllib.error
+          import json, time, urllib.request, urllib.error
           base="https://cartrade-resolver.onrender.com"
-          def post(path,label,payload):
+
+          def post(path,payload,timeout=240):
               data=json.dumps(payload).encode()
               req=urllib.request.Request(base+path,data=data,headers={"Content-Type":"application/json"},method="POST")
-              try:
-                  with urllib.request.urlopen(req, timeout=45) as r:
-                      raw=r.read().decode("utf-8")
-                      body=json.loads(raw)
-                      print(label, "HTTP", r.status)
-                      print(label, json.dumps({
-                          "phase": body.get("phase"),
-                          "reply": body.get("reply"),
-                          "pool_matching": body.get("pool_matching"),
-                          "count": body.get("count"),
-                          "recommendations_count": len(body.get("recommendations") or []),
-                          "explore_count": len(body.get("explore") or []),
-                          "token_path": body.get("token_path"),
-                          "route_precedence": body.get("route_precedence"),
-                          "profile": body.get("profile"),
-                      }, ensure_ascii=False)[:7000])
-                      cards=(body.get("recommendations") or body.get("results") or [])
-                      for x in cards[:3]:
-                          print(label, "CARD", {k:x.get(k) for k in ("id","country","make","model","body_type","price_usd","monthly_est")})
-              except urllib.error.HTTPError as e:
-                  print(label,"HTTPERR",e.code,e.read().decode("utf-8")[:5000])
-              except Exception as e:
-                  print(label,"ERR",repr(e))
-          post("/carly/search","GT_SEARCH",{"q":"SUV familiar confiable, hasta USD 350/mes","country":"gt","limit":3,"addressable_only":True})
-          post("/carly/chat","GT_CHAT",{"country":"gt","top_n":3,"shown_cars":[],"messages":[
-              {"role":"user","content":"Busco un SUV familiar confiable para uso diario."},
-              {"role":"assistant","content":"Claro. ¿Qué cuota mensual te queda cómoda?"},
-              {"role":"user","content":"Hasta USD 500 al mes."}
-          ]})
-          post("/carly/chat","GT_CHAT_ONE_TURN",{"country":"gt","top_n":3,"shown_cars":[],"messages":[
+              with urllib.request.urlopen(req, timeout=timeout) as r:
+                  raw=r.read().decode("utf-8")
+                  print(path, "HTTP", r.status, raw[:7000])
+                  return json.loads(raw)
+
+          try:
+              refresh=post("/inventory-run",{"country":"sv","pages":2},timeout=360)
+              print("SV_REFRESH_SUMMARY",json.dumps(refresh,ensure_ascii=False)[:7000])
+          except Exception as exc:
+              print("SV_REFRESH_ERR",repr(exc))
+
+          payload={"country":"sv","top_n":3,"shown_cars":[],"messages":[
               {"role":"user","content":"Busco un SUV familiar confiable, hasta USD 500 al mes, para uso diario."}
-          ]})
-          post("/carly/chat","SV_CHAT_ONE_TURN",{"country":"sv","top_n":3,"shown_cars":[],"messages":[
-              {"role":"user","content":"Busco un SUV familiar confiable, hasta USD 500 al mes, para uso diario."}
-          ]})
+          ]}
+          try:
+              out=post("/carly/chat",payload,timeout=45)
+              print("SV_CHAT_VERIFY",json.dumps({
+                  "phase":out.get("phase"),
+                  "reply":out.get("reply"),
+                  "recommendations_count":len(out.get("recommendations") or []),
+                  "explore_count":len(out.get("explore") or []),
+                  "token_path":out.get("token_path"),
+              },ensure_ascii=False))
+              for x in (out.get("recommendations") or [])[:3]:
+                  print("SV_CARD",{k:x.get(k) for k in ("id","country","make","model","body_type","price_usd","monthly_est","url")})
+          except Exception as exc:
+              print("SV_CHAT_ERR",repr(exc))
+              raise
           PY
