@@ -9,24 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify SV Carly after live source refresh
+      - name: Check production runtime
         run: |
           python - <<'PY'
-          import json, urllib.request
-          base="https://cartrade-resolver.onrender.com"
-          payload={"country":"sv","top_n":3,"shown_cars":[],"messages":[
-            {"role":"user","content":"Busco un SUV familiar confiable, hasta USD 500 al mes, para uso diario."}
-          ]}
-          data=json.dumps(payload).encode()
-          req=urllib.request.Request(base+"/carly/chat",data=data,headers={"Content-Type":"application/json"},method="POST")
-          with urllib.request.urlopen(req,timeout=45) as r:
-              out=json.loads(r.read().decode("utf-8"))
-              print("HTTP",r.status)
-              print("PHASE",out.get("phase"))
-              print("REPLY",out.get("reply"))
-              print("RECOMMENDATIONS",len(out.get("recommendations") or []))
-              print("EXPLORE",len(out.get("explore") or []))
-              print("POOL",out.get("pool_size"),out.get("market_pool_size"))
-              for x in (out.get("recommendations") or []):
-                  print("CARD",{k:x.get(k) for k in ("id","country","make","model","year","body_type","price_usd","monthly_est","url")})
+          import urllib.request
+          for path in ["/health","/carly/runtime"]:
+              with urllib.request.urlopen("https://cartrade-resolver.onrender.com"+path,timeout=30) as r:
+                  print(path,"HTTP",r.status,r.read().decode("utf-8")[:5000])
           PY
