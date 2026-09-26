@@ -14,28 +14,22 @@ jobs:
           python - <<'PY'
           import json, urllib.request, urllib.error
           base="https://cartrade-resolver.onrender.com"
-          def get(path):
-              try:
-                  with urllib.request.urlopen(base+path, timeout=20) as r:
-                      body=r.read().decode("utf-8")
-                      print("GET",path,"HTTP",r.status)
-                      print(body[:5000])
-              except Exception as e:
-                  print("GET",path,"ERR",repr(e))
-          def post(path,payload):
+          def post(label,payload):
               data=json.dumps(payload).encode()
-              req=urllib.request.Request(base+path,data=data,headers={"Content-Type":"application/json"},method="POST")
+              req=urllib.request.Request(base+"/carly/search",data=data,headers={"Content-Type":"application/json"},method="POST")
               try:
                   with urllib.request.urlopen(req, timeout=40) as r:
-                      body=r.read().decode("utf-8")
-                      print("POST",path,"HTTP",r.status)
-                      print(body[:12000])
+                      body=json.loads(r.read().decode("utf-8"))
+                      print(label, "HTTP", r.status, "pool", body.get("pool_matching"), "count", body.get("count"), "intent", body.get("intent"))
+                      for x in (body.get("results") or [])[:2]:
+                          print(label, "ROW", {k:x.get(k) for k in ("id","country","make","model","body_type","is_addressable","price_usd")})
               except urllib.error.HTTPError as e:
-                  print("POST",path,"HTTPERR",e.code,e.read().decode("utf-8")[:5000])
+                  print(label,"HTTPERR",e.code,e.read().decode("utf-8")[:3000])
               except Exception as e:
-                  print("POST",path,"ERR",repr(e))
-          get("/health")
-          get("/carly/runtime")
-          get("/atlas/freshness/status")
-          post("/carly/search",{"q":"SUV familiar confiable hasta USD 500 al mes para uso diario","country":"gt","limit":3})
+                  print(label,"ERR",repr(e))
+          post("GT_ANY_ADDR_TRUE",{"q":"","country":"gt","limit":3,"addressable_only":True})
+          post("GT_ANY_ADDR_FALSE",{"q":"","country":"gt","limit":3,"addressable_only":False})
+          post("GT_SUV_ADDR_TRUE",{"q":"SUV","country":"gt","limit":3,"addressable_only":True})
+          post("GT_SUV_ADDR_FALSE",{"q":"SUV","country":"gt","limit":3,"addressable_only":False})
+          post("ALL_ANY_ADDR_TRUE",{"q":"","limit":3,"addressable_only":True})
           PY
