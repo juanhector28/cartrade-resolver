@@ -1,0 +1,41 @@
+name: Carly live diagnostic temp
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe live Carly production
+        run: |
+          python - <<'PY'
+          import json, urllib.request, urllib.error
+          base="https://cartrade-resolver.onrender.com"
+          def get(path):
+              try:
+                  with urllib.request.urlopen(base+path, timeout=20) as r:
+                      body=r.read().decode("utf-8")
+                      print("GET",path,"HTTP",r.status)
+                      print(body[:5000])
+              except Exception as e:
+                  print("GET",path,"ERR",repr(e))
+          def post(path,payload):
+              data=json.dumps(payload).encode()
+              req=urllib.request.Request(base+path,data=data,headers={"Content-Type":"application/json"},method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=40) as r:
+                      body=r.read().decode("utf-8")
+                      print("POST",path,"HTTP",r.status)
+                      print(body[:12000])
+              except urllib.error.HTTPError as e:
+                  print("POST",path,"HTTPERR",e.code,e.read().decode("utf-8")[:5000])
+              except Exception as e:
+                  print("POST",path,"ERR",repr(e))
+          get("/health")
+          get("/carly/runtime")
+          get("/atlas/freshness/status")
+          post("/carly/search",{"q":"SUV familiar confiable hasta USD 500 al mes para uso diario","country":"gt","limit":3})
+          PY
