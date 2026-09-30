@@ -222,8 +222,7 @@ def _quarantine_invalid_shadow_candidates(
         response = (
             supabase.table("scraped_listings")
             .update({
-                "listing_state": "rejected",
-                "raw_payload": raw,
+                # listing_state is lifecycle state, not validation verdict. Keep the\n                # quarantine reason in atlas.publish_rollback and use an allowed\n                # non-serving lifecycle value enforced by the DB constraint.\n                "listing_state": "expired",\n                "raw_payload": raw,
                 "updated_at": now,
             })
             .eq("id", row["id"])
