@@ -130,3 +130,8 @@ _v58_conversation_scope.install(app)
 # makes, and makes explicit price ranges authoritative at retrieval time.
 from . import carly_v59_demo_truth as _v59_demo_truth
 _v59_demo_truth.install(app)
+
+# Fail-closed insurance for a mechanically empty focused query. It is constrained
+# to the exact GT certified universe and emits a loud activation log every time.
+from . import carly_v59_safe_fallback as _v59_safe_fallback
+_v59_safe_fallback.install()
