@@ -22,7 +22,7 @@ import httpx
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, HttpUrl
@@ -755,7 +755,7 @@ async def _run_all_ca(pages: int):
         INVENTORY_JOB_STATUS["running"] = False
 
 
-@app.get("/inventory-run-all")
+@app.get("/inventory-run-all", status_code=202)
 async def inventory_run_all(pages: int = 40, token: str | None = None):
     """Trigger a full Central-America ingestion in the background.
     Open this URL (or point a cron at it) to refresh the whole index.
@@ -830,14 +830,15 @@ async def _run_one(country: str, pages: int):
         INVENTORY_JOB_STATUS["running"] = False
 
 
-@app.get("/inventory-run-next")
+@app.get("/inventory-run-next", status_code=202)
 async def inventory_run_next(pages: int = 30, token: str | None = None,
-                             country: str | None = None):
+                             country: str | None = None,
+                             x_inventory_token: str | None = Header(default=None)):
     """Scrape ONE country in the background. By default picks the stalest and
     rotates; pass ?country=ni to force a specific one (useful for first fill of
     big countries with high pages, e.g. ?country=ni&pages=90)."""
     expected = os.environ.get("CRON_TOKEN")
-    if expected and token != expected:
+    if expected and (x_inventory_token or token) != expected:
         raise HTTPException(status_code=401, detail="invalid token")
     if pages < 1 or pages > 200:
         raise HTTPException(status_code=400, detail="pages must be 1-200")
@@ -1047,7 +1048,7 @@ async def _ingest_country(country: str, pages: int) -> dict:
             error_count += 1
             log.exception("inventory resolver error url=%s", url)
 
-        time.sleep(0.5)
+        await asyncio.sleep(0.5)
 
     return {
         "country": country,
@@ -2871,3 +2872,9 @@ def carly_chat(body: CarlyChatRequest):
         print(_tb.format_exc())
         return {"phase": "conversation",
                 "reply": "[DIAG] " + type(_diag_e).__name__ + ": " + str(_diag_e)[:300]}
+
+
+# Durable rotation and existing-inventory renewal.
+from . import inventory_maintenance as _inventory_maintenance
+import sys as _inventory_sys
+_inventory_maintenance.install(_inventory_sys.modules[__name__])

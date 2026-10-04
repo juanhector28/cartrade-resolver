@@ -58,6 +58,8 @@ class Query:
         self.filters.append((field, "lte", value)); return self
     def ilike(self, field, value):
         self.filters.append((field, "ilike", value)); return self
+    def in_(self, field, value):
+        self.filters.append((field, "in", value)); return self
     def order(self, *args, **kwargs): return self
     def limit(self, *args): return self
     def contains(self, *args): return self
@@ -69,11 +71,12 @@ class Query:
             elif op == "gte": rows = [r for r in rows if r.get(field, "") >= value]
             elif op == "lte": rows = [r for r in rows if r.get(field, 0) <= value]
             elif op == "ilike": rows = [r for r in rows if value.strip('%').lower() in str(r.get(field, '')).lower()]
+            elif op == "in": rows = [r for r in rows if r.get(field) in value]
         return SimpleNamespace(data=rows)
 
 
 def test_brand_and_exact_queries_exclude_stale_shadow_and_other_markets(monkeypatch):
-    base = {"make": "Mazda", "country": "gt", "status": "staging", "listing_state": "indexed",
+    base = {"make": "Mazda", "country": "gt", "status": "staging", "listing_state": "indexed", "source": "atlas:www.enlacesautomotrices.com",
             "is_addressable": True, "last_seen_at": "2026-10-04T00:00:00+00:00", "price_usd": 20000}
     rows = [dict(base, id=1), dict(base, id=2, last_seen_at="2026-09-12T00:00:00+00:00"),
             dict(base, id=3, status="atlas_shadow"), dict(base, id=4, country="sv")]
