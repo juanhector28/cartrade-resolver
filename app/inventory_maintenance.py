@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timezone
 
 from fastapi.responses import JSONResponse
+from . import parsers
 
 log = logging.getLogger(__name__)
 PREFIX = "inventory_maintenance:"
@@ -85,7 +86,7 @@ def crautos_batch(main, size=100):
                 response.raise_for_status()
                 detail = scraper.parse_detail(response.text, match.group(1))
                 full_model = " ".join([detail.get("marca") or "", detail.get("modelo") or ""]).strip()
-                make = main.parsers.extract_make(full_model)
+                make = parsers.extract_make(full_model)
                 if make and full_model.lower().startswith(make[0].lower() + " "):
                     detail["marca"] = make[0]
                     detail["modelo"] = full_model[len(make[0]):].strip()
@@ -117,6 +118,7 @@ def crautos_batch(main, size=100):
             except Exception as exc:
                 errors += 1
                 state["error"] = str(exc)[:240]
+                log.warning("CRAUTOS_REFRESH_DETAIL_FAILED id=%s reason=%s", row.get("id"), str(exc)[:200])
                 # Do not repeatedly hit a denied source during this batch.
                 if getattr(getattr(exc, "response", None), "status_code", None) in (403, 429):
                     if row.get("id"):
@@ -134,6 +136,11 @@ def crautos_batch(main, size=100):
             state["error"] = "No current vehicle detail was verified; freshness unchanged"
         write_state(db, "crautos", state)
         return state
+    except Exception as exc:
+        state.update(state="failed", completed_at=now(), saved_count=saved,
+            error_count=errors + 1, rejected_count=rejected, error=str(exc)[:240])
+        write_state(db, "crautos", state)
+        raise
     finally:
         session.close()
 

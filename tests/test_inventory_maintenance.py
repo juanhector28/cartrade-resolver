@@ -66,3 +66,34 @@ def test_runner_records_failure_without_claiming_refresh(monkeypatch):
     assert states["cr"]["state"] == "failed"
     assert "last_success_at" not in states["cr"]
     assert asyncio.run(main._pick_next_country()) == "sv"
+
+
+def test_current_vehicle_uses_real_mapper_and_confirms_database_write(monkeypatch):
+    from app import main
+    from app.scrapers.crautos import crautos_scraper
+    states, writes = {}, []
+    url = "https://crautos.com/autosusados/cardetail.cfm?c=123"
+    class Query:
+        selected = None
+        def select(self, fields): self.selected = fields; return self
+        def update(self, value): writes.append(value); self.selected = None; return self
+        def __getattr__(self, name): return lambda *a, **k: self
+        def execute(self):
+            if self.selected == "id,url": return SimpleNamespace(data=[{"id": 42, "url": url}])
+            if self.selected == "id,status,listing_state": return SimpleNamespace(data=[{"id": 42,"status":"staging","listing_state":"indexed"}])
+            return SimpleNamespace(data=[{"id":42}])
+    html = '<meta property="og:title" content="Land Rover FREELANDER 2000 $1,522"><img src="https://crautos.com/clasificados/usados/123-1.jpg">'
+    def get(url, **kwargs):
+        text = '<a href="cardetail.cfm?c=123">Car</a>' if url == crautos_scraper.INDEX_URL else html
+        return SimpleNamespace(text=text, raise_for_status=lambda: None)
+    session = SimpleNamespace(get=get, close=lambda: None)
+    monkeypatch.setattr(crautos_scraper, "make_session", lambda: session)
+    monkeypatch.setattr(maintenance, "read_states", lambda _: states)
+    monkeypatch.setattr(maintenance, "write_state", lambda db, key, state: states.update({key:dict(state)}))
+    monkeypatch.setattr(maintenance.time, "sleep", lambda _: None)
+    result = maintenance.crautos_batch(SimpleNamespace(supabase=SimpleNamespace(table=lambda _:Query()),
+        _crautos_record_from_detail=main._crautos_record_from_detail), size=1)
+    assert result["saved_count"] == 1 and result["state"] == "succeeded"
+    assert writes[0]["make"] == "Land Rover" and writes[0]["model"] == "FREELANDER"
+    assert writes[0]["price_usd"] == 1522 and writes[0]["last_seen_at"]
+    assert "status" not in writes[0] and "monthly_est" not in writes[0]
