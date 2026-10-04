@@ -75,15 +75,17 @@ class Query:
         return SimpleNamespace(data=rows)
 
 
-def test_brand_and_exact_queries_exclude_stale_shadow_and_other_markets(monkeypatch):
+def test_brand_and_exact_queries_allow_history_but_exclude_shadow_and_other_markets(monkeypatch):
     base = {"make": "Mazda", "country": "gt", "status": "staging", "listing_state": "indexed", "source": "atlas:www.enlacesautomotrices.com",
             "is_addressable": True, "last_seen_at": "2026-10-04T00:00:00+00:00", "price_usd": 20000}
     rows = [dict(base, id=1), dict(base, id=2, last_seen_at="2026-09-12T00:00:00+00:00"),
-            dict(base, id=3, status="atlas_shadow"), dict(base, id=4, country="sv")]
+            dict(base, id=3, status="atlas_shadow"), dict(base, id=4, country="sv"),
+            dict(base, id=5, source="encuentra24", last_seen_at="2026-06-04T00:00:00Z"),
+            dict(base, id=6, source="atlas:autos.honda.com.gt"),
+            dict(base, id=7, listing_state="expired")]
     monkeypatch.setattr(main_v50.legacy, "supabase", SimpleNamespace(table=lambda _: Query(rows)))
-    monkeypatch.setattr(main_v50, "freshness_policy", lambda _: {"cutoff": "2026-10-03T00:00:00+00:00"})
     for constraints in ({"require_brand": "Mazda"}, {"exact": ("Mazda", "CX-5", "suv")}, {}):
-        assert [r["id"] for r in scope._query_rows(constraints, "gt")] == [1]
+        assert [r["id"] for r in scope._query_rows(constraints, "gt")] == [1, 2, 5, 6]
 
 
 def test_refresh_updates_proven_facts_without_changing_publication(monkeypatch):

@@ -13,7 +13,6 @@ from typing import Any
 
 from . import carly_fastpath as fastpath
 from . import main_v49 as v49
-from .atlas_freshness_api import freshness_policy
 
 app = v49.app
 v48 = v49.v48
@@ -32,15 +31,14 @@ def _safe_focused_query_rows(c: dict[str, Any], country: str) -> list[dict]:
     if client is None:
         return []
     try:
-        fresh = freshness_policy(country)
-        cutoff = str(fresh["cutoff"])
+        fresh = {"mode": "historical", "freeze_until": None}
+        cutoff = None
         q = (
             client.table("scraped_listings").select(v31._SELECT)
             .eq("country", country)
             .eq("status", "staging")
             .eq("is_addressable", True)
             .eq("listing_state", "indexed")
-            .gte("last_seen_at", cutoff)
         )
         exact = c.get("exact")
         if exact:

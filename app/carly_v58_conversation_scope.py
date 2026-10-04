@@ -202,9 +202,8 @@ def _hard_ok(card: dict, c: dict[str, Any]) -> bool:
 
 
 def _query_rows(c: dict[str, Any], country: str) -> list[dict]:
-    # Brand/exact scope must obey the same publication and rolling freshness
-    # contract as the general recommendation path. The captured v39 query and
-    # the old brand-only query could expose old or shadow inventory.
+    # Brand/exact scope shares the publication policy with general retrieval.
+    # Historical indexed inventory is allowed; shadow inventory remains excluded.
     from .main_v50 import _safe_focused_query_rows
 
     scoped = dict(c)
