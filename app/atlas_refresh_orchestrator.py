@@ -140,8 +140,8 @@ def _refresh_observed_existing(
                           "raw_payload"):
                 if evidence.get(field) is not None:
                     updates[field] = evidence[field]
-            if evidence.get("price_usd") is not None:
-                updates["monthly_est"] = round(float(evidence["price_usd"]) * 0.0238)
+            # monthly_est is a generated database column, recalculated from
+            # price_usd; Postgres rejects attempts to write it explicitly.
         response = (
             supabase.table("scraped_listings")
             .update(updates)

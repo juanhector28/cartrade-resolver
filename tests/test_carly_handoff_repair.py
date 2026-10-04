@@ -95,6 +95,7 @@ def test_refresh_updates_proven_facts_without_changing_publication(monkeypatch):
             "status": "atlas_shadow", "is_addressable": False}}) == 1
     assert query.updates["km"] == 113118
     assert query.updates["transmission"] == "Automática"
-    assert query.updates["monthly_est"] == round(15993 * 0.0238)
+    assert query.updates["price_usd"] == 15993
+    assert "monthly_est" not in query.updates
     assert "status" not in query.updates
     assert "is_addressable" not in query.updates
