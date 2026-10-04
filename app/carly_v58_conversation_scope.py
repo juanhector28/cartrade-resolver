@@ -202,23 +202,16 @@ def _hard_ok(card: dict, c: dict[str, Any]) -> bool:
 
 
 def _query_rows(c: dict[str, Any], country: str) -> list[dict]:
-    brand = c.get("require_brand")
-    if not brand or c.get("exact"):
-        return _prior_query_rows(c, country)
-    client = getattr(legacy, "supabase", None)
-    if client is None:
-        return []
-    try:
-        response = (
-            client.table("scraped_listings").select(v31._SELECT)
-            .eq("country", country).eq("is_addressable", True)
-            .ilike("make", f"%{brand}%")
-            .order("updated_at", desc=True).limit(500).execute()
-        )
-        return [dict(r) for r in (response.data or [])]
-    except Exception:
-        log.exception("Carly v58 brand-scoped inventory query failed")
-        return []
+    # Brand/exact scope must obey the same publication and rolling freshness
+    # contract as the general recommendation path. The captured v39 query and
+    # the old brand-only query could expose old or shadow inventory.
+    from .main_v50 import _safe_focused_query_rows
+
+    scoped = dict(c)
+    brand = scoped.get("require_brand")
+    if brand:
+        scoped["allowed_brands"] = [brand]
+    return _safe_focused_query_rows(scoped, country)
 
 
 def _reply(c: dict[str, Any], top: list[dict], exact_miss: bool = False) -> str:

@@ -293,10 +293,20 @@ def extract_listing(manifest: dict, url: str, html: str) -> dict[str, Any]:
         if re.search(r"\bUSD\b|US\$|\$\s*\d", text, re.I): out["currency"] = "USD"
         elif re.search(r"\bGTQ\b|Q\s*\d", text, re.I): out["currency"] = "GTQ"
 
+    # The requested vehicle's public source data is authoritative over generic
+    # selectors that can accidentally read dealer/navigation metadata.
+    from .enlaces_vehicle_evidence import vehicle_evidence
+    evidence = vehicle_evidence(url, html)
+    if evidence:
+        out.update(evidence)
+
     required = manifest.get("required_fields") or [
         k for k, v in fields.items() if isinstance(v, dict) and v.get("required")
     ]
     out["_required_ok"] = all(out.get(k) not in (None, "", []) for k in required)
+    if evidence and str(evidence.get("source_vehicle_status") or "").casefold() != "disponible":
+        out["_required_ok"] = False
+        out["_semantic_reject_reason"] = "source_vehicle_unavailable"
     out["_required_fields"] = required
     return out
 

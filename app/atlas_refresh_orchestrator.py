@@ -120,6 +120,7 @@ def _refresh_observed_existing(
     source_id: str,
     manifest_version: int,
     observed_urls: set[str],
+    evidence_records: dict[str, dict[str, Any]] | None = None,
 ) -> int:
     if not observed_urls:
         return 0
@@ -129,9 +130,21 @@ def _refresh_observed_existing(
         url = str(row.get("url") or "")
         if url not in observed_urls:
             continue
+        updates = {"last_seen_at": now, "updated_at": now}
+        evidence = (evidence_records or {}).get(url)
+        if evidence:
+            # Refresh actual facts along with availability. Publication state
+            # and ownership remain conditional on the exact existing cohort.
+            for field in ("title", "make", "model", "year", "km", "price_usd", "currency",
+                          "fuel_type", "transmission", "photos", "photo_count", "primary_photo",
+                          "raw_payload"):
+                if evidence.get(field) is not None:
+                    updates[field] = evidence[field]
+            if evidence.get("price_usd") is not None:
+                updates["monthly_est"] = round(float(evidence["price_usd"]) * 0.0238)
         response = (
             supabase.table("scraped_listings")
-            .update({"last_seen_at": now, "updated_at": now})
+            .update(updates)
             .eq("id", row["id"])
             .eq("status", "staging")
             .contains("raw_payload", {"atlas": {"source_id": source_id, "manifest_version": manifest_version}})
@@ -366,11 +379,20 @@ async def refresh_source_once(
             raise RuntimeError(f"activation_quality_failed:{quality}")
 
 
+        evidence_records = {}
+        if source_id == "gt-enlacesautomotrices-com":
+            for item in run_result.get("items") or []:
+                if item.get("source_evidence") == "enlaces_next_vehicle_v1":
+                    record = runner._db_record(source_id, str(source.get("country") or ""),
+                                               str(source.get("domain") or ""), manifest_version, item)
+                    if record.get("price_usd") is not None:
+                        evidence_records[str(item["url"])] = record
         touched = _refresh_observed_existing(
             supabase,
             source_id=source_id,
             manifest_version=manifest_version,
             observed_urls=observed,
+            evidence_records=evidence_records,
         )
 
         full_observation = bool(
