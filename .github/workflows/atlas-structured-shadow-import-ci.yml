@@ -1,0 +1,47 @@
+name: Atlas structured shadow import CI
+
+on:
+  pull_request:
+    paths:
+      - "app/atlas_publish_api.py"
+      - "tests/test_atlas_shadow_import_api.py"
+      - ".github/workflows/atlas-structured-shadow-import-ci.yml"
+      - "Dockerfile"
+  push:
+    branches: [main]
+    paths:
+      - "app/atlas_publish_api.py"
+      - "tests/test_atlas_shadow_import_api.py"
+      - ".github/workflows/atlas-structured-shadow-import-ci.yml"
+      - "Dockerfile"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused test dependencies
+        run: python -m pip install pytest fastapi pydantic httpx beautifulsoup4 lxml
+      - name: Compile and run shadow import unit contract
+        run: |
+          python -m py_compile app/atlas_publish_api.py
+          pytest -q tests/test_atlas_shadow_import_api.py
+      - name: Build exact Resolver production image
+        run: docker build -t resolver-shadow-import:local .
+      - name: Verify endpoint is installed in exact runtime
+        run: |
+          docker run --rm -i resolver-shadow-import:local python - <<'PY'
+          from app.main_v41 import app
+          paths = {getattr(route, "path", None) for route in app.routes}
+          assert "/atlas/import-shadow" in paths, paths
+          assert "/atlas/publish-source" in paths, paths
+          print("ATLAS_STRUCTURED_SHADOW_IMPORT_RUNTIME=PASS")
+          PY
