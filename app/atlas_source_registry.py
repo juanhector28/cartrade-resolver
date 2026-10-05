@@ -115,6 +115,15 @@ def put_source(supabase: Any, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_sources(supabase: Any) -> list[dict[str, Any]]:
+    """List explicit registry sources plus recoverable published Atlas sources.
+
+    A source that has already passed canonical publication must never disappear
+    from the refresh scheduler merely because its private registry row was not
+    backfilled. Published receipts provide the durable source universe; the
+    latest successful run_source job provides the recoverable manifest. The
+    refresh orchestrator promotes that fallback into REGISTRY_TABLE on first
+    execution.
+    """
     rows = (
         supabase.table(REGISTRY_TABLE)
         .select("name,value,updated_at")
@@ -122,11 +131,45 @@ def list_sources(supabase: Any) -> list[dict[str, Any]]:
         .execute().data or []
     )
     out: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for row in rows:
         payload = _decode(row.get("value"))
         if not payload:
             continue
+        source_id = str(payload.get("source_id") or "").strip()
+        if not source_id:
+            continue
         payload["registry_backend"] = REGISTRY_TABLE
         payload["registry_updated_at"] = row.get("updated_at")
         out.append(payload)
+        seen.add(source_id)
+
+    # Bootstrap missing scheduler entries only from sources that already have a
+    # durable canonical "published" receipt. This keeps discovery fail-closed:
+    # random runtime jobs do not become recurring production sources.
+    receipt_rows = (
+        supabase.table("atlas_searchable_source_receipts")
+        .select("source_id,probed_at")
+        .eq("publish_result", "published")
+        .order("probed_at", desc=True)
+        .limit(1000)
+        .execute().data or []
+    )
+    receipt_sources: list[str] = []
+    receipt_seen: set[str] = set()
+    for row in receipt_rows:
+        source_id = str((row or {}).get("source_id") or "").strip()
+        if not source_id or source_id in receipt_seen:
+            continue
+        receipt_seen.add(source_id)
+        receipt_sources.append(source_id)
+
+    for source_id in receipt_sources:
+        if source_id in seen:
+            continue
+        recovered = latest_runtime_manifest(supabase, source_id)
+        if not recovered:
+            continue
+        out.append(recovered)
+        seen.add(source_id)
     return out
