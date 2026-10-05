@@ -379,14 +379,44 @@ async def refresh_source_once(
             raise RuntimeError(f"activation_quality_failed:{quality}")
 
 
-        evidence_records = {}
-        if source_id == "gt-enlacesautomotrices-com":
-            for item in run_result.get("items") or []:
-                if item.get("source_evidence") == "enlaces_next_vehicle_v1":
-                    record = runner._db_record(source_id, str(source.get("country") or ""),
-                                               str(source.get("domain") or ""), manifest_version, item)
-                    if record.get("price_usd") is not None:
-                        evidence_records[str(item["url"])] = record
+        # Reconcile production-owned rows from the CURRENT extraction evidence.
+        # Historically this was enabled only for Enlaces; other published
+        # sources therefore had their freshness clocks touched while stale or
+        # misparsed make/model/year/price facts survived indefinitely.
+        evidence_records: dict[str, dict[str, Any]] = {}
+        for item in run_result.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            # Keep the stronger Enlaces provenance contract that was already in
+            # production, while allowing the same reconciliation mechanism for
+            # all other certified sources.
+            if (
+                source_id == "gt-enlacesautomotrices-com"
+                and item.get("source_evidence") != "enlaces_next_vehicle_v1"
+            ):
+                continue
+            try:
+                record = runner._db_record(
+                    source_id,
+                    str(source.get("country") or ""),
+                    str(source.get("domain") or ""),
+                    manifest_version,
+                    item,
+                )
+            except Exception:
+                continue
+            url = str(record.get("url") or item.get("url") or "").strip()
+            if not url or url not in observed:
+                continue
+            atlas = _atlas_meta(record)
+            if (
+                atlas.get("source_id") != source_id
+                or int(atlas.get("manifest_version") or 0) != manifest_version
+            ):
+                continue
+            if not is_valid_listing(record):
+                continue
+            evidence_records[url] = record
         touched = _refresh_observed_existing(
             supabase,
             source_id=source_id,
