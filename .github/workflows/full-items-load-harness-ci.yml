@@ -1,0 +1,42 @@
+name: Full-items 43x100 harness CI
+
+on:
+  pull_request:
+    paths:
+      - 'ops/full_items_load_43x100.py'
+      - '.github/workflows/full-items-load-harness-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  harness-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install 'httpx>=0.27,<1'
+      - name: Compile
+        run: python -m py_compile ops/full_items_load_43x100.py
+      - name: Verify 43 distinct payload gate and forced read-only request shape
+        run: |
+          python - <<'PY'
+          import importlib.util, json, tempfile
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('h','ops/full_items_load_43x100.py')
+          h=importlib.util.module_from_spec(spec); spec.loader.exec_module(h)
+          def row(i):
+              return {'source_id':f'gt-source-{i:02d}','country':'GT','domain':f's{i}.example','manifest_version':1,'manifest':{'start_urls':[f'https://s{i}.example/cars']}}
+          with tempfile.TemporaryDirectory() as d:
+              p=Path(d)/'ok.json'; p.write_text(json.dumps([row(i) for i in range(43)]))
+              rows=h._load(str(p)); assert len(rows)==43
+              req=h._payload(rows[0]); assert req['persist'] is False; assert req['limit']==100; assert req['mode']=='shadow'; assert req['scan_limit']==500
+              bad=Path(d)/'bad.json'; bad.write_text(json.dumps([row(i) for i in range(42)]))
+              try: h._load(str(bad)); raise AssertionError('42 rows should fail')
+              except SystemExit: pass
+              dup=[row(i) for i in range(43)]; dup[-1]['source_id']=dup[0]['source_id']
+              bad.write_text(json.dumps(dup))
+              try: h._load(str(bad)); raise AssertionError('duplicate source should fail')
+              except SystemExit: pass
+          print('FULL_ITEMS_43X100_HARNESS=PASS')
+          PY
