@@ -38,3 +38,11 @@ On-source-error fallback must be explicit, so frontends cannot silently use a hi
 ## Current limit
 
 The evidence gate added in this PR is a *foundation*, not wired into the live endpoint yet. Connecting it without a working authorized acquisition path would only produce another dash for the Jeep. Do not merge this PR expecting to fix HTTP 403. First establish source access and demonstrate a real successful live observation.
+
+## Source access policy gate (2026-10-10)
+
+Encuentra24 El Salvador terms (https://www.encuentra24.com/terms-sv, updated 2026-09-18) explicitly prohibit automated scraping and commercial reuse without prior written authorization. Current Render runtime also gets HTTP 403 for both direct HTTP and Chromium. Do **not** try proxy rotation, CAPTCHA bypass, user cookies, or further browser retries as an acquisition strategy. Treat Encuentra24 as `authorization_required`; do not schedule unattended ingestion until access rights are documented.
+
+The authorized-source adapter must require a reviewed evidence-of-rights record (agreement/feed terms, permitted fields, rate limits, redisplay/photo rights, expiration, geographical scope) before activation. A source without authorization must not be counted as live-coverage eligible. For past imported ads, do not represent an old price or photograph as a newly licensed, verified observation.
+
+For launch, pursue direct predio/seller opt-in feeds and approved source integrations in parallel. Retain source-level coverage metrics for blocked/unsupported links, and preserve the existing buyer intent journey without presenting inaccurate prices.
