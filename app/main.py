@@ -1247,12 +1247,9 @@ async def resolve_link(body: ResolveRequest, request: Request):
         raise HTTPException(status_code=422, detail="URL points to a vehicle catalog, not an individual listing.")
 
     platform = platforms.detect(url)
-    # Encuentra24 asking prices change frequently, and previous cached entries
-    # can contain stale prices. Always re-fetch for Paste the Link.
-    cached = cache.get(url) if platform != "encuentra24" else None
-    if cached and not body.save:
-        cached["cached"] = True
-        return cached
+    # The buyer expects today's asking price. A 7-day cached response cannot
+    # prove price freshness for ANY marketplace. Keep cache for other workflows,
+    # but always re-fetch individual Paste the Link requests.
     started = time.time()
 
     try:
