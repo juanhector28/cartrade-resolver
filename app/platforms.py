@@ -39,6 +39,24 @@ ALLOWED_DOMAINS = (
 )
 
 
+
+def is_listing_url(url: str) -> bool:
+    """Conservative route guard for known dealer catalog URLs."""
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower().removeprefix("www.")
+        path = parsed.path.rstrip("/").lower()
+        category_routes = {
+            "motorasv.com": {"/cars"},
+            "tucarro.sv": {"/carros"},
+            "disazautos.com": {"/importados"},
+            "carroselsalvador.com": {"/anuncios"},
+        }
+        return path not in category_routes.get(host, set())
+    except Exception:
+        return False
+
+
 def is_allowed(url: str) -> bool:
     try:
         parsed = urlparse(url)
