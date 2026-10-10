@@ -99,8 +99,8 @@ def extract_listing_headline_price(text: str, title: str = "") -> tuple[int | No
             section = section[at + len(short_title):]
     # Specification labels ordinarily follow the listing's displayed price.
     boundary = re.search(
-        r"\\b(?:Año|Ano|Kilometraje|Combustible|Transmisi[oó]n|"
-        r"Enviar consulta|Descripción|Detalles adicionales)\\b",
+        r"\b(?:Año|Ano|Kilometraje|Combustible|Transmisi[oó]n|"
+        r"Enviar consulta|Descripción|Detalles adicionales)\b",
         section[:650], re.IGNORECASE)
     if not boundary:
         return None, None
