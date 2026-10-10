@@ -1,10 +1,7 @@
 name: Carly Paste Link staging browser E2E
 
+# Manual only after first confirmed success to avoid repeated third-party requests.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_staging_e2e.py"
-      - ".github/workflows/paste-link-staging-e2e.yml"
   workflow_dispatch:
 
 permissions:
