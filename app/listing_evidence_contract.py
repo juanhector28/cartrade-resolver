@@ -18,7 +18,7 @@ def listing_identity(url: str) -> tuple[str, str] | None:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower().removeprefix("www.")
     if host == "encuentra24.com":
-        match = re.search(r"/(\\d{7,10})/?$", parsed.path)
+        match = re.search(r"/(\d{7,10})/?$", parsed.path)
         return ("encuentra24", match.group(1)) if match else None
     return None
 
