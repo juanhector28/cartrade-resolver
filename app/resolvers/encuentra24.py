@@ -80,6 +80,54 @@ def parse_money(text: str) -> tuple[int | None, str | None]:
     return None, None
 
 
+def extract_listing_headline_price(text: str, title: str = "") -> tuple[int | None, str | None]:
+    """Find the CURRENT price in the vehicle headline, not a previous price.
+
+    Encuentra24 can show a crossed-out price followed by a discounted price,
+    e.g. "$43,182 $38,000 -12%". Taking the first money value is wrong.
+    Restrict extraction to the section near the vehicle heading and before
+    specification labels. Do not mine seller descriptions or related listings.
+    """
+    if not text:
+        return None, None
+    section = text
+    if title:
+        # The OG title may include suffixes and differ from rendered whitespace.
+        short_title = title.split(" | ")[0].strip()
+        at = section.casefold().find(short_title.casefold())
+        if at >= 0:
+            section = section[at + len(short_title):]
+    # Specification labels ordinarily follow the listing's displayed price.
+    boundary = re.search(
+        r"\\b(?:Año|Ano|Kilometraje|Combustible|Transmisi[oó]n|"
+        r"Enviar consulta|Descripción|Detalles adicionales)\\b",
+        section[:650], re.IGNORECASE)
+    if not boundary:
+        return None, None
+    section = section[:boundary.start()]
+    # Stay close to the heading. This avoids header navigation and other ads.
+    section = section[-320:]
+    # Collect every plausible amount IN DOCUMENT ORDER, regardless of currency.
+    candidates = []
+    for currency, pattern in _MONEY_PATTERNS:
+        for match in pattern.finditer(section):
+            amount = _amount_to_int(match.group(1))
+            lo, hi = _MONEY_BOUNDS[currency]
+            if amount is not None and lo <= amount <= hi:
+                candidates.append((match.start(), match.end(), amount, currency))
+    if not candidates:
+        return None, None
+    # Suppress overlapping currency matches such as US$38,000 and $38,000.
+    candidates.sort(key=lambda item: (item[0], -(item[1] - item[0])))
+    unique = []
+    for candidate in candidates:
+        if not any(candidate[0] < previous[1] and candidate[1] > previous[0] for previous in unique):
+            unique.append(candidate)
+    # The sale price follows the struck-through original price.
+    _, _, amount, currency = unique[-1]
+    return amount, currency
+
+
 def _set_price(listing: "Listing", amount: int, currency: str, confidence: str) -> None:
     """Store local price + currency, and fill price_usd (converted if needed)."""
     listing.currency = Field(value=currency, confidence=confidence)
@@ -180,61 +228,16 @@ async def resolve(url: str) -> Listing:
     elif listing.transmission is None:
         listing.transmission = parsers.to_field(parsers.extract_transmission(og_title))
 
-    # Price extraction — Encuentra24 quirk:
-    # When sellers drop the price, only the visible headline updates ($ X,XXX
-    # shown next to the car title in the body). The og:description text often
-    # lags with the old "Precio $X,XXX" from the description text. The og:title
-    # rarely contains a price at all.
-    #
-    # Strategy (in order):
-    # 1. Body text BEFORE "Descripción" section — this is the visible headline price.
-    #    We slice the body to isolate it from the description (old price) and
-    #    "Más anuncios" (other listings from same seller).
-    # 2. og:title (in case it has a price)
-    # 3. og:description "Precio $X,XXX.XX" pattern (last resort, may be stale)
-
-    # 1. Body headline price — slice body to the section before "Descripción"
-    headline_section = body_text
-    desc_marker = re.search(r"Descripci[óo]n", body_text, re.IGNORECASE)
-    if desc_marker:
-        headline_section = body_text[:desc_marker.start()]
-    # Also cut off "Detalles adicionales" if it's after "Descripción" wouldn't fire
-    detail_marker = re.search(r"Detalles adicionales", headline_section, re.IGNORECASE)
-    if detail_marker:
-        # Keep what's after "Detalles" too since price often shown again there;
-        # but cut off "Más anuncios" or "Otras publicaciones" from related listings
-        pass
-    rel_marker = re.search(r"M[áa]s anuncios|Otras publicaciones|Más vehículos", headline_section, re.IGNORECASE)
-    if rel_marker:
-        headline_section = headline_section[:rel_marker.start()]
-
-    # Currency-aware extraction. parse_money recognizes ₡ Q L C$ RD$ $ and
-    # returns (amount, currency); _set_price stores price_local + currency and
-    # fills price_usd (converting non-USD via FX_PER_USD).
-    # 1. Body headline (most current)
-    if headline_section:
-        amount, currency = parse_money(headline_section)
-        if amount is not None:
-            _set_price(listing, amount, currency, "high")
-            log.info("price from body headline: %d %s", amount, currency)
-
-    # 2. og:title fallback
-    if listing.price_usd is None and og_title:
+    # Price extraction: current listing headline only. Old prices appear first
+    # when a discount is displayed; OG descriptions can be stale.
+    amount, currency = extract_listing_headline_price(body_text, og_title)
+    if amount is not None:
+        _set_price(listing, amount, currency, "high")
+        log.info("current price from listing headline: %d %s", amount, currency)
+    elif og_title:
+        # OG title is sometimes current, but do not trust the historical OG
+        # description or unrelated body amounts as a current asking price.
         amount, currency = parse_money(og_title)
-        if amount is not None:
-            _set_price(listing, amount, currency, "high")
-            log.info("price from og:title: %d %s", amount, currency)
-
-    # 3. og:description fallback (may be stale)
-    if listing.price_usd is None and og_desc:
-        amount, currency = parse_money(og_desc)
-        if amount is not None:
-            _set_price(listing, amount, currency, "medium")
-            log.info("price from og:desc (may be stale): %d %s", amount, currency)
-
-    # 4. Last resort: whole body (nearby listings make it less reliable)
-    if listing.price_usd is None and body_text:
-        amount, currency = parse_money(body_text)
         if amount is not None:
             _set_price(listing, amount, currency, "medium")
 
