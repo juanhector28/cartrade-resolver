@@ -142,6 +142,38 @@ def _set_price(listing: "Listing", amount: int, currency: str, confidence: str) 
             conf = "medium" if confidence == "high" else confidence
             listing.price_usd = Field(value=usd, confidence=conf)
 
+async def _fetch_with_browser(url: str) -> str | None:
+    """Fallback to a normal Chromium page load when plain HTTP is blocked.
+
+    No authentication, CAPTCHA circumvention, stealth plugins, or proxy
+    rotation. Only read publicly served listing HTML.
+    """
+    try:
+        from playwright.async_api import async_playwright
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+            try:
+                page = await browser.new_page(
+                    locale="es-SV", user_agent=USER_AGENT,
+                    viewport={"width": 1280, "height": 900})
+                try:
+                    response = await page.goto(url, wait_until="domcontentloaded", timeout=17000)
+                    if response is None or response.status >= 400:
+                        log.warning("encuentra24 browser access denied: status=%s url=%s",
+                                    response.status if response else None, url)
+                        return None
+                    await page.wait_for_timeout(750)
+                    html = await page.content()
+                    return html if "og:title" in html.lower() else None
+                finally:
+                    await page.close()
+            finally:
+                await browser.close()
+    except Exception as exc:
+        log.warning("encuentra24 browser fallback unavailable: %s", exc)
+        return None
+
+
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -162,6 +194,15 @@ async def resolve(url: str) -> Listing:
         log.warning("encuentra24 timeout (>30s): %s", url)
         listing.errors.append(f"timeout: {e!s}")
         return listing
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code not in (403, 429):
+            listing.errors.append(f"http error: {repr(e)}")
+            return listing
+        log.info("encuentra24 direct HTTP blocked, attempting browser: %s", url)
+        html = await _fetch_with_browser(url)
+        if html is None:
+            listing.errors.append(f"source access denied: HTTP {e.response.status_code}")
+            return listing
     except httpx.HTTPError as e:
         log.warning("encuentra24 http error: %s | url=%s", repr(e), url)
         listing.errors.append(f"http error: {repr(e)}")
