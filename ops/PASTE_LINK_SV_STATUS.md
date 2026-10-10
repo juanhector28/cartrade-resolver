@@ -4,8 +4,8 @@
 
 | Metric | Verified count |
 |---|---:|
-| Target sites requested | 56 (list not yet independently reconciled) |
-| Distinct domains observed in SV Atlas | 9 |
+| Target sites requested | **56; reconciled to Atlas PR #133 exact source IDs** |
+| Distinct domains observed in Supabase SV inventory | 9 |
 | Additional domains enabled by draft PR #135 | 8 |
 | Public individual vehicle pages reviewed | 3 |
 | E2E resolver extractions validated against original pages | **0** |
@@ -32,3 +32,9 @@ Evidence: public pages of each corresponding URL in `ops/paste_link_sv_coverage.
 6. Capture results and timestamps here; do not mark a site functional solely because an allowlist test passed.
 
 Machine-readable source of this view: `ops/paste_link_sv_coverage.json`.
+
+## Full source census linked
+
+The JSON scorecard now includes the full **56-source registry** from `juanhector28/cartrade-atlas`, PR #133, `overrides/atlas/sv_sources/report.json`. In that earlier Atlas **collector** run: 32 sources had observed links, 12 had enumerated catalogs/feeds, three were blocked, three empty/closed, four without independent auto inventory, one catalog-only, one legacy gallery. Atlas reports 1,405 raw source records, 1,315 field-valid records, and **0 sources verified in production**. These must not be counted as successful Paste the Link resolutions.
+
+Each of the 56 source rows separately records individual Paste the Link status for price, photo, year, mileage and access review. All start **unverified** until actual request-response checks from the resolver pass.
