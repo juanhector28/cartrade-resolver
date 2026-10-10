@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -39,9 +40,17 @@ async def check(case: dict) -> dict:
         result["errors"] = fields.get("errors") or []
         expected = case.get("expected") or {}
         result["checks"] = {key: result["observed"].get(key) == expected[key]
-                            for key in ("price_usd", "year") if key in expected}
-        result["verified"] = bool(result["checks"]) and all(result["checks"].values()) and (
-            result["observed"]["photo_count"] > 0) and not result["errors"]
+                            for key in ("price_usd", "year", "km") if key in expected}
+        title = str(result["observed"].get("title") or "").casefold()
+        tokens = expected.get("title_tokens") or []
+        result["checks"]["title_identity"] = bool(title) and bool(tokens) and all(
+            re.search(r"(?<!\\w)" + re.escape(str(token).casefold()) + r"(?!\\w)", title)
+            for token in tokens
+        )
+        result["checks"]["photo_present"] = result["observed"]["photo_count"] > 0
+        result["checks"]["expected_price_present"] = "price_usd" in expected
+        result["checks"]["expected_year_present"] = "year" in expected
+        result["verified"] = all(result["checks"].values()) and not result["errors"]
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
     return result
