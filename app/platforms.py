@@ -8,17 +8,17 @@ from .resolvers.base import Platform
 def detect(url: str) -> Platform:
     """Detect platform from URL. Returns 'unknown' if no match."""
     try:
-        host = urlparse(url).netloc.lower().lstrip("www.")
+        host = (urlparse(url).hostname or "").lower()
     except Exception:
         return "unknown"
 
-    if "encuentra24.com" in host:
+    if host == "encuentra24.com" or host.endswith(".encuentra24.com"):
         return "encuentra24"
-    if "olx." in host:
+    if host == "olx.com" or host.startswith("olx.") or host.startswith("www.olx."):
         return "olx"
-    if "facebook.com" in host or "fb.com" in host or "m.facebook.com" in host:
+    if host in ("facebook.com", "fb.com") or host.endswith((".facebook.com", ".fb.com")):
         return "facebook"
-    if "mercadolibre." in host or "mercadolivre." in host:
+    if host.startswith(("mercadolibre.", "mercadolivre.")) or ".mercadolibre." in host or ".mercadolivre." in host:
         return "mercadolibre"
     return "unknown"
 
