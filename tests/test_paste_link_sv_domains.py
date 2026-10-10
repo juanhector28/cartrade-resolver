@@ -22,3 +22,22 @@ def test_observed_sv_vehicle_sites_accepted(domain):
 ])
 def test_untrusted_urls_denied(url):
     assert not platforms.is_allowed(url)
+
+@pytest.mark.parametrize("url", [
+    "https://motorasv.com/cars",
+    "https://tucarro.sv/carros",
+    "https://www.disazautos.com/importados",
+    "https://www.carroselsalvador.com/anuncios/",
+])
+def test_known_catalog_pages_are_not_vehicle_listings(url):
+    assert platforms.is_allowed(url)
+    assert not platforms.is_listing_url(url)
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.carroselsalvador.com/anuncios/kia-sportage-2006/",
+    "https://caragencia.com/car-finder/2023-chevrolet-trailblazer",
+    "https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/",
+])
+def test_individual_vehicle_routes_stay_available(url):
+    assert platforms.is_listing_url(url)
