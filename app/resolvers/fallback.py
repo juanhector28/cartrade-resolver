@@ -85,6 +85,38 @@ async def resolve(url: str) -> Listing:
     return parse_html(url, html)
 
 
+def _carroselsalvador_detail(html: str, listing: Listing) -> None:
+    """Parse only the heading-adjacent price and labelled odometer on this domain."""
+    from urllib.parse import urlparse
+    host = (urlparse(listing.url).hostname or "").lower().removeprefix("www.")
+    if host != "carroselsalvador.com":
+        return
+    soup = BeautifulSoup(html, "html.parser")
+    h1 = soup.find("h1")
+    if not h1:
+        return
+    title = h1.get_text(" ", strip=True)
+    if not re.search(r"\b(?:19|20)\d{2}\b", title):
+        return
+    for node in h1.find_all_previous(string=True, limit=24):
+        match = re.fullmatch(r"\s*US\s*\$\s*([\d,]+)(?:\.00)?\s*", str(node), re.I)
+        if match:
+            price = int(match.group(1).replace(",", ""))
+            if 500 <= price <= 200000:
+                listing.price_usd = Field(value=price, confidence="medium")
+                break
+    text = soup.get_text(" ", strip=True)
+    mileage = re.search(r"\bRecorrido\s*:?\s*([\d.,]+)\s*(mi|millas|km)\b", text, re.I)
+    if mileage:
+        raw = mileage.group(1).replace(",", "")
+        try:
+            distance = float(raw)
+        except ValueError:
+            return
+        if 0 <= distance <= 2000000:
+            km = round(distance * 1.609344) if mileage.group(2).lower() != "km" else round(distance)
+            listing.km = Field(value=km, confidence="medium")
+
 def parse_html(url: str, html: str) -> Listing:
     """Parse already-fetched HTML without additional outbound network requests."""
     listing = Listing(platform="unknown", url=url)
@@ -119,4 +151,5 @@ def parse_html(url: str, html: str) -> Listing:
         if md:
             listing.model = Field(value=md[0], confidence="low")
 
+    _carroselsalvador_detail(html, listing)
     return listing
