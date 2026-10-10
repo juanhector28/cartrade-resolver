@@ -1,0 +1,40 @@
+name: Paste the Link contract tests
+
+on:
+  pull_request:
+    paths:
+      - "app/platforms.py"
+      - "app/resolvers/fallback.py"
+      - "app/main.py"
+      - "scripts/paste_link_smoke.py"
+      - "tests/test_paste_link_*.py"
+      - ".github/workflows/paste-link-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/platforms.py"
+      - "app/resolvers/fallback.py"
+      - "app/main.py"
+      - "scripts/paste_link_smoke.py"
+      - "tests/test_paste_link_*.py"
+      - ".github/workflows/paste-link-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paste-link-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install resolver dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Check syntax
+        run: python -m compileall -q app/platforms.py app/resolvers/fallback.py scripts/paste_link_smoke.py
+      - name: Run paste-link focused tests
+        run: python -m pytest -q tests/test_paste_link_sv_domains.py tests/test_paste_link_generic_metadata.py tests/test_paste_link_smoke.py tests/test_encuentra24_current_price.py
