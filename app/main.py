@@ -1280,15 +1280,35 @@ async def resolve_link(body: ResolveRequest, request: Request):
     # back or claim that price/availability has been checked today.
     if platform == "encuentra24" and not has_essentials and supabase:
         try:
+            columns = "url,title,make,model,year,price_usd,km,location,description,primary_photo,updated_at,country"
             archived = (supabase.table("scraped_listings")
-                        .select("title,make,model,year,price_usd,km,location,description,primary_photo,updated_at,country")
-                        .eq("url", url).limit(1).execute().data or [])
+                        .select(columns).eq("url", url).limit(1).execute().data or [])
+            if not archived:
+                # Encuentra24 edits listing slugs while retaining the numeric ID.
+                # Match ONLY one row from the same portal and the same ad ID.
+                listing_id_match = re.search(r"/([0-9]{7,10})/?(?:[?#].*)?$", url)
+                if listing_id_match:
+                    listing_id = listing_id_match.group(1)
+                    candidates = (supabase.table("scraped_listings")
+                                  .select(columns)
+                                  .like("url", f"%/{listing_id}")
+                                  .limit(3).execute().data or [])
+                    candidates = [item for item in candidates
+                                  if "encuentra24.com/" in (item.get("url") or "").lower()]
+                    if len(candidates) == 1:
+                        archived = candidates
             if archived:
                 row = archived[0]
                 for name in ("title", "make", "model", "year", "price_usd",
                              "km", "location", "description"):
                     if row.get(name) is not None:
-                        payload[name] = {"value": row[name], "confidence": "low"}
+                        value = row[name]
+                        if name == "price_usd":
+                            try:
+                                value = float(value)
+                            except (TypeError, ValueError):
+                                continue
+                        payload[name] = {"value": value, "confidence": "low"}
                 if row.get("primary_photo"):
                     payload["photos"] = [row["primary_photo"]]
                 payload.update(in_inventory=True, inventory_fallback=True,
