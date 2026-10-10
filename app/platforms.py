@@ -41,7 +41,10 @@ ALLOWED_DOMAINS = (
 
 def is_allowed(url: str) -> bool:
     try:
-        host = urlparse(url).netloc.lower()
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port:
+            return False
+        host = (parsed.hostname or "").lower()
         return any(host == d or host.endswith("." + d) or host == "www." + d
                    for d in ALLOWED_DOMAINS)
     except Exception:
