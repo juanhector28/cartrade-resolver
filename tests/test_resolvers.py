@@ -45,6 +45,14 @@ def test_is_allowed_no():
     assert not platforms.is_allowed("https://evil.com/redirect")
 
 
+
+def test_known_regional_vehicle_portals():
+    assert platforms.is_allowed("https://crautos.com/autosusados/")
+    assert platforms.is_allowed("https://www.movilauto.com/carros/")
+    assert platforms.is_allowed("https://autogogt.com/vehiculo/123")
+    assert not platforms.is_allowed("https://crautos.com.attacker.example/item")
+    assert not platforms.is_allowed("http://127.0.0.1/")
+
 # ─── Live integration tests ────────────────────────────────────
 
 ENC24_URLS = [
