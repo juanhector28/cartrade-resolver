@@ -52,7 +52,7 @@ def _structured_price(html: str) -> float | None:
                 offers = next((o for o in offers if isinstance(o, dict)), None)
             if not isinstance(offers, dict):
                 continue
-            if str(offers.get("priceCurrency", "USD")).upper() != "USD":
+            if str(offers.get("priceCurrency") or "").upper() != "USD":
                 continue
             raw = offers.get("price")
             try:
@@ -103,7 +103,7 @@ async def resolve(url: str) -> Listing:
     structured_price = _structured_price(html)
     if structured_price is not None:
         listing.price_usd = Field(value=structured_price, confidence="high")
-    pr = parsers.extract_price_usd(haystack) if structured_price is None else None
+    pr = parsers.extract_price_usd(og_title) if structured_price is None else None
     if pr:
         listing.price_usd = Field(value=pr[0], confidence="low")
     mk = parsers.extract_make(haystack)
