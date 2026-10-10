@@ -1,10 +1,8 @@
 name: Paste the Link single public pilot
 
+# Deliberately manual: avoid sending repeated requests to third-party websites
+# after every PR update. The first limited trial already produced its receipt.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_public_pilot.py"
-      - ".github/workflows/paste-link-public-pilot.yml"
   workflow_dispatch:
 
 permissions:
