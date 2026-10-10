@@ -52,3 +52,17 @@ Each of the 56 source rows separately records individual Paste the Link status f
 GitHub evidence: https://github.com/juanhector28/cartrade-resolver/actions/runs/38095284698
 
 **Not yet demonstrated:** production /resolve-link full HTTP integration; actual image loading/rendering in Carly; independent commercial-content rights; future prices and availability. Therefore domain-wide production certification remains pending, even though three real listings passed.
+
+## Carly isolated staging integration: PASS
+
+**Live test environment:** https://cartrade-paste-link-staging.onrender.com
+
+The Render free Python service is deployed from the PR #135 branch and explicitly runs `app.paste_link_staging:app`, not the production app. It has no Supabase configuration, no automatic saved listings, and an exact single-domain allowlist. Free services may cold-start.
+
+**True end-to-end receipt:** https://github.com/juanhector28/cartrade-resolver/actions/runs/38096244781
+
+GitHub Actions ran an HTTP health check, an actual `POST /api/resolve`, and a headless Chromium session that opened the staging page, clicked the CTA, and rendered a car card. All 12 checks passed, including `HTMLImageElement.naturalWidth > 0`, confirming the photo actually loads in the browser.
+
+Confirmed individual staging E2E: KIA Sportage 2006, USD 5,700, 160,934 km.
+
+**Important distinction:** Three source listing URLs passed the parser-level live checks; only the Kia has a full staging browser E2E. The other 55 sources and any commercial redisplay rights are not certified. The existing production Carly /resolve-link and frontend remain unchanged. Stage is an isolated scoped preview, not the full production Carly frontend.
