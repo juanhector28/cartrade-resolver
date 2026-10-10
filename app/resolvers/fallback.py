@@ -82,6 +82,12 @@ async def resolve(url: str) -> Listing:
         listing.errors.append(f"http error: {e!s}")
         return listing
 
+    return parse_html(url, html)
+
+
+def parse_html(url: str, html: str) -> Listing:
+    """Parse already-fetched HTML without additional outbound network requests."""
+    listing = Listing(platform="unknown", url=url)
     og_title = _meta(html, "og:title") or _meta(html, "twitter:title") or ""
     og_image = _meta(html, "og:image") or _meta(html, "twitter:image") or ""
     og_desc = _meta(html, "og:description") or _meta(html, "twitter:description") or ""
