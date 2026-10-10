@@ -1275,6 +1275,30 @@ async def resolve_link(body: ResolveRequest, request: Request):
     payload = listing.to_dict()
     payload["elapsed_seconds"] = round(elapsed, 2)
 
+    # Encuentra24 sometimes blocks the live fetch. In that case, return an
+    # explicitly unverified snapshot already stored by Atlas; never write it
+    # back or claim that price/availability has been checked today.
+    if platform == "encuentra24" and not has_essentials and supabase:
+        try:
+            archived = (supabase.table("scraped_listings")
+                        .select("title,make,model,year,price_usd,km,location,description,primary_photo,updated_at,country")
+                        .eq("url", url).limit(1).execute().data or [])
+            if archived:
+                row = archived[0]
+                for name in ("title", "make", "model", "year", "price_usd",
+                             "km", "location", "description"):
+                    if row.get(name) is not None:
+                        payload[name] = {"value": row[name], "confidence": "low"}
+                if row.get("primary_photo"):
+                    payload["photos"] = [row["primary_photo"]]
+                payload.update(in_inventory=True, inventory_fallback=True,
+                               live_verified=False, saved=False,
+                               last_verified_at=row.get("updated_at"),
+                               stale_warning="Inventario histórico. Confirma precio y disponibilidad con el vendedor.")
+                return payload
+        except Exception:
+            log.exception("Encuentra24 inventory fallback failed")
+
     # --- added: tell the frontend whether this listing is already in our inventory
     if supabase:
         try:
@@ -1285,7 +1309,7 @@ async def resolve_link(body: ResolveRequest, request: Request):
 
     # --- SAVE into inventory: by default for any NEW valid car (AUTO_SAVE_LINKS),
     # or when explicitly requested (body.save). Bad links are REJECTED, not saved.
-    want_save = bool(body.save) or AUTO_SAVE_LINKS
+    want_save = (bool(body.save) or AUTO_SAVE_LINKS) and not (platform == "encuentra24" and payload.get("in_inventory") is True)
     if want_save:
         valid, reason = _is_valid_car_listing(payload, url=url, platform=platform)
         if not supabase:
