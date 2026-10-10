@@ -117,6 +117,67 @@ def _carroselsalvador_detail(html: str, listing: Listing) -> None:
             km = round(distance * 1.609344) if mileage.group(2).lower() != "km" else round(distance)
             listing.km = Field(value=km, confidence="medium")
 
+def _experimental_listing_detail(html: str, listing: Listing) -> None:
+    """Site-local price/mileage, excluding related ads and seller free-text.
+
+    These branches are exploratory: absence of authoritative listing-local price
+    must stay missing, never fall back to a related-car or financing installment.
+    """
+    from urllib.parse import urlparse
+    host = (urlparse(listing.url).hostname or "").lower().removeprefix("www.")
+    if host not in {"tucarro.sv", "caragencia.com", "carros.com"}:
+        return
+    soup = BeautifulSoup(html, "html.parser")
+    h1 = soup.find("h1")
+    if not h1:
+        return
+    text = soup.get_text(" ", strip=True)
+    title = h1.get_text(" ", strip=True)
+    if not re.search(r"\\b(?:19|20)\\d{2}\\b", title):
+        return
+
+    price_match = None
+    miles_match = None
+    if host == "tucarro.sv":
+        # Only the immediate heading-area facts, before seller notes/financing.
+        next_fragments = [str(v).strip() for v in h1.find_all_next(string=True, limit=35)]
+        facts = " ".join(next_fragments)
+        price_match = re.search(r"(?<!\\w)\\$\\s*([\\d,]{3,})(?!\\d)", facts)
+        miles_match = re.search(r"\\b([\\d,]{2,})\\s*(km|millas|mi)\\b", facts, re.I)
+    elif host == "caragencia.com":
+        # Authoritative listing price, not the seller's arbitrary notes.
+        price_match = re.search(r"\\bListing Price\\s+USD\\s*([\\d,]+)", text, re.I)
+        # If the listing explicitly says miles we may normalize them.
+        note = re.search(r"\\bSeller notes\\b(.{0,1200}?)\\bListing Price\\b", text, re.I)
+        if note:
+            miles_match = re.search(r"\\b([\\d,]+)\\s*(millas|mi|km)\\b", note.group(1), re.I)
+    else:  # carros.com
+        # Use only the current page's header and Vehicle Details block.
+        lead = text.split("Vehicle Details", 1)[0][:1600]
+        price_match = re.search(r"\\$\\s*([\\d,]+)\\s*USD\\b", lead, re.I)
+        details = text.split("Vehicle Details", 1)
+        if len(details) == 2:
+            details = details[1].split("Description", 1)[0]
+            miles_match = re.search(r"\\bMileage\\s*([\\d,]+)\\s*(km|mi|millas)\\b", details, re.I)
+    if price_match:
+        try:
+            price = int(price_match.group(1).replace(",", ""))
+        except (ValueError, TypeError):
+            price = None
+        if price is not None and 500 <= price <= 200000:
+            listing.price_usd = Field(value=price, confidence="medium")
+    if miles_match:
+        try:
+            amount = int(miles_match.group(1).replace(",", ""))
+            unit = miles_match.group(2).lower()
+        except (ValueError, IndexError):
+            amount = None
+            unit = None
+        if amount is not None and 0 <= amount <= 2000000:
+            listing.km = Field(value=round(amount * 1.609344) if unit != "km" else amount,
+                               confidence="medium")
+
+
 def parse_html(url: str, html: str) -> Listing:
     """Parse already-fetched HTML without additional outbound network requests."""
     listing = Listing(platform="unknown", url=url)
@@ -152,4 +213,5 @@ def parse_html(url: str, html: str) -> Listing:
             listing.model = Field(value=md[0], confidence="low")
 
     _carroselsalvador_detail(html, listing)
+    _experimental_listing_detail(html, listing)
     return listing
