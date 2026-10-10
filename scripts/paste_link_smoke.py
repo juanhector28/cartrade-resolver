@@ -44,7 +44,7 @@ async def check(case: dict) -> dict:
         title = str(result["observed"].get("title") or "").casefold()
         tokens = expected.get("title_tokens") or []
         result["checks"]["title_identity"] = bool(title) and bool(tokens) and all(
-            re.search(r"(?<!\\w)" + re.escape(str(token).casefold()) + r"(?!\\w)", title)
+            re.search(r"(?<!\w)" + re.escape(str(token).casefold()) + r"(?!\w)", title)
             for token in tokens
         )
         result["checks"]["photo_present"] = result["observed"]["photo_count"] > 0
