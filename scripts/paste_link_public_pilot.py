@@ -60,6 +60,7 @@ async def main() -> int:
                 "correct_title": "kia" in str(v("title")).lower() and "sportage" in str(v("title")).lower(),
                 "correct_year": v("year") == 2006,
                 "correct_asking_price": v("price_usd") == 5700,
+                "correct_mileage_km": v("km") == 160934,
                 "photo_present": len(obj["photos"]) > 0}
             receipt["verified"] = all(receipt["checks"].values()) and not obj["errors"]
             receipt["result"] = "pass" if receipt["verified"] else "field_mismatch"
