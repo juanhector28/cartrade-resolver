@@ -14,7 +14,13 @@
     "atlas_source_records": 1405,
     "atlas_valid_field_records": 1315,
     "atlas_production_verified_sources": 0,
-    "paste_link_e2e_verified": 0
+    "paste_link_e2e_verified": 0,
+    "real_public_listing_tests_passed": 3,
+    "real_public_listing_tests_total": 3,
+    "sites_with_3_passing_individual_listings": 1,
+    "domains_fully_certified_for_release": 0,
+    "field_recovery_on_passed_pilot": "5/5 per listing (title, price, year, km, photo URL); images not GET-verified",
+    "last_pilot_workflow": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38095284698"
   },
   "sample_cases": [
     {
@@ -210,12 +216,14 @@
       "atlas_last_check": "2026-10-10T17:04:08.896768+00:00",
       "atlas_production_verified": false,
       "paste_link_endpoint_verified": false,
-      "paste_link_price_verified": false,
-      "paste_link_photo_verified": false,
-      "paste_link_year_verified": false,
-      "paste_link_mileage_verified": false,
-      "access_permission_review": "pending",
-      "last_paste_link_test": null
+      "paste_link_price_verified": true,
+      "paste_link_photo_verified": true,
+      "paste_link_year_verified": true,
+      "paste_link_mileage_verified": true,
+      "access_permission_review": "public_test_only_reuse_unreviewed",
+      "last_paste_link_test": "2026-10-10T23:31:02Z",
+      "paste_link_sample_tested": 3,
+      "paste_link_sample_passed": 3
     },
     {
       "source_id": "sv-carvimax",
@@ -1135,5 +1143,39 @@
       "access_permission_review": "pending",
       "last_paste_link_test": null
     }
-  ]
+  ],
+  "pilot_result": {
+    "domain": "carroselsalvador.com",
+    "checked_at": "2026-10-10T23:31:02Z",
+    "execution": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38095284698",
+    "scope": "Three public listing URLs read individually; no crawling; no image download; no production endpoint deployment.",
+    "passed": 3,
+    "total": 3,
+    "records": [
+      {
+        "url": "https://www.carroselsalvador.com/anuncios/kia-sportage-2006/",
+        "title": "KIA Sportage 2006",
+        "price_usd": 5700,
+        "year": 2006,
+        "km": 160934,
+        "photo_url_present": true
+      },
+      {
+        "url": "https://www.carroselsalvador.com/anuncios/honda-accord-2015/",
+        "title": "Honda Accord 2015",
+        "price_usd": 8500,
+        "year": 2015,
+        "km": 209215,
+        "photo_url_present": true
+      },
+      {
+        "url": "https://www.carroselsalvador.com/anuncios/ford-escape-2015-2/",
+        "title": "Ford Escape 2015",
+        "price_usd": 10700,
+        "year": 2015,
+        "km": 236574,
+        "photo_url_present": true
+      }
+    ]
+  }
 }
