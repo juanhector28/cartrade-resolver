@@ -38,3 +38,17 @@ Machine-readable source of this view: `ops/paste_link_sv_coverage.json`.
 The JSON scorecard now includes the full **56-source registry** from `juanhector28/cartrade-atlas`, PR #133, `overrides/atlas/sv_sources/report.json`. In that earlier Atlas **collector** run: 32 sources had observed links, 12 had enumerated catalogs/feeds, three were blocked, three empty/closed, four without independent auto inventory, one catalog-only, one legacy gallery. Atlas reports 1,405 raw source records, 1,315 field-valid records, and **0 sources verified in production**. These must not be counted as successful Paste the Link resolutions.
 
 Each of the 56 source rows separately records individual Paste the Link status for price, photo, year, mileage and access review. All start **unverified** until actual request-response checks from the resolver pass.
+
+## First real public listing diagnostic (10 Oct 2026)
+
+**Result: 3/3 individual vehicle URLs passed the parser-level live test** on GitHub Actions runner, with one robots.txt check and 3 bounded individual-page GET requests. No page HTML or photos were retained.
+
+| Listing | Current asking price extracted | Year | Odometer normalized | Photo URL returned |
+|---|---:|---:|---:|---|
+| KIA Sportage | USD 5,700 | 2006 | 160,934 km (100,000 mi) | Yes |
+| Honda Accord | USD 8,500 | 2015 | 209,215 km (130,000 mi) | Yes |
+| Ford Escape | USD 10,700 | 2015 | 236,574 km (147,000 mi) | Yes |
+
+GitHub evidence: https://github.com/juanhector28/cartrade-resolver/actions/runs/38095284698
+
+**Not yet demonstrated:** production /resolve-link full HTTP integration; actual image loading/rendering in Carly; independent commercial-content rights; future prices and availability. Therefore domain-wide production certification remains pending, even though three real listings passed.
