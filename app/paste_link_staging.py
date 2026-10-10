@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from . import platforms
+from .paste_link_source_registry import SOURCES, public_status, source_for_url
 from .resolvers import fallback
 
 app = FastAPI(title="Carly · Pega el link · Staging", docs_url=None, redoc_url=None)
@@ -33,18 +34,9 @@ class ResolveBody(BaseModel):
 
 
 def is_pilot_listing(url: str) -> bool:
-    try:
-        parsed = urlparse(url)
-        if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port is not None:
-            return False
-        if (parsed.hostname or "").lower().removeprefix("www.") != SOURCE_HOST:
-            return False
-        if not platforms.is_allowed(url) or not platforms.is_listing_url(url):
-            return False
-        # No query parameters that could change the requested resource or cause side effects.
-        return not parsed.query and not parsed.fragment
-    except ValueError:
-        return False
+    """True for an individual listing route in an explicitly enabled stage source."""
+    return source_for_url(url) is not None
+
 
 
 def rate_check(ip: str, now: float | None = None) -> bool:
@@ -81,14 +73,22 @@ async def robots_allows(url: str) -> bool:
 @app.get("/health")
 def health():
     return {"ok": True, "environment": "staging", "source": SOURCE_HOST,
+            "sources_enabled": sum(x["enabled"] for x in SOURCES.values()),
             "storage": False, "production": False}
+
+
+@app.get("/api/sources")
+def sources():
+    return {"sources": public_status(), "storage": False, "environment": "staging"}
 
 
 @app.post("/api/resolve")
 async def resolve(body: ResolveBody, request: Request):
     url = body.url.strip()
-    if not is_pilot_listing(url):
-        raise HTTPException(status_code=400, detail="Esta prueba admite solo anuncios individuales de Carros El Salvador.")
+    source = source_for_url(url)
+    if not source:
+        raise HTTPException(status_code=400, detail="Enlace no habilitado o no corresponde a un anuncio individual de una fuente en pruebas.")
+    source_host, source_data = source
     ip = request.client.host if request.client else "unrecognized"
     if not rate_check(ip):
         raise HTTPException(status_code=429, detail="Límite de pruebas por hora alcanzado.")
@@ -113,7 +113,7 @@ async def resolve(body: ResolveBody, request: Request):
         raise HTTPException(status_code=422, detail="La ficha no tiene un título y precio verificables.")
     return {
         "environment": "staging", "pilot_readonly": True, "saved": False,
-        "source": SOURCE_HOST, "source_url": url,
+        "source": source_host, "source_stage": source_data["stage"], "source_url": url,
         "title": val("title"), "price_usd": val("price_usd"),
         "year": val("year"), "km": val("km"),
         "photos": photos, "photo_url_verified": False,
@@ -141,10 +141,10 @@ input{border:0;outline:0;min-width:0;flex:1;padding:13px;font-size:15px}button{b
 </head>
 <body><div class="shell"><header class="header"><div class="brand">carly<span style="color:#42896b">.</span></div><div class="tag">Entorno de pruebas</div></header>
 <h1>¿Ya viste un carro?<br>Pega el link.</h1>
-<p class="sub">Probamos la extracción automática de precio, fotografía y características de anuncios de <strong>Carros El Salvador</strong>. Sin guardar vehículos ni modificar la plataforma principal.</p>
-<form class="form" id="form"><input id="url" aria-label="URL del anuncio" type="url" required placeholder="https://www.carroselsalvador.com/anuncios/..." autocomplete="url">
+<p class="sub">Probamos la extracción automática de precio, fotografía y características de anuncios de <strong>sitios participantes en nuestro entorno de pruebas</strong>. Sin guardar vehículos ni modificar la plataforma principal.</p>
+<form class="form" id="form"><input id="url" aria-label="URL del anuncio" type="url" required placeholder="Pega el enlace de un vehículo..." autocomplete="url">
 <button id="send" type="submit">Analizar enlace</button></form>
-<p class="note">Piloto limitado a anuncios individuales de carroselsalvador.com. La fotografía se prueba directamente en tu navegador.</p>
+<p class="note">Entorno multisitio: cada fuente tiene reglas individuales. Los sitios experimentales todavía pueden fallar. La fotografía se verifica directamente en tu navegador.</p>
 <div id="status" class="status" aria-live="polite"></div>
 <section id="card" class="card"><div class="image"><span id="placeholder">Esperando fotografía…</span><img id="photo" alt="Fotografía del vehículo"></div>
 <div class="content"><div class="meta">Ficha recuperada de la fuente</div><div class="car" id="title"></div><div class="price" id="price"></div>
