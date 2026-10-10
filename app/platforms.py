@@ -25,6 +25,9 @@ def detect(url: str) -> Platform:
 # Whitelist of domains we will resolve. Anything else returns 400 from main.
 ALLOWED_DOMAINS = (
     "encuentra24.com",
+    # Established regional vehicle portals; generic OG fallback is used.
+    "crautos.com", "crautos.com.cr", "encuentra24.com.pa",
+    "movilauto.com", "autogogt.com", "agautoventas.com",
     "olx.com.sv", "olx.com.br", "olx.com.mx", "olx.com.ar", "olx.com.pe", "olx.com",
     "facebook.com", "fb.com", "m.facebook.com",
     "mercadolibre.com.sv", "mercadolibre.com.mx", "mercadolibre.com.ar",
