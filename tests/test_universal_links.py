@@ -3,6 +3,7 @@
 Do not call third-party sites in CI. These tests prove URL gating and
 redirect safety; live extraction still requires a separate smoke test.
 """
+import asyncio
 from unittest.mock import patch
 import pytest
 import httpx
@@ -35,8 +36,7 @@ def test_platform_spoofing():
     assert platforms.detect("https://encuentra24.com.evil.example/car") == "unknown"
 
 
-@pytest.mark.asyncio
-async def test_redirect_into_private_network_is_refused():
+def test_redirect_into_private_network_is_refused():
     def handler(request):
         if request.url.host == "dealer.example.com":
             return httpx.Response(302, headers={"location": "http://169.254.169.254/latest/meta-data/"})
@@ -49,5 +49,5 @@ async def test_redirect_into_private_network_is_refused():
     with patch("app.resolvers.fallback.httpx.AsyncClient", side_effect=fake_client), patch(
         "app.resolvers.fallback.public_dns_addresses", return_value=True
     ):
-        result = await fallback.resolve("https://dealer.example.com/car")
+        result = asyncio.run(fallback.resolve("https://dealer.example.com/car"))
     assert "unsafe_url" in result.errors
