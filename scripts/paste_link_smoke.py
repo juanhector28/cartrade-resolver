@@ -13,6 +13,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from app import platforms
 from app.resolvers import encuentra24, olx, facebook, mercadolibre, fallback
@@ -36,7 +37,13 @@ async def check(case: dict) -> dict:
             item = fields.get(name)
             return item.get("value") if isinstance(item, dict) else item
         result["observed"] = {key: value(key) for key in ("title","price_usd","year","km")}
-        result["observed"]["photo_count"] = len(fields.get("photos") or [])
+        photos = fields.get("photos") or []
+        result["observed"]["photo_count"] = len(photos)
+        result["observed"]["valid_photo_urls"] = sum(
+            1 for photo in photos if isinstance(photo, str)
+            and urlparse(photo).scheme in ("http", "https")
+            and bool(urlparse(photo).hostname)
+        )
         result["errors"] = fields.get("errors") or []
         expected = case.get("expected") or {}
         result["checks"] = {key: result["observed"].get(key) == expected[key]
@@ -47,9 +54,17 @@ async def check(case: dict) -> dict:
             re.search(r"(?<!\w)" + re.escape(str(token).casefold()) + r"(?!\w)", title)
             for token in tokens
         )
-        result["checks"]["photo_present"] = result["observed"]["photo_count"] > 0
+        result["checks"]["photo_present"] = result["observed"]["valid_photo_urls"] > 0
         result["checks"]["expected_price_present"] = "price_usd" in expected
         result["checks"]["expected_year_present"] = "year" in expected
+        result["fields_recovered"] = {
+            key: result["observed"].get(key) is not None
+            for key in ("title", "price_usd", "year", "km")
+        }
+        result["fields_recovered"]["photo"] = result["checks"]["photo_present"]
+        result["field_recovery_pct"] = round(
+            100 * sum(result["fields_recovered"].values()) / len(result["fields_recovered"]), 1
+        )
         result["verified"] = all(result["checks"].values()) and not result["errors"]
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
