@@ -1,0 +1,123 @@
+{
+  "generated_at": "2026-10-10",
+  "scope": "Paste the Link El Salvador",
+  "target_sources": 56,
+  "meaning": "This is a tested-domain inventory, not a claim of working extraction.",
+  "metrics": {
+    "domains_observed_in_sv_inventory": 9,
+    "additional_domains_proposed_in_pr": 8,
+    "distinct_listing_pages_manually_verified": 3,
+    "live_resolver_end_to_end_verified": 0,
+    "sites_marked_functional": 0,
+    "site_universe_fully_audited": false
+  },
+  "sample_cases": [
+    {
+      "host": "carroselsalvador.com",
+      "url": "https://www.carroselsalvador.com/anuncios/kia-sportage-2006/",
+      "expected": {
+        "title": "KIA Sportage 2006",
+        "price_usd": 5700,
+        "year": 2006,
+        "odometer": "100000 mi",
+        "photo_present": true
+      },
+      "page_observed": true,
+      "resolver_verified": false,
+      "source": "public listing page"
+    },
+    {
+      "host": "caragencia.com",
+      "url": "https://caragencia.com/car-finder/2023-chevrolet-trailblazer",
+      "expected": {
+        "title": "2023 Chevrolet TrailBlazer",
+        "price_usd": 13900,
+        "year": 2023,
+        "odometer": "41000 (unit listed in seller notes as miles)",
+        "photo_present": null
+      },
+      "page_observed": true,
+      "resolver_verified": false,
+      "source": "public listing page"
+    },
+    {
+      "host": "carros.com",
+      "url": "https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/",
+      "expected": {
+        "title": "Honda Civic 2015",
+        "price_usd": 9500,
+        "year": 2015,
+        "odometer": "125837 km",
+        "photo_present": null
+      },
+      "page_observed": true,
+      "resolver_verified": false,
+      "source": "public listing page"
+    }
+  ],
+  "sources": [
+    {
+      "domain": "encuentra24.com",
+      "access": "blocked_http_and_browser_403_render",
+      "resolver_status": "blocked",
+      "permission_review": "required",
+      "samples": 1
+    },
+    {
+      "domain": "caragencia.com",
+      "access": "not_live_tested",
+      "resolver_status": "unverified",
+      "permission_review": "pending",
+      "samples": 1
+    },
+    {
+      "domain": "carros.com",
+      "access": "not_live_tested",
+      "resolver_status": "unverified",
+      "permission_review": "pending",
+      "samples": 1
+    },
+    {
+      "domain": "motorasv.com",
+      "access": "not_live_tested",
+      "resolver_status": "unverified",
+      "permission_review": "pending",
+      "samples": 0
+    },
+    {
+      "domain": "tucarro.sv",
+      "access": "not_live_tested",
+      "resolver_status": "unverified",
+      "permission_review": "pending",
+      "samples": 0
+    },
+    {
+      "domain": "autospublicidad.com",
+      "access": "not_live_tested",
+      "resolver_status": "unverified",
+      "permission_review": "pending",
+      "samples": 0
+    },
+    {
+      "domain": "carroselsalvador.com",
+      "access": "not_live_tested",
+      "resolver_status": "unverified",
+      "permission_review": "pending",
+      "samples": 1
+    },
+    {
+      "domain": "disazautos.com",
+      "access": "not_live_tested",
+      "resolver_status": "unverified",
+      "permission_review": "pending",
+      "samples": 0
+    },
+    {
+      "domain": "nissanelsalvador.com",
+      "access": "not_live_tested",
+      "resolver_status": "unverified",
+      "permission_review": "pending",
+      "samples": 0
+    }
+  ]
+}
