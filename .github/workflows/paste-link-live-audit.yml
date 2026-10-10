@@ -42,6 +42,10 @@ jobs:
           if approved_root not in resolved.parents or resolved.suffix != ".json" or not resolved.is_file():
               raise SystemExit("Invalid case file path")
           PY
+      - name: Require documented source permission before outbound requests
+        env:
+          CASE_FILE: ${{ inputs.case_file }}
+        run: python -m scripts.paste_link_access_gate "$CASE_FILE" ops/paste_link_access_review.json
       - name: Resolve approved test URLs without modifying production
         env:
           CASE_FILE: ${{ inputs.case_file }}
