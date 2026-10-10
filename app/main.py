@@ -1275,6 +1275,31 @@ async def resolve_link(body: ResolveRequest, request: Request):
     payload = listing.to_dict()
     payload["elapsed_seconds"] = round(elapsed, 2)
 
+    # A blocked listing may already have an older, usable inventory snapshot.
+    # Never silently represent this as a live extraction or overwrite the DB.
+    if not has_essentials and supabase:
+        try:
+            rows = (supabase.table("scraped_listings")
+                    .select("title,make,model,year,price_usd,km,location,description,primary_photo,updated_at,country")
+                    .eq("url", url).limit(1).execute().data or [])
+            if rows:
+                row = rows[0]
+                for field_name in ("title", "make", "model", "year", "price_usd",
+                                   "km", "location", "description"):
+                    if row.get(field_name) is not None:
+                        payload[field_name] = {"value": row[field_name], "confidence": "low"}
+                if row.get("primary_photo"):
+                    payload["photos"] = [row["primary_photo"]]
+                payload["in_inventory"] = True
+                payload["inventory_fallback"] = True
+                payload["live_verified"] = False
+                payload["last_verified_at"] = row.get("updated_at")
+                payload["stale_warning"] = "Stored listing; price and availability not verified live."
+                payload["saved"] = False
+                return payload
+        except Exception:
+            log.exception("inventory fallback lookup failed")
+
     # --- added: tell the frontend whether this listing is already in our inventory
     if supabase:
         try:
