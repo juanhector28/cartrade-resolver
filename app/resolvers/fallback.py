@@ -28,9 +28,13 @@ async def resolve(url: str) -> Listing:
     listing = Listing(platform="unknown", url=url)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True,
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False,
                                      headers={"User-Agent": USER_AGENT}) as cli:
             r = await cli.get(url)
+            # Avoid automatic cross-origin redirects (SSRF and provenance confusion).
+            if 300 <= r.status_code < 400:
+                listing.errors.append("redirect not followed; source requires review")
+                return listing
             if r.status_code >= 400:
                 listing.errors.append(f"http {r.status_code}")
                 return listing
