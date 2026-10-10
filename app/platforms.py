@@ -25,6 +25,10 @@ def detect(url: str) -> Platform:
 # Whitelist of domains we will resolve. Anything else returns 400 from main.
 ALLOWED_DOMAINS = (
     "encuentra24.com",
+    # SV domains observed in Atlas inventory; approval to access must still be reviewed.
+    "caragencia.com", "carros.com", "motorasv.com", "tucarro.sv",
+    "autospublicidad.com", "carroselsalvador.com", "disazautos.com",
+    "nissanelsalvador.com",
     "olx.com.sv", "olx.com.br", "olx.com.mx", "olx.com.ar", "olx.com.pe", "olx.com",
     "facebook.com", "fb.com", "m.facebook.com",
     "mercadolibre.com.sv", "mercadolibre.com.mx", "mercadolibre.com.ar",
