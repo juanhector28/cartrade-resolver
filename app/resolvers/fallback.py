@@ -6,7 +6,9 @@ year/km/price/make from the title.
 """
 from __future__ import annotations
 import re
+import json
 import httpx
+from bs4 import BeautifulSoup
 from .base import Listing, Field
 from .. import parsers
 
@@ -17,12 +19,49 @@ USER_AGENT = (
 
 
 def _meta(html: str, prop: str) -> str | None:
-    pat = re.compile(
-        rf'<meta[^>]*(?:property|name)=["\']{re.escape(prop)}["\'][^>]*content=["\']([^"\']+)["\']',
-        re.IGNORECASE)
-    m = pat.search(html)
-    return m.group(1) if m else None
+    """Support normal HTML attribute ordering and both quote styles."""
+    soup = BeautifulSoup(html, "html.parser")
+    tag = soup.find("meta", attrs={"property": prop}) or soup.find("meta", attrs={"name": prop})
+    value = tag.get("content") if tag else None
+    return str(value).strip() if value else None
 
+
+def _structured_price(html: str) -> float | None:
+    """Use listing-local schema.org offers, never prices from related ads."""
+    soup = BeautifulSoup(html, "html.parser")
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            root = json.loads(script.string or script.get_text())
+        except (ValueError, TypeError):
+            continue
+        todo = [root]
+        while todo:
+            obj = todo.pop()
+            if isinstance(obj, list):
+                todo.extend(obj)
+                continue
+            if not isinstance(obj, dict):
+                continue
+            todo.extend(obj.get("@graph", []) if isinstance(obj.get("@graph"), list) else [])
+            kind = obj.get("@type")
+            kinds = [str(item).lower() for item in kind] if isinstance(kind, list) else [str(kind).lower()]
+            if not any(k in {"product", "vehicle", "car"} for k in kinds):
+                continue
+            offers = obj.get("offers")
+            if isinstance(offers, list):
+                offers = next((o for o in offers if isinstance(o, dict)), None)
+            if not isinstance(offers, dict):
+                continue
+            if str(offers.get("priceCurrency", "USD")).upper() != "USD":
+                continue
+            raw = offers.get("price")
+            try:
+                price = float(str(raw).replace(",", ""))
+            except (ValueError, TypeError):
+                continue
+            if 500 <= price <= 200000:
+                return price
+    return None
 
 async def resolve(url: str) -> Listing:
     listing = Listing(platform="unknown", url=url)
@@ -61,7 +100,10 @@ async def resolve(url: str) -> Listing:
     km = parsers.extract_km(haystack)
     if km:
         listing.km = Field(value=km[0], confidence="low")
-    pr = parsers.extract_price_usd(haystack)
+    structured_price = _structured_price(html)
+    if structured_price is not None:
+        listing.price_usd = Field(value=structured_price, confidence="high")
+    pr = parsers.extract_price_usd(haystack) if structured_price is None else None
     if pr:
         listing.price_usd = Field(value=pr[0], confidence="low")
     mk = parsers.extract_make(haystack)
