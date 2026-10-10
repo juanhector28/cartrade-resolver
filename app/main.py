@@ -1244,12 +1244,13 @@ async def resolve_link(body: ResolveRequest, request: Request):
     if not platforms.is_allowed(url):
         raise HTTPException(status_code=400, detail="URL is not from a supported listing platform.")
 
-    cached = cache.get(url)
+    platform = platforms.detect(url)
+    # Encuentra24 asking prices change frequently, and previous cached entries
+    # can contain stale prices. Always re-fetch for Paste the Link.
+    cached = cache.get(url) if platform != "encuentra24" else None
     if cached and not body.save:
         cached["cached"] = True
         return cached
-
-    platform = platforms.detect(url)
     started = time.time()
 
     try:
