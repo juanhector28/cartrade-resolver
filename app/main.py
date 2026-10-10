@@ -1243,6 +1243,8 @@ async def resolve_link(body: ResolveRequest, request: Request):
 
     if not platforms.is_allowed(url):
         raise HTTPException(status_code=400, detail="URL is not from a supported listing platform.")
+    if not platforms.is_listing_url(url):
+        raise HTTPException(status_code=422, detail="URL points to a vehicle catalog, not an individual listing.")
 
     platform = platforms.detect(url)
     # Encuentra24 asking prices change frequently, and previous cached entries
