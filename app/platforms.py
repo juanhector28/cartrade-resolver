@@ -40,6 +40,15 @@ ALLOWED_DOMAINS = (
 
 
 
+def is_readonly_public_pilot(url: str) -> bool:
+    """Do not store/copy third-party listings during a private technical pilot."""
+    parsed = urlparse(url)
+    return (
+        parsed.scheme == "https"
+        and (parsed.hostname or "").lower().removeprefix("www.") == "carroselsalvador.com"
+    )
+
+
 def is_listing_url(url: str) -> bool:
     """Conservative route guard for known dealer catalog URLs."""
     try:
@@ -52,6 +61,8 @@ def is_listing_url(url: str) -> bool:
             "disazautos.com": {"/importados"},
             "carroselsalvador.com": {"/anuncios"},
         }
+        if host == "carroselsalvador.com":
+            return path.startswith("/anuncios/") and len(path.split("/")) >= 3
         return path not in category_routes.get(host, set())
     except Exception:
         return False
