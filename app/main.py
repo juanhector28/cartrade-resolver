@@ -1247,6 +1247,7 @@ async def resolve_link(body: ResolveRequest, request: Request):
         raise HTTPException(status_code=422, detail="URL points to a vehicle catalog, not an individual listing.")
 
     platform = platforms.detect(url)
+    pilot_readonly = platforms.is_readonly_public_pilot(url)
     # The buyer expects today's asking price. A 7-day cached response cannot
     # prove price freshness for ANY marketplace. Keep cache for other workflows,
     # but always re-fetch individual Paste the Link requests.
@@ -1329,7 +1330,7 @@ async def resolve_link(body: ResolveRequest, request: Request):
 
     # --- SAVE into inventory: by default for any NEW valid car (AUTO_SAVE_LINKS),
     # or when explicitly requested (body.save). Bad links are REJECTED, not saved.
-    want_save = (bool(body.save) or AUTO_SAVE_LINKS) and not (platform == "encuentra24" and payload.get("in_inventory") is True)
+    want_save = (bool(body.save) or AUTO_SAVE_LINKS) and not (platform == "encuentra24" and payload.get("in_inventory") is True) and not pilot_readonly
     if want_save:
         valid, reason = _is_valid_car_listing(payload, url=url, platform=platform)
         if not supabase:
@@ -1350,8 +1351,11 @@ async def resolve_link(body: ResolveRequest, request: Request):
                 payload["save_error"] = str(e)[:200]
                 log.exception("resolve-link save error url=%s", url)
 
-    if has_essentials:
+    if has_essentials and not pilot_readonly:
         cache.put(url, payload)
+    if pilot_readonly:
+        payload["saved"] = False
+        payload["pilot_readonly"] = True
 
     return payload
 
