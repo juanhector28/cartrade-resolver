@@ -1,6 +1,7 @@
 """URL → Platform detection."""
 from __future__ import annotations
 from urllib.parse import urlparse
+from .safe_urls import is_public_url
 from .resolvers.base import Platform
 
 
@@ -39,9 +40,5 @@ ALLOWED_DOMAINS = (
 
 
 def is_allowed(url: str) -> bool:
-    try:
-        host = urlparse(url).netloc.lower()
-        return any(host == d or host.endswith("." + d) or host == "www." + d
-                   for d in ALLOWED_DOMAINS)
-    except Exception:
-        return False
+    """Accept public HTTP(S) listing URLs; the fetcher also validates redirects."""
+    return is_public_url(url)
