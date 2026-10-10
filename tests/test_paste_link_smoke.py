@@ -21,3 +21,19 @@ def test_wrong_price_never_passes_smoke(monkeypatch):
          "expected":{"price_usd":5700,"year":2006}}))
     assert result["checks"]["price_usd"] is False
     assert result["verified"] is False
+
+def test_matching_price_with_wrong_car_fails(monkeypatch):
+    class WrongCar:
+        def to_dict(self):
+            return {"title":{"value":"Toyota Corolla 2006"}, "year":{"value":2006},
+                    "price_usd":{"value":5700}, "photos":["https://example.com/car.jpg"], "errors":[]}
+    async def fake_resolve(url):
+        return WrongCar()
+    monkeypatch.setattr(paste_link_smoke.fallback, "resolve", fake_resolve)
+    result = asyncio.run(paste_link_smoke.check({
+        "source_id":"sv-carros-el-salvador",
+        "url":"https://www.carroselsalvador.com/anuncios/kia-sportage-2006/",
+        "expected":{"price_usd":5700,"year":2006,"title_tokens":["Kia","Sportage","2006"]}
+    }))
+    assert result["checks"]["title_identity"] is False
+    assert result["verified"] is False
