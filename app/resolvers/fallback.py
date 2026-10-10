@@ -6,7 +6,10 @@ year/km/price/make from the title.
 """
 from __future__ import annotations
 import re
+import asyncio
+from urllib.parse import urljoin, urlsplit
 import httpx
+from ..safe_urls import is_public_url, public_dns_addresses
 from .base import Listing, Field
 from .. import parsers
 
@@ -27,16 +30,51 @@ def _meta(html: str, prop: str) -> str | None:
 async def resolve(url: str) -> Listing:
     listing = Listing(platform="unknown", url=url)
 
+    # Validate each hop explicitly: httpx.follow_redirects=True can otherwise
+    # fetch internal URLs via an attacker-controlled redirect.
+    html = ""
+    current_url = url
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True,
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False,
+                                     trust_env=False,
                                      headers={"User-Agent": USER_AGENT}) as cli:
-            r = await cli.get(url)
-            if r.status_code >= 400:
-                listing.errors.append(f"http {r.status_code}")
+            for _ in range(6):
+                if not is_public_url(current_url):
+                    listing.errors.append("unsafe_url")
+                    return listing
+                hostname = urlsplit(current_url).hostname
+                if not await asyncio.to_thread(public_dns_addresses, hostname):
+                    listing.errors.append("unsafe_dns_destination")
+                    return listing
+                async with cli.stream("GET", current_url) as r:
+                    if r.status_code in (301, 302, 303, 307, 308):
+                        redirect_to = r.headers.get("location")
+                        if not redirect_to:
+                            listing.errors.append("invalid_redirect")
+                            return listing
+                        current_url = urljoin(current_url, redirect_to)
+                        continue
+                    if r.status_code >= 400:
+                        listing.errors.append(f"http {r.status_code}")
+                        return listing
+                    if "text/html" not in r.headers.get("content-type", "").lower():
+                        listing.errors.append("not_html")
+                        return listing
+                    chunks = []
+                    size = 0
+                    async for chunk in r.aiter_bytes():
+                        size += len(chunk)
+                        if size > 1_000_000:
+                            listing.errors.append("html_too_large")
+                            return listing
+                        chunks.append(chunk)
+                    html = b"".join(chunks).decode("utf-8", errors="replace")
+                    break
+            else:
+                listing.errors.append("too_many_redirects")
                 return listing
-            html = r.text
     except httpx.HTTPError as e:
-        listing.errors.append(f"http error: {e!s}")
+        listing.errors.append(f"http error: {e.__class__.__name__}")
         return listing
 
     og_title = _meta(html, "og:title") or _meta(html, "twitter:title") or ""
