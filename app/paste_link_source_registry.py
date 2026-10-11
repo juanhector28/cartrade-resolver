@@ -11,36 +11,36 @@ from urllib.parse import urlparse, parse_qsl
 
 SOURCES = {
     "carroselsalvador.com": {
-        "name": "Carros El Salvador", "stage": "browser_verified",
+        "name": "Carros El Salvador", "stage": "browser_sample_verified",
         "route": r"^/anuncios/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
     },
     "tucarro.sv": {
-        "name": "TuCarro.sv", "stage": "experimental",
+        "name": "TuCarro.sv", "stage": "browser_sample_verified",
         "route": r"^/[a-z0-9][a-z0-9-]*/[a-f0-9]{8}/?$", "enabled": True,
     },
     "caragencia.com": {
-        "name": "CarAgencia", "stage": "experimental",
+        "name": "CarAgencia", "stage": "browser_sample_verified",
         "route": r"^/(?:es/)?car-finder/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
     },
     "carros.com": {
-        "name": "Carros.com", "stage": "experimental",
+        "name": "Carros.com", "stage": "browser_sample_verified",
         "route": r"^/car/[a-z0-9]{32}-p[0-9]+/?$", "enabled": True,
     },
     "motorasv.com": {
-        "name": "Motora SV", "stage": "experimental",
+        "name": "Motora SV", "stage": "browser_sample_verified",
         "route": r"^/cars/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/?$", "enabled": True,
     },
     "autospublicidad.com": {
-        "name": "Autos Publicidad", "stage": "experimental",
+        "name": "Autos Publicidad", "stage": "browser_sample_verified",
         "route": r"^/sv/detalles/?$", "enabled": True,
         "query_mode": "autospublicidad_vehicle",
     },
     "disazautos.com": {
-        "name": "Disaz Autos", "stage": "experimental",
+        "name": "Disaz Autos", "stage": "browser_sample_verified",
         "route": r"^/product-page/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
     },
     "carvimax.com": {
-        "name": "Carvimax", "stage": "experimental",
+        "name": "Carvimax", "stage": "browser_sample_verified",
         "route": r"^/[a-z0-9][a-z0-9-]+/[1-9][0-9]{0,6}/?$", "enabled": True,
     },
     "easycar.com.sv": {
@@ -56,7 +56,7 @@ SOURCES = {
         "route": r"^/sv/product/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
     },
     "julajups.sv": {
-        "name": "Julajups", "stage": "experimental",
+        "name": "Julajups", "stage": "browser_sample_verified",
         "route": r"^/anuncio/[a-z0-9][a-z0-9-]+-[a-z0-9]{10}/?$", "enabled": True,
     },
     # Wave 4 candidate routes from Atlas SV individual listing receipts.
@@ -86,7 +86,7 @@ SOURCES = {
     },
     # New source discovered beyond the 56-entry Atlas SV census.
     "sv.anuto.app": {
-        "name": "Anuto El Salvador", "stage": "experimental",
+        "name": "Anuto El Salvador", "stage": "browser_sample_verified",
         "route": r"^/ad/[a-z0-9][a-z0-9.-]+-[a-z0-9]{20}/?$", "enabled": True,
     },
     "nissanelsalvador.com": {
