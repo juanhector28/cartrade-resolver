@@ -1,0 +1,28 @@
+name: Carly three real URLs per site bounded audit
+on:
+  pull_request:
+    paths:
+      - "scripts/paste_link_three_per_site_audit.py"
+      - ".github/workflows/paste-link-three-per-site.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  one-bound-pass:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx==0.27.2
+      - run: python scripts/paste_link_three_per_site_audit.py
+      - name: Save all pass/fail receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carly-three-per-site-audit
+          path: /tmp/carly-sv-three-per-domain-audit.json
+          retention-days: 7
+          if-no-files-found: warn
