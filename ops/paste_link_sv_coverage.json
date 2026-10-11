@@ -27,14 +27,17 @@
     "production_accepted_new_domains": 0,
     "staging_live_url": "https://cartrade-paste-link-staging.onrender.com",
     "staging_e2e_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38096244781",
-    "staging_sources_enabled_for_individual_link_trials": 7,
+    "staging_sources_enabled_for_individual_link_trials": 12,
     "staging_sources_with_one_full_browser_sample": 7,
     "staging_browser_samples_passed": 7,
     "staging_browser_latest_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341",
     "sources_pending_individual_listing_route": 1,
     "target_sources": 56,
     "note": "Seven source domains have one passing browser listing sample each; NO domain-wide certification.",
-    "other_source_note": "Nissan model catalog lacks listing-level asking price; remain disabled."
+    "other_source_note": "Nissan model catalog lacks listing-level asking price; remain disabled.",
+    "wave3_sources_with_200_and_price_and_photo_url": 2,
+    "wave3_sources_requiring_dynamic_api_or_browser": 2,
+    "wave3_sources_access_unverified": 1
   },
   "sample_cases": [
     {
@@ -1359,5 +1362,49 @@
         "image_rendered": true
       }
     ]
+  },
+  "wave3_stage": {
+    "recorded_at": "2026-10-11T00:35:04Z",
+    "source_audit": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098814018",
+    "dom_audit": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098907497",
+    "staging_enabled": 12,
+    "summary": "Carvimax and Julajups listing-local price, year and photo URL found; Carvimax mileage corrected using 46,445 mi in og:description. EasyCar/Eurosport client-rendered pages; CrediQ robots returned 403 in diagnostic. No domain-wide certification.",
+    "candidates": [
+      {
+        "site": "carvimax.com",
+        "year": 2021,
+        "price_usd": 19700,
+        "mileage_normalized_km": 74746,
+        "photo_url_observed": true,
+        "visual_photo_pending": true,
+        "certification": "pending_browser"
+      },
+      {
+        "site": "julajups.sv",
+        "year": 2006,
+        "price_usd": 4000,
+        "mileage_normalized_km": null,
+        "photo_url_observed": true,
+        "visual_photo_pending": true,
+        "certification": "pending_browser_mileage_unknown"
+      },
+      {
+        "site": "easycar.com.sv",
+        "blocker": "client-rendered HTML shell",
+        "certification": "not_verified"
+      },
+      {
+        "site": "eurosportautos.com",
+        "blocker": "client-rendered page / intermittent robots check",
+        "certification": "not_verified"
+      },
+      {
+        "site": "crediq.com",
+        "blocker": "robots.txt 403 in independent inspection; generic parser incomplete",
+        "certification": "not_verified"
+      }
+    ],
+    "read_only": true,
+    "production_untouched": true
   }
 }
