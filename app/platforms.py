@@ -29,6 +29,7 @@ ALLOWED_DOMAINS = (
     "caragencia.com", "carros.com", "motorasv.com", "tucarro.sv",
     "autospublicidad.com", "carroselsalvador.com", "disazautos.com",
     "nissanelsalvador.com",
+    "julajups.sv",
     "olx.com.sv", "olx.com.br", "olx.com.mx", "olx.com.ar", "olx.com.pe", "olx.com",
     "facebook.com", "fb.com", "m.facebook.com",
     "mercadolibre.com.sv", "mercadolibre.com.mx", "mercadolibre.com.ar",
@@ -45,7 +46,7 @@ def is_readonly_public_pilot(url: str) -> bool:
     parsed = urlparse(url)
     return (
         parsed.scheme == "https"
-        and (parsed.hostname or "").lower().removeprefix("www.") == "carroselsalvador.com"
+        and (parsed.hostname or "").lower().removeprefix("www.") in {"carroselsalvador.com", "julajups.sv"}
     )
 
 
@@ -61,6 +62,8 @@ def is_listing_url(url: str) -> bool:
             "disazautos.com": {"/importados"},
             "carroselsalvador.com": {"/anuncios"},
         }
+        if host == "julajups.sv":
+            return path.startswith("/anuncio/") and len(path.split("/")) == 3
         if host == "carroselsalvador.com":
             return path.startswith("/anuncios/") and len(path.split("/")) >= 3
         return path not in category_routes.get(host, set())
