@@ -108,3 +108,18 @@ def test_runtime_disablelist_is_strictly_disable_only(monkeypatch):
     assert rows["carroselsalvador.com"]["enabled"] is False
     assert rows["julajups.sv"]["enabled"] is True
     assert rows["autosale.com.sv"]["enabled"] is False
+
+def test_coverage_exposes_next_integration_queue_without_unlocking_anything():
+    with TestClient(staging.app) as client:
+        response = client.get("/api/coverage")
+    assert response.status_code == 200
+    data = response.json()
+    queue = data["next_wave"]
+    assert len(queue) >= 9
+    assert [x["rank"] for x in queue] == list(range(1, len(queue) + 1))
+    assert queue[0]["source"] == "EasyCar"
+    assert queue[1]["source"] == "Credipro"
+    assert all(x["blocker"] and x["acceptance"] for x in queue)
+    assert all(x["production_approved"] is False for x in queue)
+    assert data["production_deploy_permitted"] is False
+    assert not any("sample_url" in x for x in queue)
