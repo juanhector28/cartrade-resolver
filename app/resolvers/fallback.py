@@ -336,6 +336,74 @@ def _anuto_listing_detail(html: str, listing: Listing) -> None:
             listing.km = Field(value=km, confidence="medium")
 
 
+def _excel_usados_listing_detail(html: str, listing: Listing) -> None:
+    """Extract one Excel Usados vehicle, using only the local listing section.
+
+    This WordPress template has no OG fields on vehicle pages. The actual
+    vehicle is the single H1, price label under div.layer, feature labels
+    after the H1, and its own div.item upload gallery. If any required fact
+    is missing (sold/removed listing), fail closed rather than using Atlas
+    inventory or asking prices from another vehicle.
+    """
+    from urllib.parse import urlparse, urljoin
+
+    parsed = urlparse(listing.url)
+    if (parsed.hostname or "").lower() != "usados.excelautomotriz.com" or not re.fullmatch(
+        r"/autos-el-salvador/[a-z0-9][a-z0-9-]+/?", parsed.path, re.I
+    ):
+        return
+    soup = BeautifulSoup(html, "html.parser")
+    headings = soup.select("h1")
+    if len(headings) != 1:
+        return
+    title = headings[0].get_text(" ", strip=True)
+    if not (5 <= len(title) <= 180):
+        return
+
+    # There is exactly one individual listing heading on these pages.
+    parts = soup.get_text(" ", strip=True).split(title, 1)
+    if len(parts) != 2:
+        return
+    local = re.split(r"\bSOLICITA\s+TU\s+CITA\b", parts[1], maxsplit=1, flags=re.I)[0][:1600]
+    label_price = re.search(r"\bPrecio\s*\$\s*([0-9][0-9,.]{2,12})\b", local, re.I)
+    label_year = re.search(r"\bA[nñ]o\s*:?\s*((?:19|20)\d{2})\b", local, re.I)
+    label_km = re.search(r"\bRecorrido\s*:?\s*([0-9][0-9,.]{0,12})\s*(Kil[oó]metros|km)\b", local, re.I)
+    if not label_price or not label_year:
+        return
+    try:
+        price = int(label_price.group(1).replace(",", "").replace(".", ""))
+        year = int(label_year.group(1))
+    except ValueError:
+        return
+    if not 500 <= price <= 200000 or not 1990 <= year <= 2035:
+        return
+
+    listing.title = Field(value=title, confidence="high")
+    listing.price_usd = Field(value=price, confidence="high")
+    listing.year = Field(value=year, confidence="high")
+
+    if label_km:
+        try:
+            km = int(label_km.group(1).replace(",", "").replace(".", ""))
+            if 0 <= km <= 2_000_000:
+                listing.km = Field(value=km, confidence="high")
+        except ValueError:
+            pass
+
+    # Gallery images are served from the actual Excel site, not logos/menus.
+    # The first vehicle slide is enough for Carly; don't download or persist.
+    for img in soup.select("div.item img[src]"):
+        raw = (img.get("src") or "").strip()
+        url = urljoin(listing.url, raw)
+        p = urlparse(url)
+        if (p.scheme == "https" and
+            (p.hostname or "").lower() == "usados.excelautomotriz.com" and
+            p.path.startswith("/wp-content/uploads/") and
+            re.search(r"\.(?:jpe?g|png|webp)$", p.path, re.I)):
+            listing.photos = [url]
+            break
+
+
 def parse_html(url: str, html: str) -> Listing:
     """Parse already-fetched HTML without additional outbound network requests."""
     listing = Listing(platform="unknown", url=url)
@@ -380,4 +448,5 @@ def parse_html(url: str, html: str) -> Listing:
     _autospublicidad_detail(html, listing)
     _carvimax_listing_mileage(html, listing)
     _anuto_listing_detail(html, listing)
+    _excel_usados_listing_detail(html, listing)
     return listing
