@@ -63,5 +63,8 @@ async def main():
         print(json.dumps(row,ensure_ascii=False),flush=True)
         await asyncio.sleep(1)
 
+    except httpx.HTTPError as exc:
+      print(json.dumps({"robots_error":type(exc).__name__}),flush=True)
+
 if __name__=="__main__":
   asyncio.run(main())
