@@ -300,6 +300,42 @@ def _carvimax_listing_mileage(html: str, listing: Listing) -> None:
     )
 
 
+def _anuto_listing_detail(html: str, listing: Listing) -> None:
+    """Read the named vehicle's own detail section on Anuto SV.
+
+    The seller's free-text description can contradict labelled odometer data,
+    and related vehicles appear later on the page. Only extract the listing's
+    own 'Detalles' labels before 'Descripción', not related ads.
+    """
+    from urllib.parse import urlparse
+    p = urlparse(listing.url)
+    if (p.hostname or "").lower() != "sv.anuto.app" or not p.path.startswith("/ad/"):
+        return
+    soup = BeautifulSoup(html, "html.parser")
+    h1 = soup.find("h1")
+    if h1:
+        name = h1.get_text(" ", strip=True)
+        if 5 <= len(name) <= 180:
+            listing.title = Field(value=name, confidence="high")
+    text = soup.get_text(" ", strip=True)
+    segments = re.split(r"\bDetalles\b", text, maxsplit=1, flags=re.I)
+    if len(segments) < 2:
+        return
+    segment = re.split(r"\bDescripci[oó]n\b", segments[1], maxsplit=1, flags=re.I)[0][:1300]
+    year_match = re.search(r"\bA[nñ]o\s*:?\s*((?:19|20)\d{2})\b", segment, re.I)
+    if year_match:
+        listing.year = Field(value=int(year_match.group(1)), confidence="high")
+    km_match = re.search(r"\bKil[oó]metros\s*:?\s*([0-9][0-9.,]{0,11})\s*(?:km|kms)\b",
+                         segment, re.I)
+    if km_match:
+        try:
+            km = int(km_match.group(1).replace(",", "").replace(".", ""))
+        except ValueError:
+            return
+        if 0 <= km <= 2_000_000:
+            listing.km = Field(value=km, confidence="medium")
+
+
 def parse_html(url: str, html: str) -> Listing:
     """Parse already-fetched HTML without additional outbound network requests."""
     listing = Listing(platform="unknown", url=url)
@@ -343,4 +379,5 @@ def parse_html(url: str, html: str) -> Listing:
     _experimental_listing_detail(html, listing)
     _autospublicidad_detail(html, listing)
     _carvimax_listing_mileage(html, listing)
+    _anuto_listing_detail(html, listing)
     return listing
