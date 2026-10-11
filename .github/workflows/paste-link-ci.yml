@@ -12,6 +12,7 @@ on:
       - "ops/paste_link_sv_release_controls.json"
       - "ops/paste_link_sv_qa_3_per_site.json"
       - "ops/paste_link_sv_next_wave.json"
+      - "ops/paste_link_sv_pilot_baseline.json"
       - "requirements-paste-link-staging.txt"
       - "scripts/paste_link_smoke.py"
       - "scripts/paste_link_access_gate.py"
@@ -46,4 +47,4 @@ jobs:
       - name: Check syntax
         run: python -m compileall -q app/platforms.py app/resolvers/fallback.py app/paste_link_staging.py app/paste_link_readiness.py scripts/paste_link_smoke.py
       - name: Run paste-link focused tests
-        run: python -m pytest -q tests/test_paste_link_sv_domains.py tests/test_paste_link_generic_metadata.py tests/test_paste_link_smoke.py tests/test_paste_link_carros_sv.py tests/test_paste_link_access_gate.py tests/test_paste_link_staging.py tests/test_paste_link_multisite.py tests/test_paste_link_julajups_toyota.py tests/test_paste_link_anuto.py tests/test_paste_link_excel.py tests/test_paste_link_qa_coverage.py tests/test_paste_link_readiness.py tests/test_paste_link_next_wave.py tests/test_encuentra24_current_price.py
+        run: python -m pytest -q tests/test_paste_link_sv_domains.py tests/test_paste_link_generic_metadata.py tests/test_paste_link_smoke.py tests/test_paste_link_carros_sv.py tests/test_paste_link_access_gate.py tests/test_paste_link_staging.py tests/test_paste_link_multisite.py tests/test_paste_link_julajups_toyota.py tests/test_paste_link_anuto.py tests/test_paste_link_excel.py tests/test_paste_link_qa_coverage.py tests/test_paste_link_readiness.py tests/test_paste_link_next_wave.py tests/test_paste_link_pilot_baseline.py tests/test_encuentra24_current_price.py
