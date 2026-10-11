@@ -148,7 +148,7 @@ def _experimental_listing_detail(html: str, listing: Listing) -> None:
         # Authoritative listing price, not the seller's arbitrary notes.
         price_match = re.search(r"\bListing Price\s+USD\s*([\d,]+)", text, re.I)
         # If the listing explicitly says miles we may normalize them.
-        note = re.search(r"\bSeller notes\b(.{0,1200}?)\bListing Price\b", text, re.I)
+        note = re.search(r"\bSeller notes\b(.{0,2500}?)\bListing Price\b", text, re.I | re.S)
         if note:
             miles_match = re.search(r"\b([\d,]+)\s*(millas|mi|km)\b", note.group(1), re.I)
     else:  # carros.com
@@ -166,6 +166,18 @@ def _experimental_listing_detail(html: str, listing: Listing) -> None:
             price = None
         if price is not None and 500 <= price <= 200000:
             listing.price_usd = Field(value=price, confidence="medium")
+    if host == "carros.com" and not listing.photos:
+        # Only listing-specific gallery images. Never use flags, QR, badges or recommendations.
+        display_name = h1.get_text(" ", strip=True).split("•")[0].strip().lower()
+        for img in soup.select("img.gallery-img"):
+            photo = str(img.get("src") or "").strip()
+            alt = str(img.get("alt") or "").strip().lower()
+            from urllib.parse import urlparse as _urlparse
+            p = _urlparse(photo)
+            if display_name and alt.startswith(display_name) and p.scheme == "https" and (
+                    (p.hostname or "").lower() in {"carros.com", "www.carros.com"}):
+                listing.photos.append(photo)
+                break
     if miles_match:
         try:
             amount = int(miles_match.group(1).replace(",", ""))
