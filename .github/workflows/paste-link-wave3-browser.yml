@@ -1,9 +1,6 @@
 name: Carly wave-three visible card verification
+# Live three-source browser check already executed; rerun manually only.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_wave3_browser.py"
-      - ".github/workflows/paste-link-wave3-browser.yml"
   workflow_dispatch:
 permissions:
   contents: read
