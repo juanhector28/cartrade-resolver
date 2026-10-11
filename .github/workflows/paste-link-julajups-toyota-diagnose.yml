@@ -1,9 +1,6 @@
 name: Julajups Toyota exact reported URL diagnosis
+# Exact Toyota source diagnosis completed. Recheck only when requested.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_julajups_toyota_diagnose.py"
-      - ".github/workflows/paste-link-julajups-toyota-diagnose.yml"
   workflow_dispatch:
 permissions:
   contents: read
