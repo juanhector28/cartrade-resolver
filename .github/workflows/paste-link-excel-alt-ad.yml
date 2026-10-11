@@ -1,9 +1,6 @@
 name: Excel Usados alternate live ad check
+# One-time source access test completed. Manual revalidation only.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_excel_alt_ad_check.py"
-      - ".github/workflows/paste-link-excel-alt-ad.yml"
   workflow_dispatch:
 permissions:
   contents: read
