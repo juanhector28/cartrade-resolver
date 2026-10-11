@@ -218,3 +218,21 @@ def test_carvimax_does_not_infer_unitless_mileage():
     )
     listing=parse_html("https://www.carvimax.com/hyundai-tucson/1570",html)
     assert listing.km is None
+
+def test_carvimax_gallery_photo_replaces_unrenderable_og_thumbnail():
+    proper_url=(
+      "https://carvimax-prod-aws-bucket.s3.us-west-2.amazonaws.com/"
+      "web-marketplace/uploads/vehicle-images/d7a40129-b970-40f3-be3a-996b30dcabcdef"
+    )
+    html=(
+      '<meta property="og:title" content="HYUNDAI TUCSON 2021 - $19,700">'
+      '<meta property="og:description" content="Usado, 46,445 mi. San Salvador">'
+      '<meta property="og:image" content="https://www.carvimax.com/og/vehicle/1570">'
+      '<img src="https://evil.example/unrelated.jpg" alt="HYUNDAI">'
+      '<img src="https://carvimax-prod-aws-bucket.s3.us-west-2.amazonaws.com/'
+      'web-marketplace/uploads/vehicle-images/dummy" alt="TOYOTA">'
+      '<img src="'+proper_url+'" alt="HYUNDAI">'
+    )
+    listing=parse_html("https://www.carvimax.com/hyundai-tucson/1570",html)
+    assert listing.photos==[proper_url]
+    assert listing.km.value==74746
