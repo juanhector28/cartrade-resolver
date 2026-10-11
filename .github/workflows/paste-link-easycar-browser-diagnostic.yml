@@ -1,0 +1,22 @@
+name: EasyCar one-page browser compatibility diagnosis
+on:
+  pull_request:
+    paths:
+      - "scripts/paste_link_easycar_browser_diagnostic.py"
+      - ".github/workflows/paste-link-easycar-browser-diagnostic.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  one-url:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install httpx==0.27.2 playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - run: python scripts/paste_link_easycar_browser_diagnostic.py
