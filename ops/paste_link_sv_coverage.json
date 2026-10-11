@@ -21,19 +21,19 @@
     "domains_fully_certified_for_release": 0,
     "field_recovery_on_passed_pilot": "5/5 per listing (title, price, year, km, photo URL); images not GET-verified",
     "last_pilot_workflow": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38095284698",
-    "staging_e2e_verified_domains": 10,
+    "staging_e2e_verified_domains": 11,
     "staging_browser_cases_passed": 1,
     "staging_browser_checks_passed": 35,
     "production_accepted_new_domains": 0,
     "staging_live_url": "https://cartrade-paste-link-staging.onrender.com",
     "staging_e2e_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38096244781",
-    "staging_sources_enabled_for_individual_link_trials": 13,
-    "staging_sources_with_one_full_browser_sample": 10,
+    "staging_sources_enabled_for_individual_link_trials": 14,
+    "staging_sources_with_one_full_browser_sample": 11,
     "staging_browser_samples_passed": 9,
     "staging_browser_latest_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341",
     "sources_pending_individual_listing_route": 1,
     "target_sources": 56,
-    "note": "9 distinct sites with >=1 browser example: 7 previous + Carvimax + Julajups. Julajups sample has NO published odometer; missing field displayed honestly. 12 staging-allowed domains, not 12 E2E-certified.",
+    "note": "11 distinct domains: exactly 3 individually tested vehicle links per domain with source-backed title, asking price, year and photo URL; one or more browser-photo examples per domain. Field completeness is not domain-wide certification. Some odometer values missing or contradictory; production unchanged.",
     "other_source_note": "Nissan model catalog lacks listing-level asking price; remain disabled.",
     "wave3_sources_with_200_and_price_and_photo_url": 2,
     "wave3_sources_requiring_dynamic_api_or_browser": 2,
@@ -50,8 +50,19 @@
     "anuto_two_browser_samples_total": 2,
     "anuto_two_browser_checks_passed": 10,
     "anuto_browser_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38101821230",
-    "fourth_wave_atlas_candidates_awaiting_adapter": 5,
-    "source_status_note": "10 domains with one or more individual vehicle samples that passed browser rendering; 13 source routes enabled in staging; 5 wave-four Atlas candidates remain disabled after preflight."
+    "fourth_wave_atlas_candidates_awaiting_adapter": 4,
+    "source_status_note": "10 domains with one or more individual vehicle samples that passed browser rendering; 13 source routes enabled in staging; 5 wave-four Atlas candidates remain disabled after preflight.",
+    "qa_target_cases_per_domain": 3,
+    "qa_domains_with_three_distinct_vehicles_checked": 11,
+    "qa_distinct_vehicle_urls_checked": 33,
+    "qa_distinct_vehicle_core_fields_passed": 33,
+    "qa_photo_url_confirmed_per_listing": 33,
+    "qa_photo_loaded_in_browser_all_33": false,
+    "qa_final_two_source_regression_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104489633",
+    "qa_initial_expansion_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032",
+    "excel_browser_sample_evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38103941110",
+    "excel_individual_listing_examples_field_passed": 3,
+    "active_qa_matrix": "ops/paste_link_sv_qa_3_per_site.json"
   },
   "sample_cases": [
     {
@@ -1487,8 +1498,8 @@
     "candidates": [
       {
         "domain": "usados.excelautomotriz.com",
-        "stage": "adapter_required",
-        "note": "HTTP 200, title visible but no trustworthy price extracted from listing."
+        "stage": "adapter_sample_verified",
+        "note": "Three exact individual listing examples passed, one in Chromium; now enabled only in staging."
       },
       {
         "domain": "encuentra24.com",
@@ -1513,5 +1524,60 @@
     ],
     "enabled_in_staging": 0,
     "production_added": 0
+  },
+  "three_listing_qa_coverage": {
+    "as_of": "2026-10-11",
+    "matrix_path": "ops/paste_link_sv_qa_3_per_site.json",
+    "domains": 11,
+    "vehicle_urls": 33,
+    "core_fields_passed": 33,
+    "fields": [
+      "listing title",
+      "source asking price",
+      "model year",
+      "photo URL",
+      "saved=false"
+    ],
+    "missing_odometer_does_not_fail": true,
+    "photo_rendered_for_all_33": false,
+    "browser_coverage": "at least one actual photo rendered for each of the 11 domains",
+    "previous_second_ad_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38101495530",
+    "third_ad_expansion_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032",
+    "last_two_successful_recheck": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104489633",
+    "notes": "The first third-sample run found Carros.com classic Mustang 1980 year missing and old Excel Sorento source unavailable. Mustang parsing was corrected from its own OG title; Excel Sorento was replaced with a live Kia Sportage 2019. All 33 final tracked URLs then had valid staged fields. No unattended crawling, inventory storage, or production deploy."
+  },
+  "excel_usados_adapter": {
+    "domain": "usados.excelautomotriz.com",
+    "route": "/autos-el-salvador/<vehicle-slug>/",
+    "stage": "one_browser_sample_passed_three_source_field_samples",
+    "robots_confirmed": true,
+    "data_source": "current HTML listing-local label Precio, Año, Recorrido and own WordPress gallery",
+    "samples": [
+      {
+        "url": "https://usados.excelautomotriz.com/autos-el-salvador/suzuki-dzire-p-79aca/",
+        "price_usd": 13000,
+        "year": 2025,
+        "km": 48109,
+        "rendered_image": true
+      },
+      {
+        "url": "https://usados.excelautomotriz.com/autos-el-salvador/fuso-fi-2025-26-15-unidades/",
+        "price_usd": 34500,
+        "year": 2026,
+        "km": 6567,
+        "photo_url": true
+      },
+      {
+        "url": "https://usados.excelautomotriz.com/autos-el-salvador/kia-sportage-p-874162/",
+        "price_usd": 20900,
+        "year": 2019,
+        "km": 118362,
+        "photo_url": true
+      }
+    ],
+    "browser_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38103941110",
+    "stage_regression": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104489633",
+    "photo_rights": "not assessed for commercial re-use",
+    "storage": false
   }
 }
