@@ -1,9 +1,6 @@
 name: AutosPublicidad single URL DOM diagnostic
+# One-shot real-source audit completed. Rerun manually only when needed.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_autospublicidad_dom.py"
-      - ".github/workflows/paste-link-autospublicidad-dom.yml"
   workflow_dispatch:
 permissions:
   contents: read
