@@ -7,7 +7,7 @@ def test_multisite_exact_allowed_shapes():
     assert source_for_url("https://tucarro.sv/ford-expedition/63f2c0e8")
     assert source_for_url("https://caragencia.com/car-finder/2023-chevrolet-trailblazer")
     assert source_for_url("https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/")
-    assert sum(bool(x["enabled"]) for x in SOURCES.values()) == 7
+    assert sum(bool(x["enabled"]) for x in SOURCES.values()) == 12
 
 def test_multisite_rejects_catalog_open_redirects_and_unknown():
     for url in [
@@ -108,7 +108,7 @@ def test_second_batch_exact_listing_routes():
     assert source_for_url("https://www.disazautos.com/product-page/kia-seltos-2023")
     assert source_for_url("https://www.autospublicidad.com/sv/detalles?auto=toyota-tacoma&id=73")
     assert source_for_url("https://www.autospublicidad.com/sv/detalles?id=73&auto=toyota-tacoma")
-    assert sum(bool(x["enabled"]) for x in SOURCES.values()) == 7
+    assert sum(bool(x["enabled"]) for x in SOURCES.values()) == 12
     assert not SOURCES["nissanelsalvador.com"]["enabled"]
 
 def test_second_batch_rejects_catalogs_and_parameter_tricks():
@@ -164,3 +164,37 @@ def test_autospublicidad_ambiguous_raw_odometer_does_not_invent_units():
     )
     assert listing.km is None
     assert len(listing.photos) == 1
+
+def test_third_batch_exact_routes_accept_only_vehicle_urls():
+    examples = [
+        "https://www.carvimax.com/hyundai-tucson/1570",
+        "https://www.carvimax.com/kia-soul/1563",
+        "https://easycar.com.sv/car/109",
+        "https://www.eurosportautos.com/vehiculo/ford-bronco-sport-badlands-2024-4x4",
+        "https://crediq.com/sv/product/chery-tiggo-2-pro-luxury-rojo-2026/",
+        "https://www.julajups.sv/anuncio/subaru-impreza-rs-2006-awd-pxODLWUM9S",
+    ]
+    for url in examples:
+        assert source_for_url(url), url
+
+def test_third_batch_rejects_catalogs_redirects_and_impostors():
+    invalid = [
+        "https://www.carvimax.com/",
+        "https://www.carvimax.com/hyundai-tucson/",
+        "https://www.carvimax.com/hyundai-tucson/-1",
+        "https://easycar.com.sv/cars",
+        "https://easycar.com.sv/car/0",
+        "https://easycar.com.sv/car/109?next=http://localhost",
+        "https://easycar.com.sv.evil.test/car/109",
+        "https://www.eurosportautos.com/vehiculo/",
+        "https://www.eurosportautos.com/",
+        "https://crediq.com/sv/product-category/autolote/",
+        "https://crediq.com/sv/product/",
+        "https://www.julajups.sv/anuncio/",
+        "https://www.julajups.sv/anuncio/subaru-impreza-rs-2006-awd-unknown",
+        "http://www.carvimax.com/hyundai-tucson/1570",
+        "https://www.carvimax.com:8443/hyundai-tucson/1570",
+        "https://user:pass@easycar.com.sv/car/109",
+    ]
+    for url in invalid:
+        assert source_for_url(url) is None, url
