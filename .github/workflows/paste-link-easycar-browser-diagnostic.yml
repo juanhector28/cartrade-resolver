@@ -1,9 +1,6 @@
 name: EasyCar one-page browser compatibility diagnosis
+# Completed one-shot source audit. Run manually only to avoid repeated third-party requests.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_easycar_browser_diagnostic.py"
-      - ".github/workflows/paste-link-easycar-browser-diagnostic.yml"
   workflow_dispatch:
 permissions:
   contents: read
