@@ -21,18 +21,19 @@
     "domains_fully_certified_for_release": 0,
     "field_recovery_on_passed_pilot": "5/5 per listing (title, price, year, km, photo URL); images not GET-verified",
     "last_pilot_workflow": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38095284698",
-    "staging_e2e_verified_domains": 1,
+    "staging_e2e_verified_domains": 7,
     "staging_browser_cases_passed": 1,
-    "staging_browser_checks_passed": 12,
+    "staging_browser_checks_passed": 35,
     "production_accepted_new_domains": 0,
     "staging_live_url": "https://cartrade-paste-link-staging.onrender.com",
     "staging_e2e_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38096244781",
-    "staging_sources_enabled_for_individual_link_trials": 4,
-    "staging_sources_with_one_full_browser_sample": 4,
-    "staging_browser_samples_passed": 4,
-    "staging_browser_latest_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38097370645",
+    "staging_sources_enabled_for_individual_link_trials": 7,
+    "staging_sources_with_one_full_browser_sample": 7,
+    "staging_browser_samples_passed": 7,
+    "staging_browser_latest_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341",
     "sources_pending_individual_listing_route": 4,
-    "target_sources": 56
+    "target_sources": 56,
+    "note": "Seven source domains have one passing browser listing sample each; NO domain-wide certification."
   },
   "sample_cases": [
     {
@@ -88,57 +89,71 @@
     },
     {
       "domain": "caragencia.com",
-      "access": "not_live_tested",
-      "resolver_status": "unverified",
+      "access": "staging_one_public_listing_tested",
+      "resolver_status": "one_real_browser_sample_passed_not_domain_certified",
       "permission_review": "pending",
-      "samples": 1
+      "samples": 1,
+      "samples_tested_in_staging": 1,
+      "photo_rendered_in_browser": true
     },
     {
       "domain": "carros.com",
-      "access": "not_live_tested",
-      "resolver_status": "unverified",
+      "access": "staging_one_public_listing_tested",
+      "resolver_status": "one_real_browser_sample_passed_not_domain_certified",
       "permission_review": "pending",
-      "samples": 1
+      "samples": 1,
+      "samples_tested_in_staging": 1,
+      "photo_rendered_in_browser": true
     },
     {
       "domain": "motorasv.com",
-      "access": "not_live_tested",
-      "resolver_status": "unverified",
+      "access": "staging_one_public_listing_tested",
+      "resolver_status": "one_real_browser_sample_passed_not_domain_certified",
       "permission_review": "pending",
-      "samples": 0
+      "samples": 0,
+      "samples_tested_in_staging": 1,
+      "photo_rendered_in_browser": true
     },
     {
       "domain": "tucarro.sv",
-      "access": "not_live_tested",
-      "resolver_status": "unverified",
+      "access": "staging_one_public_listing_tested",
+      "resolver_status": "one_real_browser_sample_passed_not_domain_certified",
       "permission_review": "pending",
-      "samples": 0
+      "samples": 0,
+      "samples_tested_in_staging": 1,
+      "photo_rendered_in_browser": true
     },
     {
       "domain": "autospublicidad.com",
-      "access": "not_live_tested",
-      "resolver_status": "unverified",
+      "access": "staging_one_public_listing_tested",
+      "resolver_status": "one_real_browser_sample_passed_not_domain_certified",
       "permission_review": "pending",
-      "samples": 0
+      "samples": 0,
+      "samples_tested_in_staging": 1,
+      "photo_rendered_in_browser": true
     },
     {
       "domain": "carroselsalvador.com",
-      "access": "not_live_tested",
-      "resolver_status": "unverified",
+      "access": "staging_one_public_listing_tested",
+      "resolver_status": "one_real_browser_sample_passed_not_domain_certified",
       "permission_review": "pending",
-      "samples": 1
+      "samples": 1,
+      "samples_tested_in_staging": 1,
+      "photo_rendered_in_browser": true
     },
     {
       "domain": "disazautos.com",
-      "access": "not_live_tested",
-      "resolver_status": "unverified",
+      "access": "staging_one_public_listing_tested",
+      "resolver_status": "one_real_browser_sample_passed_not_domain_certified",
       "permission_review": "pending",
-      "samples": 0
+      "samples": 0,
+      "samples_tested_in_staging": 1,
+      "photo_rendered_in_browser": true
     },
     {
       "domain": "nissanelsalvador.com",
       "access": "not_live_tested",
-      "resolver_status": "unverified",
+      "resolver_status": "catalog_model_page_missing_individual_listing_price",
       "permission_review": "pending",
       "samples": 0
     }
@@ -174,12 +189,15 @@
       "atlas_last_check": "2026-10-10T17:07:19.492395+00:00",
       "atlas_production_verified": false,
       "paste_link_endpoint_verified": false,
-      "paste_link_price_verified": false,
-      "paste_link_photo_verified": false,
-      "paste_link_year_verified": false,
-      "paste_link_mileage_verified": false,
+      "paste_link_price_verified": true,
+      "paste_link_photo_verified": true,
+      "paste_link_year_verified": true,
+      "paste_link_mileage_verified": true,
       "access_permission_review": "pending",
-      "last_paste_link_test": null
+      "last_paste_link_test": "2026-10-11T00:24:00Z",
+      "paste_link_staging_browser_sample_verified": true,
+      "paste_link_staging_sample_count": 1,
+      "paste_link_staging_sample_evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341"
     },
     {
       "source_id": "sv-tucarro-sv",
@@ -192,12 +210,15 @@
       "atlas_last_check": "2026-10-10T17:02:38.724783+00:00",
       "atlas_production_verified": false,
       "paste_link_endpoint_verified": false,
-      "paste_link_price_verified": false,
-      "paste_link_photo_verified": false,
-      "paste_link_year_verified": false,
-      "paste_link_mileage_verified": false,
+      "paste_link_price_verified": true,
+      "paste_link_photo_verified": true,
+      "paste_link_year_verified": true,
+      "paste_link_mileage_verified": true,
       "access_permission_review": "pending",
-      "last_paste_link_test": null
+      "last_paste_link_test": "2026-10-11T00:24:00Z",
+      "paste_link_staging_browser_sample_verified": true,
+      "paste_link_staging_sample_count": 1,
+      "paste_link_staging_sample_evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341"
     },
     {
       "source_id": "sv-motora-sv",
@@ -210,12 +231,15 @@
       "atlas_last_check": "2026-10-10T17:02:37.511136+00:00",
       "atlas_production_verified": false,
       "paste_link_endpoint_verified": false,
-      "paste_link_price_verified": false,
-      "paste_link_photo_verified": false,
-      "paste_link_year_verified": false,
-      "paste_link_mileage_verified": false,
+      "paste_link_price_verified": true,
+      "paste_link_photo_verified": true,
+      "paste_link_year_verified": true,
+      "paste_link_mileage_verified": true,
       "access_permission_review": "pending",
-      "last_paste_link_test": null
+      "last_paste_link_test": "2026-10-11T00:24:00Z",
+      "paste_link_staging_browser_sample_verified": true,
+      "paste_link_staging_sample_count": 1,
+      "paste_link_staging_sample_evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341"
     },
     {
       "source_id": "sv-carros-el-salvador",
@@ -233,9 +257,12 @@
       "paste_link_year_verified": true,
       "paste_link_mileage_verified": true,
       "access_permission_review": "public_test_only_reuse_unreviewed",
-      "last_paste_link_test": "2026-10-10T23:31:02Z",
+      "last_paste_link_test": "2026-10-11T00:24:00Z",
       "paste_link_sample_tested": 3,
-      "paste_link_sample_passed": 3
+      "paste_link_sample_passed": 3,
+      "paste_link_staging_browser_sample_verified": true,
+      "paste_link_staging_sample_count": 1,
+      "paste_link_staging_sample_evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341"
     },
     {
       "source_id": "sv-carvimax",
@@ -284,12 +311,15 @@
       "atlas_last_check": "2026-10-10T17:05:04.149739+00:00",
       "atlas_production_verified": false,
       "paste_link_endpoint_verified": false,
-      "paste_link_price_verified": false,
-      "paste_link_photo_verified": false,
-      "paste_link_year_verified": false,
-      "paste_link_mileage_verified": false,
+      "paste_link_price_verified": true,
+      "paste_link_photo_verified": true,
+      "paste_link_year_verified": true,
+      "paste_link_mileage_verified": true,
       "access_permission_review": "pending",
-      "last_paste_link_test": null
+      "last_paste_link_test": "2026-10-11T00:24:00Z",
+      "paste_link_staging_browser_sample_verified": true,
+      "paste_link_staging_sample_count": 1,
+      "paste_link_staging_sample_evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341"
     },
     {
       "source_id": "sv-julajups",
@@ -392,12 +422,15 @@
       "atlas_last_check": "2026-10-10T17:07:15.786617+00:00",
       "atlas_production_verified": false,
       "paste_link_endpoint_verified": false,
-      "paste_link_price_verified": false,
-      "paste_link_photo_verified": false,
-      "paste_link_year_verified": false,
-      "paste_link_mileage_verified": false,
+      "paste_link_price_verified": true,
+      "paste_link_photo_verified": true,
+      "paste_link_year_verified": true,
+      "paste_link_mileage_verified": true,
       "access_permission_review": "pending",
-      "last_paste_link_test": null
+      "last_paste_link_test": "2026-10-11T00:24:00Z",
+      "paste_link_staging_browser_sample_verified": true,
+      "paste_link_staging_sample_count": 1,
+      "paste_link_staging_sample_evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341"
     },
     {
       "source_id": "sv-eurosport-autos",
@@ -1076,12 +1109,15 @@
       "atlas_last_check": "2026-10-10T17:16:29.404245+00:00",
       "atlas_production_verified": false,
       "paste_link_endpoint_verified": false,
-      "paste_link_price_verified": false,
-      "paste_link_photo_verified": false,
-      "paste_link_year_verified": false,
-      "paste_link_mileage_verified": false,
+      "paste_link_price_verified": true,
+      "paste_link_photo_verified": true,
+      "paste_link_year_verified": true,
+      "paste_link_mileage_verified": true,
       "access_permission_review": "pending",
-      "last_paste_link_test": null
+      "last_paste_link_test": "2026-10-11T00:24:00Z",
+      "paste_link_staging_browser_sample_verified": true,
+      "paste_link_staging_sample_count": 1,
+      "paste_link_staging_sample_evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341"
     },
     {
       "source_id": "sv-credipro",
@@ -1252,5 +1288,75 @@
     ],
     "persistence": "none",
     "warnings": "Only one sample per new source, no permission to commercially reuse content established. Rendering proves photo loads in test browser, not indefinite third-party image uptime."
+  },
+  "seven_source_browser_pilot": {
+    "time": "2026-10-11T00:24:00Z",
+    "run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341",
+    "staging": "https://cartrade-paste-link-staging.onrender.com",
+    "passed": 7,
+    "total": 7,
+    "checks_per_sample": 5,
+    "checks_passed": 35,
+    "scope": "Exactly one real vehicle URL per domain; not domain-wide",
+    "checks": [
+      "price matches reference",
+      "title visible",
+      "year visible",
+      "km visible",
+      "vehicle photo actually loads"
+    ],
+    "read_only": true,
+    "production_deploy": false,
+    "samples": [
+      {
+        "domain": "carroselsalvador.com",
+        "price_usd": 5700,
+        "year": 2006,
+        "km": 160934,
+        "image_rendered": true
+      },
+      {
+        "domain": "tucarro.sv",
+        "price_usd": 16500,
+        "year": 2018,
+        "km": 300000,
+        "image_rendered": true
+      },
+      {
+        "domain": "caragencia.com",
+        "price_usd": 13900,
+        "year": 2023,
+        "km": 65983,
+        "image_rendered": true
+      },
+      {
+        "domain": "carros.com",
+        "price_usd": 9500,
+        "year": 2015,
+        "km": 125837,
+        "image_rendered": true
+      },
+      {
+        "domain": "motorasv.com",
+        "price_usd": 7200,
+        "year": 2017,
+        "km": 111000,
+        "image_rendered": true
+      },
+      {
+        "domain": "disazautos.com",
+        "price_usd": 18900,
+        "year": 2023,
+        "km": 83172,
+        "image_rendered": true
+      },
+      {
+        "domain": "autospublicidad.com",
+        "price_usd": 23500,
+        "year": 2020,
+        "km": 107826,
+        "image_rendered": true
+      }
+    ]
   }
 }
