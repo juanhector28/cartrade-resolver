@@ -206,3 +206,31 @@ The adapter uses Anuto's listing-local labelled `Año` and `Kilómetros` fields 
 **Accurate current score:** 10 separate source domains with at least one passed Chromium vehicle sample, 13 trial routes enabled in isolated staging (including 3 with unresolved access/JavaScript extraction), 5 new Atlas wave-four candidates kept disabled, and 0 new production domains. The initial Atlas universe remains 56 source entries; Anuto is a separately discovered additional source rather than silently replacing a source within the 56.
 
 All subsequent source-fetch audit workflows are manual-only after the bounded first runs. No Supabase writes, no bulk crawling, no production deployment.
+
+## Current: 3 distinct vehicle links × 11 domains, 33/33 listing field checks (11 Oct 2026 UTC)
+
+**QA source matrix:** [33 exact links with evidence levels](https://github.com/juanhector28/cartrade-resolver/blob/feat/paste-link-sv-observed-domains-20261010/ops/paste_link_sv_qa_3_per_site.json)
+
+**Third-link audit:** https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032
+
+**Final corrected cases (2/2):** https://github.com/juanhector28/cartrade-resolver/actions/runs/38104489633
+
+Completed three **distinct real individual vehicle listing URLs** per each of the 11 staging sample-verified domains:
+Carros El Salvador, TuCarro.sv, CarAgencia, Carros.com, Motora SV, AutosPublicidad, Disaz Autos, Carvimax, Julajups, Anuto El Salvador and Excel Usados. All 33 ultimately yielded their own title, numeric asking price, model year and photo URL from current listing data; no inventory writes. The metric is **listing-field completeness (33/33), not 33 browser-proven images**. At least one vehicle photo per domain has loaded in an actual browser test, including Excel.
+
+### Issues discovered and resolved by expanding QA
+
+- Carros.com classic **Ford Mustang 1980**, USD 6,000, 1,300 km: initial check lacked year, because the generic date recognizer starts in 1990 and this page's template did not yield the expected H1. Fixed using the same vehicle's OG title pattern, with safeguards against unrelated vehicles; confirmed in final staging API rerun.
+- Excel Usados source listing **Kia Sorento LX** from an old index was unavailable: replaced with an actual 200-responding **Kia Sportage P 874162, year 2019, USD 20,900, 118,362 km**. Confirmed by a permitted direct-source parser check and final staging API.
+- Some AutosPublicidad, Disaz Autos, CarAgencia and Julajups listings do not expose unambiguous odometer units or a mileage reading. The km field remains absent rather than fabricated.
+- For Anuto, at least one seller description mentions miles while a labelled `Kilómetros` field reports km. This remains a source-data contradiction, not an issue to conceal via conversion.
+
+### Excel Usados integration
+
+The staging adapter reads one listing's **Precio**, **Año**, **Recorrido ... Kilometros** and own WordPress vehicle gallery under `/wp-content/uploads/`. It avoids site logos, and if local price is unavailable, discards generic metadata rather than inserting prices from other vehicles or historical Atlas receipts.
+
+- Suzuki Dzire 2025, USD 13,000, 48,109 km: all six browser checks pass, including the real photo. [Screenshot and browser proof](https://github.com/juanhector28/cartrade-resolver/actions/runs/38103941110/artifacts/11688967683).
+- Fuso FI 2025/26, USD 34,500, 6,567 km: listing fields returned in staging API.
+- Kia Sportage 2019, USD 20,900, 118,362 km: listing fields returned in staging API. [Final regression evidence](https://github.com/juanhector28/cartrade-resolver/actions/runs/38104489633).
+
+**Scope:** 14 site routes enabled for individual user-provided links in staging, of which 11 have at least one browser-proven listing image and three still have access/client-JavaScript blockers. Four other original Atlas wave-four candidate sites remain disabled (Encuentra24, Porsche Finder, xAutoMarket, Credipro). No full-site certification, no claim of perpetual freshness, no commercial reuse rights confirmed, and no Carly production merge/deploy. All live external-site audit workflows are now manual-only after the first bounded run.
