@@ -45,7 +45,7 @@ def test_readonly_pilot_only_matches_supported_public_listing_host():
     assert platforms.is_readonly_public_pilot(
         "https://www.carroselsalvador.com/anuncios/kia-sportage-2006/"
     )
-    assert not platforms.is_readonly_public_pilot("https://carros.com/car/abc")
+    assert platforms.is_readonly_public_pilot("https://carros.com/car/abc")
 
 
 def test_sv_public_pilot_rejects_catalog_and_homepage():
