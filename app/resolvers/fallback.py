@@ -150,7 +150,7 @@ def _experimental_listing_detail(html: str, listing: Listing) -> None:
         # If the listing explicitly says miles we may normalize them.
         note = re.search(r"\bSeller notes\b(.{0,2500}?)\bListing Price\b", text, re.I | re.S)
         if note:
-            miles_match = re.search(r"\b([\d,]+)\s*(millas|mi|km)\b", note.group(1), re.I)
+            miles_match = re.search(r"(?<![\d,])(\d[\d,]*)\s*(millas|mi|km)\b", note.group(1), re.I)
     else:  # carros.com
         # Use only the current page's header and Vehicle Details block.
         lead = text.split("Vehicle Details", 1)[0][:1600]
