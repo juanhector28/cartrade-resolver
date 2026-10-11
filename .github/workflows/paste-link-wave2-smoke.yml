@@ -1,9 +1,6 @@
 name: Paste Link second wave (bounded staging audit)
+# One-shot real-source audit completed. Rerun manually only when needed.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_wave2_smoke.py"
-      - ".github/workflows/paste-link-wave2-smoke.yml"
   workflow_dispatch:
 permissions:
   contents: read
