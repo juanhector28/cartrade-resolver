@@ -135,3 +135,15 @@ Three of the five new routes are **not E2E approved**:
 - **CrediQ:** source robots endpoint returned HTTP 403 in independent diagnostics; no verified current listing parser. Do not bypass or presume permission.
 
 **Interpretation:** 12 exact-route site entries in staging, **9 unique sites with one demonstrated browser listing sample**, 3 still incomplete, 0 source domains certified exhaustively and 0 new production domain releases. No stored HTML, remote inventory writes, retries or bulk crawling. The live source audit workflows were changed to manual-only to prevent repeated third-party requests. Commercial content/display rights still need review.
+
+## Tester bug report follow-up: Julajups, EasyCar, CrediQ, Eurosport (2026-10-10 local)
+
+User manually reported the generic HTTP 422 message for Julajups, EasyCar and CrediQ and HTTP 403 "access permitted" for Eurosport in staging. These are not all the same issue.
+
+- **Julajups**: two previously observed Subaru Impreza URLs independently rechecked against original source: HTTP 200, correct OG title, USD 4,000 from vehicle Product JSON-LD, parser passes both. Evidence: https://github.com/juanhector28/cartrade-resolver/actions/runs/38100045488. The user's failing individual URL is still unknown and is required for exact reproduction. *Do not claim domain-wide compatibility.*
+- **EasyCar**: source static HTML is a JavaScript SPA shell. One normal headless Chromium visit to `/car/109` received HTTP 200 but vehicle title/price did not render (body length 21 chars); requests observed only for initial configuration and departamentos on `api.sv.easycarca.com`. Evidence: https://github.com/juanhector28/cartrade-resolver/actions/runs/38100156920. Need to identify a functional vehicle data retrieval path before enabling reliable extraction; do not fabricate from Atlas's historical inventory.
+- **CrediQ**: source robots URL returned HTTP 403 in previous independent check; generic extraction of price/title is incomplete. No bypass; source access needs review.
+- **Eurosport Autos**: source robots access not consistently verifiable from staging; listing uses client-rendered data, with no authoritative vehicle price in static OG. Fail closed when access cannot be verified.
+- **Error UX fix**: staging backend now reports source-specific errors instead of a misleading generic 422; source chips explicitly mark JavaScript integration/access review as pending. This does **not** certify or make those sources functional.
+
+Production code and inventory untouched. Staging: https://cartrade-paste-link-staging.onrender.com; PR: https://github.com/juanhector28/cartrade-resolver/pull/135.
