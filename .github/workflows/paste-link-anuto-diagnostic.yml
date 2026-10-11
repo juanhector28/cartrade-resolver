@@ -1,9 +1,6 @@
 name: Anuto SV individual ad compatibility pilot
+# One-time public checks complete. Dispatch manually for intentional revalidation.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_anuto_diagnostic.py"
-      - ".github/workflows/paste-link-anuto-diagnostic.yml"
   workflow_dispatch:
 permissions:
   contents: read
