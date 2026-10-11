@@ -1,9 +1,6 @@
 name: Carly seven-source browser verification
+# One-shot seven-site browser validation passed; repeat only when intentionally requested.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_multisite_browser.py"
-      - ".github/workflows/paste-link-multisite-browser.yml"
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,7 +21,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: carly-four-source-browser-${{ github.run_id }}
+          name: carly-seven-source-browser-${{ github.run_id }}
           path: /tmp/carly-multisite-browser
           if-no-files-found: warn
           retention-days: 7
