@@ -102,3 +102,31 @@ def test_carros_com_replaces_relative_og_image_with_vehicle_gallery():
     )
     listing=parse_html("https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/",html)
     assert listing.photos == ["https://carros.com/uploads/vehicle.jpg"]
+
+def test_second_batch_exact_listing_routes():
+    assert source_for_url("https://motorasv.com/cars/5122d37b-997d-478c-9b16-863b40dca5e4")
+    assert source_for_url("https://www.disazautos.com/product-page/kia-seltos-2023")
+    assert source_for_url("https://www.autospublicidad.com/sv/detalles?auto=toyota-tacoma&id=73")
+    assert source_for_url("https://www.autospublicidad.com/sv/detalles?id=73&auto=toyota-tacoma")
+    assert sum(bool(x["enabled"]) for x in SOURCES.values()) == 7
+    assert not SOURCES["nissanelsalvador.com"]["enabled"]
+
+def test_second_batch_rejects_catalogs_and_parameter_tricks():
+    disallowed = [
+      "https://motorasv.com/cars",
+      "https://motorasv.com/cars/123",
+      "https://www.disazautos.com/importados",
+      "https://www.disazautos.com/product-page",
+      "https://www.autospublicidad.com/sv/autos",
+      "https://www.autospublicidad.com/sv/detalles",
+      "https://www.autospublicidad.com/sv/detalles?auto=toyota-tacoma",
+      "https://www.autospublicidad.com/sv/detalles?auto=toyota-tacoma&id=73&x=y",
+      "https://www.autospublicidad.com/sv/detalles?auto=toyota-tacoma&id=73&id=74",
+      "https://www.autospublicidad.com/sv/detalles?auto=../../admin&id=73",
+      "https://www.autospublicidad.com/sv/detalles?auto=toyota-tacoma&id=0",
+      "https://www.autospublicidad.com/sv/detalles?auto=toyota-tacoma&id=73#frag",
+      "https://www.autospublicidad.com.evil.test/sv/detalles?auto=toyota-tacoma&id=73",
+      "https://nissanelsalvador.com/vehiculo/nuevos-vehiculos/qashqai.html",
+    ]
+    for url in disallowed:
+        assert source_for_url(url) is None, url
