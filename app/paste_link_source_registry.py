@@ -86,8 +86,8 @@ SOURCES = {
     },
     # New source discovered beyond the 56-entry Atlas SV census.
     "sv.anuto.app": {
-        "name": "Anuto El Salvador", "stage": "candidate_review",
-        "route": r"^/ad/[a-z0-9][a-z0-9.-]+-[a-z0-9]{20}/?$", "enabled": False,
+        "name": "Anuto El Salvador", "stage": "experimental",
+        "route": r"^/ad/[a-z0-9][a-z0-9.-]+-[a-z0-9]{20}/?$", "enabled": True,
     },
     "nissanelsalvador.com": {
         "name": "Nissan El Salvador", "stage": "route_pending",
