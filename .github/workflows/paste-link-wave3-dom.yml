@@ -1,9 +1,6 @@
 name: Carly five-source page structure diagnostic
+# Run manually after the initial bounded inspection to avoid repeated third-party requests.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_wave3_dom.py"
-      - ".github/workflows/paste-link-wave3-dom.yml"
   workflow_dispatch:
 permissions:
   contents: read
