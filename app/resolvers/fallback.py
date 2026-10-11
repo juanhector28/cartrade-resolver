@@ -221,10 +221,12 @@ def _autospublicidad_detail(html: str, listing: Listing) -> None:
     for image in soup.select("img[src]"):
         raw = str(image.get("src") or "").strip()
         alt = str(image.get("alt") or "").lower()
-        if not raw or "imagen" not in alt or not (
-            "toyota" in alt and "tacoma" in title
-            or "tacoma" in alt and "tacoma" in title
-        ):
+        alt_match = re.fullmatch(r"imagen\\s*[1-9][0-9]*\\s+del\\s+(.+)", alt, re.I)
+        if not raw or not alt_match:
+            continue
+        vehicle_name = re.findall(r"[a-záéíóúñ0-9]+", alt_match.group(1).lower())
+        # Match the specific make/model from the image's own alt text.
+        if not vehicle_name or not all(token in title for token in vehicle_name[:3]):
             continue
         url = urljoin(listing.url, raw)
         p = urlparse(url)
@@ -241,7 +243,8 @@ def _autospublicidad_detail(html: str, listing: Listing) -> None:
 
     # Seller note includes an explicit unit: "67 mil millas".
     text = soup.get_text(" ", strip=True)
-    miles = re.search(r"\b([1-9][0-9]{0,2})\s+mil\s+millas\b", text, re.I)
+    seller_section = text.split("Información de venta", 1)[-1].split("Contacto", 1)[0]
+    miles = re.search(r"\b([1-9][0-9]{0,2})\s+mil\s+millas\b", seller_section, re.I)
     if miles:
         number_of_miles = int(miles.group(1)) * 1000
         if number_of_miles <= 500000:
