@@ -94,7 +94,12 @@ async def resolve(body: ResolveBody, request: Request):
         raise HTTPException(status_code=429, detail="Límite de pruebas por hora alcanzado.")
     try:
         if not await robots_allows(url):
-            raise HTTPException(status_code=403, detail="No se pudo confirmar el acceso permitido a esta página.")
+            raise HTTPException(
+                status_code=403,
+                detail=(f"{source_data['name']}: no podemos confirmar que la fuente "
+                        "permita esta consulta automatizada desde staging. "
+                        "No intentaremos evitar sus restricciones."),
+            )
         listing = await fallback.resolve(url)
     except httpx.HTTPError:
         raise HTTPException(status_code=502, detail="No se pudo acceder a la fuente.")
@@ -110,7 +115,19 @@ async def resolve(body: ResolveBody, request: Request):
         and bool(urlparse(photo).hostname)
     ]
     if not val("title") or not val("price_usd"):
-        raise HTTPException(status_code=422, detail="La ficha no tiene un título y precio verificables.")
+        if source_host == "julajups.sv":
+            message = ("Julajups: no se pudo confirmar el precio de este anuncio específico. "
+                       "No mostraremos un precio supuesto. Comparte el enlace para revisar su estructura.")
+        elif source_host == "easycar.com.sv":
+            message = ("EasyCar: el anuncio carga los datos con JavaScript y el extractor "
+                       "todavía no puede comprobar su precio. Integración pendiente.")
+        elif source_host == "crediq.com":
+            message = ("CrediQ: el precio del anuncio no pudo verificarse y la fuente "
+                       "requiere revisión de acceso. No se inventarán datos.")
+        else:
+            message = ("No se pudo verificar el precio de este anuncio. "
+                       "Puede tener una estructura distinta o no estar disponible.")
+        raise HTTPException(status_code=422, detail=message)
     return {
         "environment": "staging", "pilot_readonly": True, "saved": False,
         "source": source_host, "source_stage": source_data["stage"], "source_url": url,
@@ -137,7 +154,7 @@ input{border:0;outline:0;min-width:0;flex:1;padding:13px;font-size:15px}button{b
 .note{font-size:13px;color:#849088;line-height:1.5}
 .sources{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}
 .source-chip{font-size:12px;background:#e8f2eb;border:1px solid #cde2d4;padding:6px 10px;border-radius:99px;color:#34604a}
-.source-chip.experimental{background:#f3f4f3;border-color:#e4e7e3;color:#627168}.status{margin-top:23px;color:#526c5b;font-size:14px;min-height:24px}.error{color:#a13d3d}
+.source-chip.experimental{background:#f3f4f3;border-color:#e4e7e3;color:#627168}.source-chip.pending{background:#f8f4eb;border-color:#ece1c9;color:#836338}.status{margin-top:23px;color:#526c5b;font-size:14px;min-height:24px}.error{color:#a13d3d}
 .card{display:none;margin-top:25px;overflow:hidden;background:#fff;border:1px solid #e0e6e2;border-radius:20px;box-shadow:0 20px 50px #192c220d}.image{height:330px;background:#edf4ef;display:flex;justify-content:center;align-items:center;position:relative;color:#76857c}.image img{width:100%;height:100%;object-fit:cover;display:none}.content{padding:28px}.meta{font-size:13px;color:#88978e;text-transform:uppercase;letter-spacing:1.2px}.car{font-size:27px;font-weight:730;letter-spacing:-.8px;margin:9px 0}.price{font-size:37px;letter-spacing:-1.5px;font-weight:760;color:#225f48;margin:11px 0 20px}.details{display:flex;gap:12px;flex-wrap:wrap}.detail{background:#f2f6f3;border-radius:8px;padding:10px 14px;color:#415449;font-size:14px}.source{display:inline-block;margin-top:22px;font-size:14px;color:#296b50}.photo-status{margin-top:10px;font-size:12px;color:#79877e}
 @media(max-width:600px){.shell{padding:22px 16px 60px}.header{padding-bottom:12px}.form{flex-direction:column}h1{letter-spacing:-1.6px}.image{height:240px}}
 </style>
@@ -159,8 +176,11 @@ const $=id=>document.getElementById(id);
 fetch("/api/sources").then(r=>r.json()).then(d=>{
  (d.sources||[]).filter(x=>x.enabled).forEach(x=>{
   const chip=document.createElement("span");
-  chip.className="source-chip"+(x.stage==="experimental"?" experimental":"");
-  chip.textContent=x.name+(x.stage==="experimental"?" · experimental":" · validado");
+  const verified=x.stage==="browser_verified";
+  const pending=x.stage==="javascript_required"||x.stage==="access_review";
+  chip.className="source-chip"+(pending?" pending":verified?"":" experimental");
+  const suffix=verified?" · ficha validada":x.stage==="javascript_required"?" · integración JS pendiente":x.stage==="access_review"?" · acceso pendiente":" · experimental";
+  chip.textContent=x.name+suffix;
   $("sources").appendChild(chip);
  });
 }).catch(()=>{});
