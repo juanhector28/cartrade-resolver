@@ -50,6 +50,16 @@ def main():
                 "financing_message": "Comprarlo con financiamiento" in content,
                 "whatsapp_step": "TU WHATSAPP" in content
             })
+            # Request transition is local UI state; never submit real customer data.
+            page.locator("#req-wa-input").fill("70000000")
+            page.locator("#req-send").click()
+            page.wait_for_function("document.body.innerText.includes('Pedido enviado.')", timeout=15000)
+            after_request = page.locator("body").inner_text()
+            checks["request_confirmation"] = "Pedido enviado." in after_request
+            checks["vehicle_context_at_confirmation"] = "TOYOTA" in after_request.upper()
+            checks["financing_is_conditional"] = "Si el vendedor se suma" in after_request
+            checks["no_false_bank_preapproval"] = "Te pre-aprobamos financiamiento" in after_request and "Si el vendedor se suma" in after_request
+            page.screenshot(path=str(OUT / "cartrade-ui-request.png"), full_page=False)
             page.screenshot(path=str(OUT / "cartrade-ui.png"), full_page=False)
         except Exception as exc:
             report["error"] = str(exc)[:600]
