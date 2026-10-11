@@ -74,3 +74,16 @@ Tras aplicar/reiniciar la configuración del servicio, el host seleccionado deja
 Mantener todas las nuevas adaptaciones en el mismo PR/staging. Extender fuentes de forma controlada, con un mínimo de tres anuncios y un navegador que cargue la foto. Ejecutar diagnósticos externos solo de forma intencional, con reglas de acceso verificadas. No fusionar ni activar producción hasta cumplir las cinco puertas anteriores.
 
 **Próximo sprint técnico:** adaptar la lectura del precio de EasyCar si existe una fuente pública permitida, y prototipar la asociación de ID/vehículo de Credipro y Autosale sin utilizar precios del catálogo por proximidad.
+
+## 6. Confirmación del despliegue de staging
+
+**GitHub Actions E2E (Render real):** https://github.com/juanhector28/cartrade-resolver/actions/runs/38105739841
+
+El despliegue aislado de Render respondió correctamente en los nueve controles, sin consultar sitios externos durante el smoke test:
+
+- `GET /health`: entorno staging, almacenamiento deshabilitado, producción `false`, **14 rutas de prueba habilitadas**.
+- `GET /api/coverage`: **11 candidatas técnicas a piloto**, **33 fichas con campos básicos verificados**, `production_deploy_permitted=false`.
+- `GET /api/sources`: once fuentes con estado `browser_sample_verified` y tres fuentes habilitadas únicamente para pruebas con problemas de extracción/acceso.
+- La página principal devolvió HTTP 200 y mostró el componente de cobertura. No se habilitó ningún dominio nuevo en Carly de producción.
+
+La lista de fuentes se mantiene sujeta al `PASTE_LINK_DISABLED_SOURCES` de staging y a las cinco puertas documentadas. Los siguientes candidatos solo se activarán cuando aporten evidencia propia de extracción segura.
