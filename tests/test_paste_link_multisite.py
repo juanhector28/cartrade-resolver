@@ -262,3 +262,27 @@ def test_wave_four_candidates_are_disabled_until_public_detail_verified():
         "https://credipro.com.sv/stock/#vehicle-09209cf893fa62c3",
     ]:
         assert source_for_url(url) is None
+
+def test_carros_com_classic_mustang_1980_year_from_vehicle_heading():
+    html = (
+        '<meta property="og:title" content="Ford Mustang • 1980 • 1,300 km • $ 6000 USD">'
+        '<h1>Ford Mustang • 1980 • 1,300 km</h1>'
+        '<p>Cash</p><p>$ 6,000 USD</p>'
+        '<img class="gallery-img" src="/uploads/mustang.jpg" alt="Ford Mustang • 1980 • 1,300 km 1">'
+        '<h3>Vehicle Details</h3><div>Mileage 1300 km</div>'
+        '<h3>Description</h3><p>Classic Mustang</p>'
+    )
+    listing=parse_html("https://carros.com/car/d8dc08898a3c4d1c9817268b42007df9-p89539/",html)
+    assert listing.year.value == 1980
+    assert listing.price_usd.value == 6000
+    assert listing.km.value == 1300
+    assert listing.photos
+
+def test_carros_com_classic_year_must_come_from_actual_h1():
+    html = (
+        '<meta property="og:title" content="Related Ford Mustang 1980 $6000">'
+        '<h1>Honda Civic • 2015 • 1300 km</h1><p>Cash</p><p>$ 9,500 USD</p>'
+        '<h3>Vehicle Details</h3><div>Mileage 1300 km</div>'
+    )
+    listing=parse_html("https://carros.com/car/d8dc08898a3c4d1c9817268b42007df9-p89539/",html)
+    assert listing.year.value==2015
