@@ -286,3 +286,22 @@ def test_carros_com_classic_year_must_come_from_actual_h1():
     )
     listing=parse_html("https://carros.com/car/d8dc08898a3c4d1c9817268b42007df9-p89539/",html)
     assert listing.year.value==2015
+
+def test_carros_com_classic_year_survives_missing_heading_in_current_source_html():
+    html=(
+      '<meta property="og:title" content="Ford Mustang • 1980 • 1,300 km • $ 6000 USD - Carros.com">'
+      '<meta property="og:image" content="https://carros.com/uploads/ford-mustang.jpg">'
+      '<p>Other vehicles: 2023 and 2024</p>'
+    )
+    listing=parse_html("https://carros.com/car/d8dc08898a3c4d1c9817268b42007df9-p89539/",html)
+    assert listing.year.value==1980
+    assert listing.price_usd.value==6000
+    assert listing.photos
+
+def test_carros_com_year_must_not_come_from_unrelated_og_description():
+    html=(
+      '<meta property="og:title" content="Ford Mustang clásico - $6000 USD">'
+      '<meta property="og:description" content="Otros vehículos año 2024">'
+    )
+    listing=parse_html("https://carros.com/car/d8dc08898a3c4d1c9817268b42007df9-p89539/",html)
+    assert listing.year is None or listing.year.value != 1980
