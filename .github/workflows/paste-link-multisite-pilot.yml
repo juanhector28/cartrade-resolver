@@ -2,10 +2,6 @@ name: Multi-site staging pilot (one-shot)
 
 # Manual after bounded one-shot pilot; prevents repeated public requests.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_multisite_pilot.py"
-      - ".github/workflows/paste-link-multisite-pilot.yml"
   workflow_dispatch:
 
 permissions:
