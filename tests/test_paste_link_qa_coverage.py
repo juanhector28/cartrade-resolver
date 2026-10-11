@@ -15,17 +15,15 @@ def test_eleventh_sources_three_unique_vehicle_urls_each():
         assert all(source_for_url(url) and source_for_url(url)[0]==row["domain"] for url in urls)
         assert all(1950 <= x["expected_year"] <= 2035 for x in row["cases"])
         assert all(500 <= x["atlas_reference_price"] <= 200000 for x in row["cases"])
-def test_missing_checks_not_reported_as_browser_success():
+def test_all_33_cases_have_real_source_evidence_without_confusing_photo_tiers():
     d=json.loads(MATRIX.read_text())
-    for row in d["domains"]:
-        for example in row["cases"]:
-            if example["status"]!="browser_passed":
-                assert example["status"] in {
-                    "api_passed", "source_parser_passed",
-                    "api_partial_year_fixed_pending_retest"
-                }
-                assert example["status"]!="browser_passed"
-    assert any(
-        x["status"]=="source_parser_passed"
-        for row in d["domains"] for x in row["cases"]
-    )
+    assert d["result"]["title_asking_price_model_year_photo_url_fields_passed"]==33
+    assert d["result"]["domains"]==11
+    cases=[x for group in d["domains"] for x in group["cases"]]
+    assert len(cases)==33
+    assert all(x["status"] in ("browser_passed","api_passed") for x in cases)
+    assert all(x.get("evidence","").startswith("https://github.com/") for x in cases)
+    assert any(x["status"]=="api_passed" for x in cases)
+    assert any(x["status"]=="browser_passed" for x in cases)
+    # API photo URL != browser image actually loaded. The tiers stay separate.
+    assert d["result"]["each_photo_browser_rendered"] is False
