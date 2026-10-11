@@ -130,3 +130,37 @@ def test_second_batch_rejects_catalogs_and_parameter_tricks():
     ]
     for url in disallowed:
         assert source_for_url(url) is None, url
+
+def test_autospublicidad_listing_photo_and_explicit_seller_miles():
+    html = (
+      '<meta property="og:title" content="Toyota Tacoma 2020 $ 23,500">'
+      '<h1>Toyota Tacoma 2020</h1>'
+      '<p>Características Kilometraje 67</p>'
+      '<img src="../assets/img/logo-autospublicidad.svg" alt="Logo">'
+      '<img src="images/autos/72/not-the-same-vehicle.jpg" alt="Imagen 1 del Toyota Tacoma">'
+      '<img src="images/autos/73/a1772859032.jpg" alt="Imagen 1 del Toyota Tacoma">'
+      '<div>Información de venta Precio: $ 23,500</div>'
+      '<p>Vendo Toyota Tacoma, 67 mil millas, negociable</p>'
+      '<div>Contacto 63167104</div>'
+      '<p>Otros carros 5000 mi</p>'
+    )
+    listing = parse_html(
+       "https://www.autospublicidad.com/sv/detalles?auto=toyota-tacoma&id=73", html
+    )
+    assert listing.price_usd.value == 23500
+    assert listing.km.value == 107826
+    assert listing.photos == ["https://www.autospublicidad.com/sv/images/autos/73/a1772859032.jpg"]
+
+
+def test_autospublicidad_ambiguous_raw_odometer_does_not_invent_units():
+    html = (
+      '<meta property="og:title" content="Toyota Tacoma 2020 $ 23,500">'
+      '<h1>Toyota Tacoma 2020</h1><p>Kilometraje 67</p>'
+      '<img src="images/autos/73/a1772859032.jpg" alt="Imagen 1 del Toyota Tacoma">'
+      '<div>Información de venta</div><p>Excelente estado</p><div>Contacto</div>'
+    )
+    listing = parse_html(
+       "https://www.autospublicidad.com/sv/detalles?auto=toyota-tacoma&id=73", html
+    )
+    assert listing.km is None
+    assert len(listing.photos) == 1
