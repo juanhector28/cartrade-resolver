@@ -109,3 +109,29 @@ Chromium opened the staging UI, pasted one real listing URL per domain, and veri
 AutosPublicidad's page labels its odometer only as "67" in a field but explicitly says "67 mil millas" in its description; the parser converts only when the unit is explicit. Images come from that vehicle's own ID-based gallery. The other two new domain samples passed extractor-level and browser-level tests without requiring their own dedicated rules.
 
 **Scope limitations:** only one browser-validated sample on six domains, three earlier extractor-level samples on Carros El Salvador; not domain-wide certification, current inventory/price guarantees, permission to commercially re-display third-party content, or production integration. Existing Carly production is unchanged. Nissan El Salvador stays disabled because the Atlas examples are model-catalog pages without verifiable per-car asking prices. Automated external-domain workflows have been reverted to manual-only after validation.
+
+## Third batch: 12 staging domain routes, 9 with a tested browser sample
+
+**Live staging:** https://cartrade-paste-link-staging.onrender.com
+
+**Source DOM inspection:** https://github.com/juanhector28/cartrade-resolver/actions/runs/38098907497
+
+**Final Chromium browser receipt (successful rerun):** https://github.com/juanhector28/cartrade-resolver/actions/runs/38099065124
+
+**Screenshots:** https://github.com/juanhector28/cartrade-resolver/actions/runs/38099065124/artifacts/11686668102
+
+The four-source and seven-source pilots remain intact. The current third batch adds **Carvimax** and **Julajups** as two further sources with one live browser-tested vehicle example each:
+
+| Source | Example | Price | Year | Normalized mileage | Browser image |
+|---|---|---:|---:|---:|---|
+| Carvimax | Hyundai Tucson | USD 19,700 | 2021 | 74,746 km (46,445 mi) | Loaded successfully from listing's CDN/gallery |
+| Julajups | Subaru Impreza | USD 4,000 | 2006 | Not published in the tested listing | Loaded successfully from OG image |
+
+The baseline Kia Sportage browser regression also passed on this run. The final browser run completed **3/3 cases**, with the missing Julajups mileage correctly represented as unavailable, not fabricated.
+
+Three of the five new routes are **not E2E approved**:
+- **EasyCar:** the server returns a client-rendered HTML shell with no individual car title or asking price; a JS-data adapter or documented API is required.
+- **Eurosport Autos:** the fetched HTML is a client-rendered shell with site-wide generic metadata, while the staging robots/access gate has intermittently denied the route; review access and actual data-loading mechanism before another resolver attempt.
+- **CrediQ:** source robots endpoint returned HTTP 403 in independent diagnostics; no verified current listing parser. Do not bypass or presume permission.
+
+**Interpretation:** 12 exact-route site entries in staging, **9 unique sites with one demonstrated browser listing sample**, 3 still incomplete, 0 source domains certified exhaustively and 0 new production domain releases. No stored HTML, remote inventory writes, retries or bulk crawling. The live source audit workflows were changed to manual-only to prevent repeated third-party requests. Commercial content/display rights still need review.
