@@ -21,6 +21,7 @@ import inspect
 import httpx
 from typing import Optional, List
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
