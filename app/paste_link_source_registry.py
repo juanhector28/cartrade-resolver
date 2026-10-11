@@ -20,7 +20,7 @@ SOURCES = {
     },
     "caragencia.com": {
         "name": "CarAgencia", "stage": "experimental",
-        "route": r"^/car-finder/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
+        "route": r"^/(?:es/)?car-finder/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
     },
     "carros.com": {
         "name": "Carros.com", "stage": "experimental",
