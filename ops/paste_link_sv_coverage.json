@@ -21,14 +21,14 @@
     "domains_fully_certified_for_release": 0,
     "field_recovery_on_passed_pilot": "5/5 per listing (title, price, year, km, photo URL); images not GET-verified",
     "last_pilot_workflow": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38095284698",
-    "staging_e2e_verified_domains": 9,
+    "staging_e2e_verified_domains": 10,
     "staging_browser_cases_passed": 1,
     "staging_browser_checks_passed": 35,
     "production_accepted_new_domains": 0,
     "staging_live_url": "https://cartrade-paste-link-staging.onrender.com",
     "staging_e2e_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38096244781",
-    "staging_sources_enabled_for_individual_link_trials": 12,
-    "staging_sources_with_one_full_browser_sample": 9,
+    "staging_sources_enabled_for_individual_link_trials": 13,
+    "staging_sources_with_one_full_browser_sample": 10,
     "staging_browser_samples_passed": 9,
     "staging_browser_latest_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341",
     "sources_pending_individual_listing_route": 1,
@@ -41,7 +41,17 @@
     "wave3_sources_browser_sample_passed": 2,
     "wave3_browser_checks_passed": 12,
     "wave3_browser_latest_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38099065124",
-    "wave3_sites_needing_dynamic_or_restricted_access": 3
+    "wave3_sites_needing_dynamic_or_restricted_access": 3,
+    "nine_existing_domains_second_sample_checked": 9,
+    "nine_existing_domains_second_sample_price_year_photo_url_passed": 9,
+    "nine_existing_domains_second_sample_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38101495530",
+    "discovered_sources_beyond_atlas_original_56": 1,
+    "anuto_two_browser_samples_passed": 2,
+    "anuto_two_browser_samples_total": 2,
+    "anuto_two_browser_checks_passed": 10,
+    "anuto_browser_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38101821230",
+    "fourth_wave_atlas_candidates_awaiting_adapter": 5,
+    "source_status_note": "10 domains with one or more individual vehicle samples that passed browser rendering; 13 source routes enabled in staging; 5 wave-four Atlas candidates remain disabled after preflight."
   },
   "sample_cases": [
     {
@@ -1422,5 +1432,86 @@
     "browser_run_artifact": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38099065124/artifacts/11686668102",
     "browser_samples_passed": 2,
     "browser_checks_including_kia_regression": 12
+  },
+  "anuto_additional_source_pilot": {
+    "source": "Anuto El Salvador",
+    "domain": "sv.anuto.app",
+    "atlas_original_56_entry": false,
+    "source_discovery": "additional market source outside original 56 Atlas entries",
+    "robots_status": 200,
+    "sample_listing_urls": [
+      "https://sv.anuto.app/ad/se-vende-toyota-yaris-automatico-0nPyz4dvggGHLtrN8nVx",
+      "https://sv.anuto.app/ad/toyota-tacoma-2021-Trgt028DJRkzLdjJO6d3"
+    ],
+    "browser_e2e_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38101821230",
+    "samples": [
+      {
+        "model": "Toyota Yaris",
+        "year": 2008,
+        "price_usd": 2500,
+        "km": 135000,
+        "photo_rendered": true
+      },
+      {
+        "model": "Toyota Tacoma",
+        "year": 2021,
+        "price_usd": 23500,
+        "km": 67000,
+        "photo_rendered": true
+      }
+    ],
+    "passed": 2,
+    "total": 2,
+    "checks_passed": 10,
+    "readonly": true,
+    "persisted": false,
+    "limitations": "Only two individual listings tested, not a domain-wide claim or commercial content permission. The Tacoma free-text description has a conflicting mileage unit; the explicitly labelled structured Kilómetros field (67000 km) is displayed."
+  },
+  "expanded_nine_source_sample_audit": {
+    "run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38101495530",
+    "passed": 9,
+    "total": 9,
+    "fields": [
+      "non-empty title",
+      "numeric asking price",
+      "matching year",
+      "photo URL present",
+      "saved=false"
+    ],
+    "limitations": "No direct image GET/browser photo test for these new second samples; historical Atlas prices can change.",
+    "mileage_missing_for_some": "Missing odometer values are not invented; absence is recorded."
+  },
+  "wave_four_atlas_preflight": {
+    "run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38101392157",
+    "dom_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38101550715",
+    "candidates": [
+      {
+        "domain": "usados.excelautomotriz.com",
+        "stage": "adapter_required",
+        "note": "HTTP 200, title visible but no trustworthy price extracted from listing."
+      },
+      {
+        "domain": "encuentra24.com",
+        "stage": "access_review",
+        "note": "Direct listing HTTP 403 in this staging diagnostic."
+      },
+      {
+        "domain": "finder.porsche.com",
+        "stage": "access_review",
+        "note": "robots check HTTP 429; no source request made."
+      },
+      {
+        "domain": "xautomarket.com",
+        "stage": "missing_public_price",
+        "note": "HTTP 200 and vehicle heading; page asks users to confirm price by contact."
+      },
+      {
+        "domain": "credipro.com.sv",
+        "stage": "listing_identification_required",
+        "note": "HTTP 200 catalog shows prices, but vehicle# hash is browser-side and not a reliable listing-specific HTML ID."
+      }
+    ],
+    "enabled_in_staging": 0,
+    "production_added": 0
   }
 }
