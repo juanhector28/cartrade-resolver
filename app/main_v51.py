@@ -133,3 +133,8 @@ _v59_demo_truth.install(app)
 
 from . import carly_inventory_policy as _inventory_policy
 _inventory_policy.install(app)
+
+# Optional Atlas El Salvador private preview. Disabled by default, never changes
+# /carly/search, /carly/chat, Supabase records or user-facing recommendations.
+from . import atlas_sv_private_preview as _atlas_sv_private_preview
+_atlas_sv_private_preview.install(app)
