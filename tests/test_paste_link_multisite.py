@@ -7,7 +7,7 @@ def test_multisite_exact_allowed_shapes():
     assert source_for_url("https://tucarro.sv/ford-expedition/63f2c0e8")
     assert source_for_url("https://caragencia.com/car-finder/2023-chevrolet-trailblazer")
     assert source_for_url("https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/")
-    assert sum(bool(x["enabled"]) for x in SOURCES.values()) == 13
+    assert sum(bool(x["enabled"]) for x in SOURCES.values()) == 14
 
 def test_multisite_rejects_catalog_open_redirects_and_unknown():
     for url in [
@@ -108,7 +108,7 @@ def test_second_batch_exact_listing_routes():
     assert source_for_url("https://www.disazautos.com/product-page/kia-seltos-2023")
     assert source_for_url("https://www.autospublicidad.com/sv/detalles?auto=toyota-tacoma&id=73")
     assert source_for_url("https://www.autospublicidad.com/sv/detalles?id=73&auto=toyota-tacoma")
-    assert sum(bool(x["enabled"]) for x in SOURCES.values()) == 13
+    assert sum(bool(x["enabled"]) for x in SOURCES.values()) == 14
     assert not SOURCES["nissanelsalvador.com"]["enabled"]
 
 def test_second_batch_rejects_catalogs_and_parameter_tricks():
@@ -247,7 +247,6 @@ def test_caragencia_spanish_localized_listing_route():
 
 def test_wave_four_candidates_are_disabled_until_public_detail_verified():
     candidates = {
-        "usados.excelautomotriz.com",
         "encuentra24.com",
         "finder.porsche.com",
         "xautomarket.com",
@@ -257,7 +256,6 @@ def test_wave_four_candidates_are_disabled_until_public_detail_verified():
         assert SOURCES[hostname]["enabled"] is False
         assert SOURCES[hostname]["stage"] == "candidate_review"
     for url in [
-        "https://usados.excelautomotriz.com/autos-el-salvador/suzuki-dzire-p-79aca/",
         "https://www.encuentra24.com/el-salvador-es/autos-usados/en-venta-kia-forte-2023/33049654",
         "https://finder.porsche.com/sv/es-SV/details/porsche-cayenne-coupe-black-edition-nuevo-0OK0QN?condition=new&source=home",
         "https://xautomarket.com/comprar/JC663762",
