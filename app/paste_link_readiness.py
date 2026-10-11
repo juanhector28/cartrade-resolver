@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .paste_link_source_registry import SOURCES, source_for_url
+from .paste_link_source_registry import SOURCES, source_for_url, enabled_now
 
 ROOT = Path(__file__).resolve().parent.parent
 MATRIX = ROOT / "ops" / "paste_link_sv_qa_3_per_site.json"
@@ -47,7 +47,7 @@ def get_readiness() -> dict:
             issues.append("duplicate cross-domain URL: " + domain)
         all_urls.update(unique_urls)
         pilot = bool(
-            entry and entry["enabled"] and entry["stage"] == "browser_sample_verified"
+            entry and enabled_now(domain) and entry["stage"] == "browser_sample_verified"
             and len(unique_urls) == len(examples)
             and len(unique_urls) >= minimum and passed >= minimum
             and browser >= min_browser and valid_routes
@@ -76,11 +76,11 @@ def get_readiness() -> dict:
         for key, value in controls["release_gates"].items()
     }
     manual_clear = all(x["approved"] for x in control_status.values())
-    enabled_sources = [k for k, v in SOURCES.items() if v["enabled"]]
+    enabled_sources = [k for k in SOURCES if enabled_now(k)]
     blocked_domains = [
         {
             "domain": key, "name": v["name"], "stage": v["stage"],
-            "enabled_for_manual_trial": v["enabled"],
+            "enabled_for_manual_trial": enabled_now(key),
         }
         for key, v in SOURCES.items()
         if v["stage"] not in {"browser_sample_verified"}
