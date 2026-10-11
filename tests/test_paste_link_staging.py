@@ -126,5 +126,5 @@ def test_verified_sample_status_is_not_full_domain_certification():
         d={item["domain"]:item for item in client.get("/api/sources").json()["sources"]}
     assert d["sv.anuto.app"]["stage"]=="browser_sample_verified"
     assert d["julajups.sv"]["stage"]=="browser_sample_verified"
-    assert d["usados.excelautomotriz.com"]["enabled"] is False
+    assert d["usados.excelautomotriz.com"]["enabled"] is True
     assert d["crediq.com"]["stage"]=="access_review"
