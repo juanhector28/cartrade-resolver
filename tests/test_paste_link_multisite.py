@@ -89,3 +89,16 @@ def test_caragencia_multiline_odometer_notes():
     )
     listing=parse_html("https://caragencia.com/car-finder/2023-chevrolet-trailblazer",html)
     assert listing.km.value == 65983
+
+def test_carros_com_replaces_relative_og_image_with_vehicle_gallery():
+    html=(
+      '<meta property="og:title" content="Honda Civic • 2015">'
+      '<meta property="og:image" content="/static/default.jpg">'
+      '<h1>Honda Civic • 2015 • 125837 km</h1><p>Cash</p><p>$ 9,500 USD</p>'
+      '<img class="gallery-img" src="http://carros.com/uploads/vehicle.jpg" '
+      'alt="Honda Civic • 2015 • 125837 km 1">'
+      '<h3>Vehicle Details</h3><div>Mileage 125837 km</div>'
+      '<h3>Description</h3>'
+    )
+    listing=parse_html("https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/",html)
+    assert listing.photos == ["https://carros.com/uploads/vehicle.jpg"]
