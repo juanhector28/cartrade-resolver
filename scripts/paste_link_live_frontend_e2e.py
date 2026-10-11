@@ -83,6 +83,11 @@ def main():
             page.screenshot(path=str(OUT / "cartrade-ui.png"), full_page=False)
         except Exception as exc:
             report["error"] = str(exc)[:600]
+            try:
+                report["diagnostic"] = page.evaluate("""() => ({screen: window.ST ? window.ST.cur : 'none', demos: document.querySelectorAll('[data-go=req3]').length, installed: !!window.CT_FINANCE_PREVIEW_INSTALLED, button: !!document.getElementById('ct-finance-start'), body: document.body.innerText.slice(-350)})""")
+                page.screenshot(path=str(OUT / "failure.png"), full_page=False)
+            except Exception:
+                pass
         finally:
             browser.close()
     report["requests"] = calls
