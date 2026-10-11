@@ -34,9 +34,11 @@ def main():
         page.route("**/*", route)
         try:
             page.goto(SITE, wait_until="domcontentloaded", timeout=90000)
-            page.locator("#heroLinkInput").fill(URL)
-            page.evaluate("window.handleHeroLink()")
-            page.wait_for_function("document.body.innerText.includes('Pedir este auto')", timeout=30000)
+            # Use the visible search UI, not the compatibility input hidden off-screen.
+            page.locator("#lp9 .search-tab[data-mode=link]").click()
+            page.locator("#heroInput").fill(URL)
+            page.locator("#compareBtn").click()
+            page.wait_for_function("document.body.innerText.includes('Pedir este auto')", timeout=45000)
             content = page.locator("body").inner_text()
             checks.update({
                 "single_resolver_request": len(calls) == 1,
