@@ -165,3 +165,44 @@ Source diagnosis: https://github.com/juanhector28/cartrade-resolver/actions/runs
 - Previous Subaru USD 4,000: 5/5 checks also passed, confirming regression continuity.
 - Live browser checks execute manually thereafter; no auto-scraping or inventory saving.
 - Still no change to production Carly or merger of draft PR #135.
+
+## Fourth iteration: expand QA + one new source outside original Atlas set
+
+**Second-sample QA of existing 9**: https://github.com/juanhector28/cartrade-resolver/actions/runs/38101495530
+
+We tested an *additional user-level URL* from each of the nine previously browser-tested sources via the isolated staging endpoint, with title, asking price, year and vehicle image URL present and `saved=false`: **9/9 passed**. Historical Atlas reference prices happened to match the live observations in this specific check. This does not certify ongoing price freshness or image rendering for those second samples. The Spanish `/es/car-finder/...` CarAgencia listing route is now supported. Mileages are missing on some individual ads and must remain missing when not stated.
+
+**Wave-four Atlas five-site preflight**: https://github.com/juanhector28/cartrade-resolver/actions/runs/38101392157
+
+| Candidate | Status |
+|---|---|
+| Excel Usados | HTTP 200 listing title, no price in available generic metadata; adapter discovery needed |
+| Encuentra24 | Robots allowed but HTTP 403 for the tested individual ad, no bypass |
+| Porsche Finder | Robots returned HTTP 429; fail-closed, no listing fetch |
+| xAutoMarket | HTTP 200 vehicle title, but the specific page asks the user to confirm price; no sourced asking price |
+| Credipro | HTTP 200 catalog with asking prices, but the `#vehicle-` hash is not a verified listing-specific HTML identifier; multiple same-name vehicles have different prices, so no price guessing |
+
+**Source DOM evidence**: https://github.com/juanhector28/cartrade-resolver/actions/runs/38101550715
+
+These five remain disabled as staging candidates. We do not equate an Atlas historical record with a verifiable current price.
+
+**New source discovered outside the original Atlas 56: Anuto El Salvador**
+
+Read-only robots-confirmed public URLs:
+- https://sv.anuto.app/ad/se-vende-toyota-yaris-automatico-0nPyz4dvggGHLtrN8nVx
+- https://sv.anuto.app/ad/toyota-tacoma-2021-Trgt028DJRkzLdjJO6d3
+
+**Browser E2E and screenshots**: https://github.com/juanhector28/cartrade-resolver/actions/runs/38101821230/artifacts/11688465050
+
+Both real individual vehicle pages passed all browser checks **2/2 ads and 10/10 checks**:
+
+| Listing | Asking price | Model year | Labelled odometer | Actual image rendered |
+|---|---:|---:|---:|---|
+| Toyota Yaris automático | USD 2,500 | 2008 | 135,000 km | Yes |
+| Toyota Tacoma | USD 23,500 | 2021 | 67,000 km | Yes |
+
+The adapter uses Anuto's listing-local labelled `Año` and `Kilómetros` fields between `Detalles` and `Descripción`, never related-ad metadata. Note: the Tacoma seller's free-text description mentions 67,000 *miles* but the site's structured field specifies 67,000 *km*. We display the labelled listing value, and that discrepancy warrants human review before treating the mileage as independently verified.
+
+**Accurate current score:** 10 separate source domains with at least one passed Chromium vehicle sample, 13 trial routes enabled in isolated staging (including 3 with unresolved access/JavaScript extraction), 5 new Atlas wave-four candidates kept disabled, and 0 new production domains. The initial Atlas universe remains 56 source entries; Anuto is a separately discovered additional source rather than silently replacing a source within the 56.
+
+All subsequent source-fetch audit workflows are manual-only after the bounded first runs. No Supabase writes, no bulk crawling, no production deployment.
