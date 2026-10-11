@@ -39,6 +39,26 @@ SOURCES = {
         "name": "Disaz Autos", "stage": "experimental",
         "route": r"^/product-page/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
     },
+    "carvimax.com": {
+        "name": "Carvimax", "stage": "experimental",
+        "route": r"^/[a-z0-9][a-z0-9-]+/[1-9][0-9]{0,6}/?$", "enabled": True,
+    },
+    "easycar.com.sv": {
+        "name": "EasyCar", "stage": "experimental",
+        "route": r"^/car/[1-9][0-9]{0,6}/?$", "enabled": True,
+    },
+    "eurosportautos.com": {
+        "name": "Eurosport Autos", "stage": "experimental",
+        "route": r"^/vehiculo/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
+    },
+    "crediq.com": {
+        "name": "CrediQ", "stage": "experimental",
+        "route": r"^/sv/product/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
+    },
+    "julajups.sv": {
+        "name": "Julajups", "stage": "experimental",
+        "route": r"^/anuncio/[a-z0-9][a-z0-9-]+-[a-z0-9]{10}/?$", "enabled": True,
+    },
     "nissanelsalvador.com": {
         "name": "Nissan El Salvador", "stage": "route_pending",
         "route": None, "enabled": False,
