@@ -1,9 +1,6 @@
 name: Julajups isolated listing diagnosis
+# Completed one-shot source audit. Run manually only to avoid repeated third-party requests.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_julajups_diagnose.py"
-      - ".github/workflows/paste-link-julajups-diagnose.yml"
   workflow_dispatch:
 permissions:
   contents: read
