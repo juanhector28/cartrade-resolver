@@ -26,12 +26,17 @@ def _meta(html: str, prop: str) -> str | None:
     return str(value).strip() if value else None
 
 
-def _structured_price(html: str) -> float | None:
-    """Use listing-local schema.org offers, never prices from related ads."""
+def _structured_price(html: str, *, allow_unescaped_controls: bool = False) -> float | None:
+    """Extract a USD vehicle offer, with a narrow Julajups control-char repair.
+
+    Some Julajups pages embed literal newlines in JSON-LD description strings.
+    json.loads(strict=False) accepts those controls without changing the price
+    or accepting unrelated invalid JSON structure. Keep other sites strict.
+    """
     soup = BeautifulSoup(html, "html.parser")
     for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
         try:
-            root = json.loads(script.string or script.get_text())
+            root = json.loads(script.string or script.get_text(), strict=not allow_unescaped_controls)
         except (ValueError, TypeError):
             continue
         todo = [root]
@@ -316,7 +321,12 @@ def parse_html(url: str, html: str) -> Listing:
     km = parsers.extract_km(haystack)
     if km:
         listing.km = Field(value=km[0], confidence="low")
-    structured_price = _structured_price(html)
+    from urllib.parse import urlparse
+    source_host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+    structured_price = _structured_price(
+        html,
+        allow_unescaped_controls=(source_host == "julajups.sv"),
+    )
     if structured_price is not None:
         listing.price_usd = Field(value=structured_price, confidence="high")
     pr = parsers.extract_price_usd(og_title) if structured_price is None else None
