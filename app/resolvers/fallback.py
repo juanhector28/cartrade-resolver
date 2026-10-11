@@ -454,6 +454,10 @@ def parse_html(url: str, html: str) -> Listing:
         )
         if classic_year and 1950 <= int(classic_year.group(1)) <= 2035:
             listing.year = Field(value=int(classic_year.group(1)), confidence="high")
+        else:
+            # Generic OG description may include related cars; don't infer a
+            # model year from it if the listing title does not say one.
+            listing.year = None
     pr = parsers.extract_price_usd(og_title) if structured_price is None else None
     if pr:
         listing.price_usd = Field(value=pr[0], confidence="low")
