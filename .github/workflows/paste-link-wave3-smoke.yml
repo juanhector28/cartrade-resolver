@@ -1,9 +1,6 @@
 name: Carly five-source staging field audit
+# Run manually after the initial bounded inspection to avoid repeated third-party requests.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_wave3_smoke.py"
-      - ".github/workflows/paste-link-wave3-smoke.yml"
   workflow_dispatch:
 permissions:
   contents: read
