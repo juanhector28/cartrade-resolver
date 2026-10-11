@@ -1,4 +1,4 @@
-"""Bounded, browser-level Carly multi-site validation. No inventory writes."""
+"""Bounded, browser-level seven-source Carly staging validation. No inventory writes."""
 from __future__ import annotations
 import asyncio
 import json
@@ -12,6 +12,9 @@ CASES = [
     ("tucarro", "https://tucarro.sv/ford-expedition/63f2c0e8", 16500),
     ("caragencia", "https://caragencia.com/car-finder/2023-chevrolet-trailblazer", 13900),
     ("carroscom", "https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/", 9500),
+    ("motorasv", "https://motorasv.com/cars/5122d37b-997d-478c-9b16-863b40dca5e4", 7200),
+    ("disaz", "https://www.disazautos.com/product-page/kia-seltos-2023", 18900),
+    ("autospublicidad", "https://www.autospublicidad.com/sv/detalles?auto=toyota-tacoma&id=73", 23500),
 ]
 OUT = Path("/tmp/carly-multisite-browser")
 
