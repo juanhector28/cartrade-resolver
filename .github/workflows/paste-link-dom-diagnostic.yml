@@ -1,9 +1,6 @@
 name: Paste Link source DOM diagnostic
+# Manual after bounded one-shot pilot; prevents repeated public requests.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_dom_diagnostic.py"
-      - ".github/workflows/paste-link-dom-diagnostic.yml"
   workflow_dispatch:
 permissions:
   contents: read
