@@ -79,3 +79,32 @@ def test_missing_or_duplicate_qa_receipts_fail_closed(monkeypatch):
     assert result["pilot_candidates"] < 11
     assert result["evidence_issues"]
     assert result["production_deploy_permitted"] is False
+
+
+def test_runtime_disablelist_is_strictly_disable_only(monkeypatch):
+    from app.paste_link_source_registry import source_for_url
+    good = "https://www.carroselsalvador.com/anuncios/kia-sportage-2006/"
+    another = "https://www.julajups.sv/anuncio/subaru-impreza-rs-2006-awd-pxODLWUM9S"
+    candidate = "https://autosale.com.sv/catalogo.php#vehicle-145"
+    assert source_for_url(good)
+    assert source_for_url(another)
+    assert not source_for_url(candidate)
+
+    monkeypatch.setenv(
+        "PASTE_LINK_DISABLED_SOURCES",
+        "  carroselsalvador.com ,    unknown.example ",
+    )
+    assert source_for_url(good) is None
+    assert source_for_url(another)
+    assert source_for_url(candidate) is None
+    coverage = ledger.get_readiness()
+    assert coverage["pilot_candidates"] == 10
+    assert coverage["enabled_trial_domains"] == 13
+    assert coverage["production_deploy_permitted"] is False
+    with TestClient(staging.app) as client:
+        h = client.get("/health").json()
+        rows = {s["domain"]: s for s in client.get("/api/sources").json()["sources"]}
+    assert h["sources_enabled"] == 13
+    assert rows["carroselsalvador.com"]["enabled"] is False
+    assert rows["julajups.sv"]["enabled"] is True
+    assert rows["autosale.com.sv"]["enabled"] is False
