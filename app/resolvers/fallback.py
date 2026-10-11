@@ -252,6 +252,32 @@ def _autospublicidad_detail(html: str, listing: Listing) -> None:
                                confidence="medium")
 
 
+def _carvimax_listing_mileage(html: str, listing: Listing) -> None:
+    """Normalize only explicitly unit-labelled Carvimax listing metadata.
+
+    Do not guess units from bare vehicle-detail numbers or related vehicles.
+    """
+    from urllib.parse import urlparse
+    host = (urlparse(listing.url).hostname or "").lower().removeprefix("www.")
+    if host != "carvimax.com" or not listing.title:
+        return
+    description = _meta(html, "og:description") or ""
+    mileage = re.search(r"\b([1-9][0-9,]{0,8})\s*(mi|millas|km)\b", description, re.I)
+    if not mileage:
+        return
+    try:
+        value = int(mileage.group(1).replace(",", ""))
+    except ValueError:
+        return
+    if value > 500000:
+        return
+    unit = mileage.group(2).lower()
+    listing.km = Field(
+        value=round(value * 1.609344) if unit in {"mi", "millas"} else value,
+        confidence="medium",
+    )
+
+
 def parse_html(url: str, html: str) -> Listing:
     """Parse already-fetched HTML without additional outbound network requests."""
     listing = Listing(platform="unknown", url=url)
@@ -289,4 +315,5 @@ def parse_html(url: str, html: str) -> Listing:
     _carroselsalvador_detail(html, listing)
     _experimental_listing_detail(html, listing)
     _autospublicidad_detail(html, listing)
+    _carvimax_listing_mileage(html, listing)
     return listing
