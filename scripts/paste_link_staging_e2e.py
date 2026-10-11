@@ -10,7 +10,7 @@ import httpx
 from playwright.async_api import async_playwright
 
 BASE = os.getenv("STAGING_URL", "https://cartrade-paste-link-staging.onrender.com")
-URL = os.getenv("TEST_LISTING_URL", "https://www.carroselsalvador.com/anuncios/kia-sportage-2006/")
+URL = os.getenv("TEST_LISTING_URL") or "https://www.carroselsalvador.com/anuncios/kia-sportage-2006/"
 IS_JULAJUPS = "julajups.sv/anuncio/" in URL
 OUT = Path("/tmp/carly-staging-browser")
 
