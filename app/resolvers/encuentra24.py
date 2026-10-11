@@ -184,10 +184,13 @@ async def resolve(url: str) -> Listing:
     listing = Listing(platform="encuentra24", url=url)
 
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True,
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False,
                                      headers={"User-Agent": USER_AGENT,
                                               "Accept-Language": "es-SV,es;q=0.9"}) as cli:
             r = await cli.get(url)
+            if 300 <= r.status_code < 400:
+                listing.errors.append("redirect requires independent source review")
+                return listing
             r.raise_for_status()
             html = r.text
     except httpx.TimeoutException as e:
