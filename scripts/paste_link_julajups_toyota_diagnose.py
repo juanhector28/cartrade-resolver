@@ -75,6 +75,34 @@ async def main():
             receipt["headings"] = [x.get_text(" ", strip=True)[:115] for x in soup.select("h1,h2")[:8]]
             receipt["price_content"] = [x.get_text(" ", strip=True)[:100] for x in
                 soup.select('[class*="price"],[id*="price"],[class*="precio"],[id*="precio"]')[:8]]
+            # Field-shape inspection only: no full HTML, seller notes or contacts.
+            import re
+            scripts = soup.select('script[type="application/ld+json"]')
+            receipt["jsonld_debug"] = []
+            for script in scripts[:3]:
+                body = script.string or script.get_text() or ""
+                try:
+                    obj = json.loads(body)
+                    receipt["jsonld_debug"].append({"type": "valid",
+                        "keys": list(obj)[:15] if isinstance(obj, dict) else []})
+                except (ValueError, TypeError) as ex:
+                    m = re.search(r"(?:\\\"|')?(?:price|precio|offers|priceCurrency)(?:\\\"|')?\\s*[:=]\\s*([\\\"']?[^,}\\]\\n]{0,45})", body, re.I)
+                    receipt["jsonld_debug"].append({
+                        "type": "invalid", "error": str(ex)[:100], "bytes": len(body),
+                        "price_token": m.group(0)[:80] if m else None,
+                        "has_null_price": bool(re.search(r'\\\"price\\\"\\s*:\\s*null', body)),
+                        "has_empty_price": bool(re.search(r'\\\"price\\\"\\s*:\\s*\\\"\\\"', body)),
+                        "has_price_key": bool(re.search(r'\\\"price\\\"\\s*:', body)),
+                    })
+            receipt["price_markers"] = []
+            for pattern in [r"US\\s*\\$\\s*[0-9][0-9,]*", r"\\$\\s*[0-9][0-9,]*", r"\\bprecio\\b", r"\\bconsultar\\b", r"\\bnegociable\\b"]:
+                matches = list(re.finditer(pattern, soup.get_text(" ", strip=True), re.I))
+                receipt["price_markers"].append({"pattern":pattern,"matches": [m.group(0)[:60] for m in matches[:5]],"count":len(matches)})
+            receipt["price_related_attributes"] = [
+                {"tag":tag.name,"name":tag.get("itemprop") or tag.get("property"),
+                "value":str(tag.get("content") or tag.get("value") or "")[:60]}
+                for tag in soup.select("[itemprop*=price], [property*=price], [data-price]")[:8]
+            ]
             receipt["parsed"] = {
                 "title": listing.title.value if listing.title else None,
                 "price": listing.price_usd.value if listing.price_usd else None,
