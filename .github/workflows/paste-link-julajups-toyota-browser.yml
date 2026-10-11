@@ -1,9 +1,6 @@
 name: Carly Julajups Toyota exact link browser acceptance
+# Source-specific live browser audit is manual after validated success.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_julajups_toyota_browser.py"
-      - ".github/workflows/paste-link-julajups-toyota-browser.yml"
   workflow_dispatch:
 permissions:
   contents: read
