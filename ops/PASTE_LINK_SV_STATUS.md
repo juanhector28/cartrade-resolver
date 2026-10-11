@@ -147,3 +147,21 @@ User manually reported the generic HTTP 422 message for Julajups, EasyCar and Cr
 - **Error UX fix**: staging backend now reports source-specific errors instead of a misleading generic 422; source chips explicitly mark JavaScript integration/access review as pending. This does **not** certify or make those sources functional.
 
 Production code and inventory untouched. Staging: https://cartrade-paste-link-staging.onrender.com; PR: https://github.com/juanhector28/cartrade-resolver/pull/135.
+
+## User-reported Julajups Toyota 4Runner failure: FIXED in staging (11 Oct 2026 UTC)
+
+User-supplied exact listing: https://www.julajups.sv/anuncio/toyota-4-runner-trd-2019-4x4-N3tSneYO52
+
+Source diagnosis: https://github.com/juanhector28/cartrade-resolver/actions/runs/38100549193
+- Actual listing HTTP 200 and robots HTTP 200.
+- Listing's `Product` JSON-LD contained literal unescaped control/newline characters within `description`, making default `json.loads` fail.
+- The **same vehicle's** `offers.price` is **27500**, `priceCurrency` is **USD**, `availability` is InStock.
+- The fallback parser now uses `json.loads(..., strict=False)` **only for Julajups**, retaining exact numeric USD validation and strict parsing on all other hosts. The user-visible listing was not modified or substituted with historical data.
+
+**Deployed staging:** https://cartrade-paste-link-staging.onrender.com
+
+**Browser E2E evidence:** https://github.com/juanhector28/cartrade-resolver/actions/runs/38100693810
+- Reported Toyota: 5/5 checks passed (right vehicle, **USD 27,500**, year 2019, original URL, real image loading in Chromium).
+- Previous Subaru USD 4,000: 5/5 checks also passed, confirming regression continuity.
+- Live browser checks execute manually thereafter; no auto-scraping or inventory saving.
+- Still no change to production Carly or merger of draft PR #135.
