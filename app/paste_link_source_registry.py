@@ -59,6 +59,31 @@ SOURCES = {
         "name": "Julajups", "stage": "experimental",
         "route": r"^/anuncio/[a-z0-9][a-z0-9-]+-[a-z0-9]{10}/?$", "enabled": True,
     },
+    # Wave 4 candidate routes from Atlas SV individual listing receipts.
+    # Disabled until the site-local robots/metadata preflight has passed.
+    "usados.excelautomotriz.com": {
+        "name": "Excel Usados", "stage": "candidate_review",
+        "route": r"^/autos-el-salvador/[a-z0-9][a-z0-9-]+/?$", "enabled": False,
+    },
+    "encuentra24.com": {
+        "name": "Encuentra24", "stage": "candidate_review",
+        "route": r"^/el-salvador-es/autos-usados/[a-z0-9][a-z0-9-]+/[1-9][0-9]{5,11}/?$",
+        "enabled": False,
+    },
+    "finder.porsche.com": {
+        "name": "Porsche Finder", "stage": "candidate_review",
+        "route": r"^/sv/es-sv/details/[a-z0-9][a-z0-9-]+/?$",
+        "enabled": False, "query_mode": "porsche_finder_detail",
+    },
+    "xautomarket.com": {
+        "name": "xAutoMarket", "stage": "candidate_review",
+        "route": r"^/comprar/[a-z0-9]{5,20}/?$", "enabled": False,
+    },
+    "credipro.com.sv": {
+        "name": "Credipro", "stage": "candidate_review",
+        "route": r"^/stock/?$", "enabled": False,
+        "fragment_mode": "vehicle_detail",
+    },
     "nissanelsalvador.com": {
         "name": "Nissan El Salvador", "stage": "route_pending",
         "route": None, "enabled": False,
