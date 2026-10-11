@@ -31,9 +31,10 @@
     "staging_sources_with_one_full_browser_sample": 7,
     "staging_browser_samples_passed": 7,
     "staging_browser_latest_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341",
-    "sources_pending_individual_listing_route": 4,
+    "sources_pending_individual_listing_route": 1,
     "target_sources": 56,
-    "note": "Seven source domains have one passing browser listing sample each; NO domain-wide certification."
+    "note": "Seven source domains have one passing browser listing sample each; NO domain-wide certification.",
+    "other_source_note": "Nissan model catalog lacks listing-level asking price; remain disabled."
   },
   "sample_cases": [
     {
