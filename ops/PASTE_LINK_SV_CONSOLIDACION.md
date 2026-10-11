@@ -87,3 +87,11 @@ El despliegue aislado de Render respondió correctamente en los nueve controles,
 - La página principal devolvió HTTP 200 y mostró el componente de cobertura. No se habilitó ningún dominio nuevo en Carly de producción.
 
 La lista de fuentes se mantiene sujeta al `PASTE_LINK_DISABLED_SOURCES` de staging y a las cinco puertas documentadas. Los siguientes candidatos solo se activarán cuando aporten evidencia propia de extracción segura.
+
+## Julajups · E2E específico validado (2026-10-11 UTC)
+
+- Run: https://github.com/juanhector28/cartrade-resolver/actions/runs/38110874264
+- URL: `https://www.julajups.sv/anuncio/toyota-4-runner-trd-2019-4x4-N3tSneYO52`
+- Resultado: `success=true`, 12/12 checks, HTTP 200, título TOYOTA 4 RUNNER TRD 2019 4X4, precio USD 27,500, año 2019, URL de fotografía y carga real en Chromium. Staging en modo solo lectura, sin persistencia.
+- Kilometraje: prueba comprueba valor numérico o ausente; **no** certifica kilometraje concreto.
+- **No autoriza despliegue comercial**: revisión de condiciones de uso, fotografías, seguridad productiva, monitoreo y rollback pendientes.
