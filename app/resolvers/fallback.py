@@ -198,6 +198,57 @@ def _experimental_listing_detail(html: str, listing: Listing) -> None:
                                confidence="medium")
 
 
+def _autospublicidad_detail(html: str, listing: Listing) -> None:
+    """Use only one AutosPublicidad vehicle's local gallery and explicit miles.
+
+    The listing's 'Kilometraje 67' alone does not tell us the unit. Only a
+    seller note explicitly saying '67 mil millas' justifies a conversion.
+    """
+    from urllib.parse import parse_qs, urljoin, urlparse
+
+    parsed = urlparse(listing.url)
+    host = (parsed.hostname or "").lower().removeprefix("www.")
+    if host != "autospublicidad.com" or parsed.path.rstrip("/") != "/sv/detalles":
+        return
+    query = parse_qs(parsed.query)
+    source_id = (query.get("id") or [None])[0]
+    if not source_id or not re.fullmatch(r"[1-9][0-9]{0,6}", source_id):
+        return
+    soup = BeautifulSoup(html, "html.parser")
+    title = str(listing.title.value if listing.title else "").lower()
+    if not title:
+        return
+    for image in soup.select("img[src]"):
+        raw = str(image.get("src") or "").strip()
+        alt = str(image.get("alt") or "").lower()
+        if not raw or "imagen" not in alt or not (
+            "toyota" in alt and "tacoma" in title
+            or "tacoma" in alt and "tacoma" in title
+        ):
+            continue
+        url = urljoin(listing.url, raw)
+        p = urlparse(url)
+        if p.scheme != "https" or (p.hostname or "").lower().removeprefix("www.") != host:
+            continue
+        if not re.fullmatch(
+            rf"/sv/images/autos/{re.escape(source_id)}/[^/]+\.(?:jpg|jpeg|png|webp)",
+            p.path,
+            re.I,
+        ):
+            continue
+        listing.photos = [url]
+        break
+
+    # Seller note includes an explicit unit: "67 mil millas".
+    text = soup.get_text(" ", strip=True)
+    miles = re.search(r"\b([1-9][0-9]{0,2})\s+mil\s+millas\b", text, re.I)
+    if miles:
+        number_of_miles = int(miles.group(1)) * 1000
+        if number_of_miles <= 500000:
+            listing.km = Field(value=round(number_of_miles * 1.609344),
+                               confidence="medium")
+
+
 def parse_html(url: str, html: str) -> Listing:
     """Parse already-fetched HTML without additional outbound network requests."""
     listing = Listing(platform="unknown", url=url)
@@ -234,4 +285,5 @@ def parse_html(url: str, html: str) -> Listing:
 
     _carroselsalvador_detail(html, listing)
     _experimental_listing_detail(html, listing)
+    _autospublicidad_detail(html, listing)
     return listing
