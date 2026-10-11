@@ -261,6 +261,23 @@ def _carvimax_listing_mileage(html: str, listing: Listing) -> None:
     host = (urlparse(listing.url).hostname or "").lower().removeprefix("www.")
     if host != "carvimax.com" or not listing.title:
         return
+    # The site's /og/vehicle/ endpoint may not serve a renderable photo.
+    # Prefer the current vehicle gallery's real HTTPS CDN image, never related ads.
+    from urllib.parse import urlparse as _parse
+    soup = BeautifulSoup(html, "html.parser")
+    title = str(listing.title.value).strip().lower()
+    make = re.match(r"[a-z]+", title)
+    for img in soup.select("img[src]"):
+        photo = str(img.get("src") or "").strip()
+        alt = str(img.get("alt") or "").strip().lower()
+        parsed = _parse(photo)
+        if (make and alt == make.group(0)
+            and parsed.scheme == "https"
+            and parsed.hostname == "carvimax-prod-aws-bucket.s3.us-west-2.amazonaws.com"
+            and parsed.path.startswith("/web-marketplace/uploads/vehicle-images/")
+            and len(parsed.path.split("/")[-1]) >= 16):
+            listing.photos = [photo]
+            break
     description = _meta(html, "og:description") or ""
     mileage = re.search(r"\b([1-9][0-9,]{0,8})\s*(mi|millas|km)\b", description, re.I)
     if not mileage:
