@@ -78,6 +78,24 @@ async def main():
             # Field-shape inspection only: no full HTML, seller notes or contacts.
             import re
             scripts = soup.select('script[type="application/ld+json"]')
+            receipt["jsonld_tolerant"] = []
+            for script in scripts[:3]:
+                body = script.string or script.get_text() or ""
+                try:
+                    obj = json.loads(body, strict=False)
+                    if isinstance(obj, dict):
+                        offers = obj.get("offers") or {}
+                        receipt["jsonld_tolerant"].append({
+                            "parseable": True, "type": obj.get("@type"),
+                            "keys": list(obj)[:18],
+                            "item_price": obj.get("price"),
+                            "offers": [{
+                                "price": x.get("price"), "currency": x.get("priceCurrency"),
+                                "availability": x.get("availability")
+                            } for x in (offers if isinstance(offers, list) else [offers]) if isinstance(x, dict)],
+                        })
+                except (ValueError, TypeError) as ex:
+                    receipt["jsonld_tolerant"].append({"parseable": False, "error": str(ex)[:100]})
             receipt["jsonld_debug"] = []
             for script in scripts[:3]:
                 body = script.string or script.get_text() or ""
