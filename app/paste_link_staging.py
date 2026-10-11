@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from . import platforms
 from .paste_link_source_registry import SOURCES, public_status, source_for_url
+from .paste_link_readiness import get_readiness
 from .resolvers import fallback
 
 app = FastAPI(title="Carly · Pega el link · Staging", docs_url=None, redoc_url=None)
@@ -80,6 +81,11 @@ def health():
 @app.get("/api/sources")
 def sources():
     return {"sources": public_status(), "storage": False, "environment": "staging"}
+
+@app.get("/api/coverage")
+def coverage():
+    """Static committed QA receipts, not live checks or production clearance."""
+    return get_readiness()
 
 
 @app.post("/api/resolve")
@@ -152,7 +158,7 @@ h1{font-size:clamp(36px,6vw,56px);letter-spacing:-2.5px;line-height:1.08;margin:
 .sub{font-size:17px;color:#737f78;line-height:1.5;max-width:630px}.form{display:flex;gap:10px;background:#fff;padding:8px;border:1px solid #dae1dc;border-radius:16px;margin:30px 0 10px;box-shadow:0 14px 36px #1a3e2c0a}
 input{border:0;outline:0;min-width:0;flex:1;padding:13px;font-size:15px}button{background:#296b50;color:white;font-size:15px;font-weight:650;border:0;border-radius:11px;padding:15px 22px;cursor:pointer}button:disabled{opacity:.55;cursor:wait}
 .note{font-size:13px;color:#849088;line-height:1.5}
-.sources{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}
+.sources{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}.coverage{font-size:13px;color:#315e4b;background:#e8f2ec;border:1px solid #d1e4d7;padding:12px 15px;border-radius:12px;margin:15px 0 10px;line-height:1.5}
 .source-chip{font-size:12px;background:#e8f2eb;border:1px solid #cde2d4;padding:6px 10px;border-radius:99px;color:#34604a}
 .source-chip.experimental{background:#f3f4f3;border-color:#e4e7e3;color:#627168}.source-chip.pending{background:#f8f4eb;border-color:#ece1c9;color:#836338}.status{margin-top:23px;color:#526c5b;font-size:14px;min-height:24px}.error{color:#a13d3d}
 .card{display:none;margin-top:25px;overflow:hidden;background:#fff;border:1px solid #e0e6e2;border-radius:20px;box-shadow:0 20px 50px #192c220d}.image{height:330px;background:#edf4ef;display:flex;justify-content:center;align-items:center;position:relative;color:#76857c}.image img{width:100%;height:100%;object-fit:cover;display:none}.content{padding:28px}.meta{font-size:13px;color:#88978e;text-transform:uppercase;letter-spacing:1.2px}.car{font-size:27px;font-weight:730;letter-spacing:-.8px;margin:9px 0}.price{font-size:37px;letter-spacing:-1.5px;font-weight:760;color:#225f48;margin:11px 0 20px}.details{display:flex;gap:12px;flex-wrap:wrap}.detail{background:#f2f6f3;border-radius:8px;padding:10px 14px;color:#415449;font-size:14px}.source{display:inline-block;margin-top:22px;font-size:14px;color:#296b50}.photo-status{margin-top:10px;font-size:12px;color:#79877e}
@@ -164,7 +170,8 @@ input{border:0;outline:0;min-width:0;flex:1;padding:13px;font-size:15px}button{b
 <p class="sub">Probamos la extracción automática de precio, fotografía y características de anuncios de <strong>sitios participantes en nuestro entorno de pruebas</strong>. Sin guardar vehículos ni modificar la plataforma principal.</p>
 <form class="form" id="form"><input id="url" aria-label="URL del anuncio" type="url" required placeholder="Pega el enlace de un vehículo..." autocomplete="url">
 <button id="send" type="submit">Analizar enlace</button></form>
-<p class="note">Entorno multisitio: cada fuente tiene reglas individuales. Los sitios experimentales todavía pueden fallar. La fotografía se verifica directamente en tu navegador.</p>
+<p class="note">Entorno multisitio: cada fuente tiene reglas individuales. Una muestra exitosa no certifica todos los anuncios ni autoriza reutilizar contenido. La fotografía se verifica directamente en tu navegador.</p>
+<div id="coverage" class="coverage" aria-live="polite">Verificando el registro de pruebas…</div>
 <div id="sources" class="sources" aria-label="Fuentes en pruebas"></div>
 <div id="status" class="status" aria-live="polite"></div>
 <section id="card" class="card"><div class="image"><span id="placeholder">Esperando fotografía…</span><img id="photo" alt="Fotografía del vehículo"></div>
@@ -173,6 +180,13 @@ input{border:0;outline:0;min-width:0;flex:1;padding:13px;font-size:15px}button{b
 <a class="source" id="source" target="_blank" rel="noopener noreferrer">Ver publicación original ↗</a></div></section></div>
 <script>
 const $=id=>document.getElementById(id);
+fetch("/api/coverage").then(r=>r.json()).then(d=>{
+ const count=Number(d.pilot_candidates||0);
+ const samples=Number(d.core_field_samples_verified||0);
+ $("coverage").textContent=count+" fuentes con muestras probadas · "+samples+
+  " fichas con campos básicos verificados · Sin activación en producción";
+}).catch(()=>{$("coverage").textContent="Registro de cobertura temporalmente no disponible";});
+
 fetch("/api/sources").then(r=>r.json()).then(d=>{
  (d.sources||[]).filter(x=>x.enabled).forEach(x=>{
   const chip=document.createElement("span");
