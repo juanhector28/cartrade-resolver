@@ -44,15 +44,15 @@ SOURCES = {
         "route": r"^/[a-z0-9][a-z0-9-]+/[1-9][0-9]{0,6}/?$", "enabled": True,
     },
     "easycar.com.sv": {
-        "name": "EasyCar", "stage": "experimental",
+        "name": "EasyCar", "stage": "javascript_required",
         "route": r"^/car/[1-9][0-9]{0,6}/?$", "enabled": True,
     },
     "eurosportautos.com": {
-        "name": "Eurosport Autos", "stage": "experimental",
+        "name": "Eurosport Autos", "stage": "access_review",
         "route": r"^/vehiculo/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
     },
     "crediq.com": {
-        "name": "CrediQ", "stage": "experimental",
+        "name": "CrediQ", "stage": "access_review",
         "route": r"^/sv/product/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
     },
     "julajups.sv": {
