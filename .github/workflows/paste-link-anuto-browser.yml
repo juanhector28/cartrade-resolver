@@ -1,9 +1,6 @@
 name: Carly Anuto two-vehicle browser acceptance
+# One-time public checks complete. Dispatch manually for intentional revalidation.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_anuto_browser.py"
-      - ".github/workflows/paste-link-anuto-browser.yml"
   workflow_dispatch:
 permissions:
   contents: read
