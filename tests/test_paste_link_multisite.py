@@ -236,3 +236,31 @@ def test_carvimax_gallery_photo_replaces_unrenderable_og_thumbnail():
     listing=parse_html("https://www.carvimax.com/hyundai-tucson/1570",html)
     assert listing.photos==[proper_url]
     assert listing.km.value==74746
+
+def test_caragencia_spanish_localized_listing_route():
+    assert source_for_url("https://caragencia.com/es/car-finder/2020-honda-pilot-2")
+    assert source_for_url("https://caragencia.com/es/car-finder/2019-nissan-frontier-4")
+    assert source_for_url("https://caragencia.com/car-finder/2023-chevrolet-trailblazer")
+    assert not source_for_url("https://caragencia.com/es/car-finder/")
+    assert not source_for_url("https://caragencia.com/fr/car-finder/2020-honda-pilot-2")
+    assert not source_for_url("https://caragencia.com/es/car-finder/2020-honda-pilot-2?redirect=localhost")
+
+def test_wave_four_candidates_are_disabled_until_public_detail_verified():
+    candidates = {
+        "usados.excelautomotriz.com",
+        "encuentra24.com",
+        "finder.porsche.com",
+        "xautomarket.com",
+        "credipro.com.sv",
+    }
+    for hostname in candidates:
+        assert SOURCES[hostname]["enabled"] is False
+        assert SOURCES[hostname]["stage"] == "candidate_review"
+    for url in [
+        "https://usados.excelautomotriz.com/autos-el-salvador/suzuki-dzire-p-79aca/",
+        "https://www.encuentra24.com/el-salvador-es/autos-usados/en-venta-kia-forte-2023/33049654",
+        "https://finder.porsche.com/sv/es-SV/details/porsche-cayenne-coupe-black-edition-nuevo-0OK0QN?condition=new&source=home",
+        "https://xautomarket.com/comprar/JC663762",
+        "https://credipro.com.sv/stock/#vehicle-09209cf893fa62c3",
+    ]:
+        assert source_for_url(url) is None
