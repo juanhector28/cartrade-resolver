@@ -166,17 +166,25 @@ def _experimental_listing_detail(html: str, listing: Listing) -> None:
             price = None
         if price is not None and 500 <= price <= 200000:
             listing.price_usd = Field(value=price, confidence="medium")
-    if host == "carros.com" and not listing.photos:
-        # Only listing-specific gallery images. Never use flags, QR, badges or recommendations.
+    if host == "carros.com":
+        # Prefer the listing's exact gallery over relative/default OG image.
+        # Gallery photos may use protocol-relative or site-relative URLs.
+        from urllib.parse import urljoin, urlparse as _urlparse, urlunparse
         display_name = h1.get_text(" ", strip=True).split("•")[0].strip().lower()
         for img in soup.select("img.gallery-img"):
-            photo = str(img.get("src") or "").strip()
+            raw = str(img.get("src") or "").strip()
             alt = str(img.get("alt") or "").strip().lower()
-            from urllib.parse import urlparse as _urlparse
+            if not raw or not display_name or not alt.startswith(display_name):
+                continue
+            photo = urljoin("https://carros.com/", raw)
             p = _urlparse(photo)
-            if display_name and alt.startswith(display_name) and p.scheme == "https" and (
-                    (p.hostname or "").lower() in {"carros.com", "www.carros.com"}):
-                listing.photos.append(photo)
+            if (p.hostname or "").lower() not in {"carros.com", "www.carros.com"}:
+                continue
+            if p.scheme == "http":
+                photo = urlunparse(p._replace(scheme="https"))
+                p = _urlparse(photo)
+            if p.scheme == "https":
+                listing.photos = [photo]
                 break
     if miles_match:
         try:
