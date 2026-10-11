@@ -2,22 +2,23 @@
 from __future__ import annotations
 from urllib.parse import urlparse
 from .resolvers.base import Platform
+from .paste_link_source_registry import SOURCES, source_for_url
 
 
 def detect(url: str) -> Platform:
     """Detect platform from URL. Returns 'unknown' if no match."""
     try:
-        host = urlparse(url).netloc.lower().lstrip("www.")
+        host = (urlparse(url).hostname or "").lower().removeprefix("www.")
     except Exception:
         return "unknown"
 
-    if "encuentra24.com" in host:
+    if host == "encuentra24.com":
         return "encuentra24"
-    if "olx." in host:
+    if host in {"olx.com.sv", "olx.com.br", "olx.com.mx", "olx.com.ar", "olx.com.pe", "olx.com"}:
         return "olx"
-    if "facebook.com" in host or "fb.com" in host or "m.facebook.com" in host:
+    if host in {"facebook.com", "fb.com", "m.facebook.com"}:
         return "facebook"
-    if "mercadolibre." in host or "mercadolivre." in host:
+    if host in ALLOWED_DOMAINS and ("mercadolibre." in host or "mercadolivre." in host):
         return "mercadolibre"
     return "unknown"
 
@@ -28,7 +29,6 @@ ALLOWED_DOMAINS = (
     # SV domains observed in Atlas inventory; approval to access must still be reviewed.
     "caragencia.com", "carros.com", "motorasv.com", "tucarro.sv",
     "autospublicidad.com", "carroselsalvador.com", "disazautos.com",
-    "nissanelsalvador.com",
     "julajups.sv",
     "olx.com.sv", "olx.com.br", "olx.com.mx", "olx.com.ar", "olx.com.pe", "olx.com",
     "facebook.com", "fb.com", "m.facebook.com",
@@ -42,12 +42,13 @@ ALLOWED_DOMAINS = (
 
 
 def is_readonly_public_pilot(url: str) -> bool:
-    """Do not store/copy third-party listings during a private technical pilot."""
-    parsed = urlparse(url)
-    return (
-        parsed.scheme == "https"
-        and (parsed.hostname or "").lower().removeprefix("www.") in {"carroselsalvador.com", "julajups.sv"}
-    )
+    """All experimental SV registry sources remain read-only in production."""
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower().removeprefix("www.")
+        return parsed.scheme == "https" and host in SOURCES and host != "encuentra24.com"
+    except (ValueError, TypeError):
+        return False
 
 
 def is_listing_url(url: str) -> bool:
@@ -62,10 +63,8 @@ def is_listing_url(url: str) -> bool:
             "disazautos.com": {"/importados"},
             "carroselsalvador.com": {"/anuncios"},
         }
-        if host == "julajups.sv":
-            return path.startswith("/anuncio/") and len(path.split("/")) == 3
-        if host == "carroselsalvador.com":
-            return path.startswith("/anuncios/") and len(path.split("/")) >= 3
+        if host in SOURCES and host != "encuentra24.com":
+            return source_for_url(url) is not None
         return path not in category_routes.get(host, set())
     except Exception:
         return False
@@ -77,7 +76,6 @@ def is_allowed(url: str) -> bool:
         if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port:
             return False
         host = (parsed.hostname or "").lower()
-        return any(host == d or host.endswith("." + d) or host == "www." + d
-                   for d in ALLOWED_DOMAINS)
+        return any(host == d or host == "www." + d for d in ALLOWED_DOMAINS)
     except Exception:
         return False
