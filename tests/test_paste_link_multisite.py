@@ -304,4 +304,4 @@ def test_carros_com_year_must_not_come_from_unrelated_og_description():
       '<meta property="og:description" content="Otros vehículos año 2024">'
     )
     listing=parse_html("https://carros.com/car/d8dc08898a3c4d1c9817268b42007df9-p89539/",html)
-    assert listing.year is None or listing.year.value != 1980
+    assert listing.year is None
