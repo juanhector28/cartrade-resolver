@@ -13,6 +13,7 @@ from .paste_link_source_registry import SOURCES, source_for_url, enabled_now
 ROOT = Path(__file__).resolve().parent.parent
 MATRIX = ROOT / "ops" / "paste_link_sv_qa_3_per_site.json"
 CONTROLS = ROOT / "ops" / "paste_link_sv_release_controls.json"
+NEXT_WAVE = ROOT / "ops" / "paste_link_sv_next_wave.json"
 SUCCESS_STATES = frozenset({"api_passed", "browser_passed"})
 
 
@@ -25,6 +26,7 @@ def get_readiness() -> dict:
     """Return derived, conservative readiness without relying on stale totals."""
     matrix = _read(MATRIX)
     controls = _read(CONTROLS)
+    upcoming = _read(NEXT_WAVE)
     minimum = controls["pilot_requirements"]["min_distinct_listing_samples_per_domain"]
     min_browser = controls["pilot_requirements"]["min_browser_loaded_photo_samples_per_domain"]
     rows = []
@@ -106,6 +108,15 @@ def get_readiness() -> dict:
         "photo_browser_samples": sum(r["photos_loaded_in_browser_samples"] for r in rows),
         "enabled_trial_domains": len(enabled_sources),
         "other_registered_domains": blocked_domains,
+        "next_wave": [
+            {
+                "rank": item["rank"], "source": item["source"],
+                "domain": item["domain"], "state": item["status"],
+                "blocker": item["blocker"], "acceptance": item["next_acceptance"],
+                "production_approved": False,
+            }
+            for item in upcoming["priorities"]
+        ],
         "production_approved_domains": list(controls.get("approved_production_domains", [])),
         "production_deploy_permitted": deployment_permitted,
         "production_release_gates": control_status,
