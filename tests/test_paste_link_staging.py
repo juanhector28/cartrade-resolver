@@ -119,4 +119,12 @@ def test_source_chips_do_not_mark_untested_sites_validated():
     assert sources["easycar.com.sv"]["stage"] == "javascript_required"
     assert sources["eurosportautos.com"]["stage"] == "access_review"
     assert sources["crediq.com"]["stage"] == "access_review"
-    assert 'const verified=x.stage==="browser_verified"' in html
+    assert 'const verified=x.stage==="browser_sample_verified"||x.stage==="browser_verified"' in html
+
+def test_verified_sample_status_is_not_full_domain_certification():
+    with TestClient(staging.app) as client:
+        d={item["domain"]:item for item in client.get("/api/sources").json()["sources"]}
+    assert d["sv.anuto.app"]["stage"]=="browser_sample_verified"
+    assert d["julajups.sv"]["stage"]=="browser_sample_verified"
+    assert d["usados.excelautomotriz.com"]["enabled"] is False
+    assert d["crediq.com"]["stage"]=="access_review"
