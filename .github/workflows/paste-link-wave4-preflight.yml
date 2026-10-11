@@ -1,9 +1,6 @@
 name: Paste Link wave 4 exact sources preflight
+# First bounded source audit complete; subsequent checks by manual dispatch only.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_wave4_preflight.py"
-      - ".github/workflows/paste-link-wave4-preflight.yml"
   workflow_dispatch:
 permissions:
   contents: read
