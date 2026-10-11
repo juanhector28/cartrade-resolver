@@ -18,8 +18,8 @@ SOURCES=[
 AGENT="CarTrade-Link-Diagnostic/0.1"
 def samples(soup, pattern, limit=5):
     vals=[]
-    for text in soup.stripped_strings:
-        if re.search(pattern,str(text),re.I):
+    for text in soup.find_all(string=True):
+        if str(text).strip() and re.search(pattern,str(text),re.I):
             t=str(text)
             vals.append({"text":t[:125],"tag":getattr(text.parent,"name",None),
                          "class":str(text.parent.get("class") or "")[:85]})
