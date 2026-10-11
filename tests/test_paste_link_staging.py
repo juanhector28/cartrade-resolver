@@ -73,3 +73,50 @@ def test_rate_limit(monkeypatch):
         assert staging.rate_check("127.0.0.1", now=1000)
     assert not staging.rate_check("127.0.0.1", now=1000)
     assert staging.rate_check("127.0.0.1", now=1000 + staging.WINDOW + 1)
+
+
+def test_site_specific_missing_price_messages_do_not_mask_extractor_status(monkeypatch):
+    async def yes(url): return True
+    async def no_price(url):
+        return Listing(platform="unknown", url=url, title=Field("Vehículo de prueba 2024", "medium"))
+    monkeypatch.setattr(staging, "robots_allows", yes)
+    monkeypatch.setattr(staging.fallback, "resolve", no_price)
+    staging._limits.clear()
+    examples = [
+        ("https://www.julajups.sv/anuncio/subaru-impreza-rs-2006-awd-pxODLWUM9S", "Julajups"),
+        ("https://easycar.com.sv/car/109", "EasyCar"),
+        ("https://crediq.com/sv/product/chery-tiggo-2-pro-luxury-rojo-2026/", "CrediQ"),
+    ]
+    with TestClient(staging.app) as client:
+        for url, name in examples:
+            res = client.post("/api/resolve", json={"url": url})
+            assert res.status_code == 422
+            assert name in res.json()["detail"]
+            assert "precio" in res.json()["detail"].lower()
+
+
+def test_eurosport_access_denial_is_not_presented_as_a_parser_failure(monkeypatch):
+    async def no(url): return False
+    async def unexpected(url):
+        raise AssertionError("Listing request must not be made when robots check denies access.")
+    monkeypatch.setattr(staging, "robots_allows", no)
+    monkeypatch.setattr(staging.fallback, "resolve", unexpected)
+    staging._limits.clear()
+    with TestClient(staging.app) as client:
+        res = client.post(
+            "/api/resolve",
+            json={"url": "https://www.eurosportautos.com/vehiculo/ford-bronco-sport-badlands-2024-4x4"},
+        )
+    assert res.status_code == 403
+    assert "Eurosport Autos" in res.json()["detail"]
+    assert "restricciones" in res.json()["detail"]
+
+
+def test_source_chips_do_not_mark_untested_sites_validated():
+    with TestClient(staging.app) as client:
+        sources = {x["domain"]: x for x in client.get("/api/sources").json()["sources"]}
+        html = client.get("/").text
+    assert sources["easycar.com.sv"]["stage"] == "javascript_required"
+    assert sources["eurosportautos.com"]["stage"] == "access_review"
+    assert sources["crediq.com"]["stage"] == "access_review"
+    assert 'const verified=x.stage==="browser_verified"' in html
