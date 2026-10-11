@@ -9,10 +9,10 @@ import httpx
 
 BASE="https://cartrade-paste-link-staging.onrender.com"
 CASES=[
-    {"id":"carroselsalvador","url":"https://www.carroselsalvador.com/anuncios/kia-sportage-2006/","price":5700,"year":2006},
-    {"id":"tucarro","url":"https://tucarro.sv/ford-expedition/63f2c0e8","price":16500,"year":2018},
-    {"id":"caragencia","url":"https://caragencia.com/car-finder/2023-chevrolet-trailblazer","price":13900,"year":2023},
-    {"id":"carros.com","url":"https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/","price":9500,"year":2015},
+    {"id":"carroselsalvador","url":"https://www.carroselsalvador.com/anuncios/kia-sportage-2006/","price":5700,"year":2006,"km":160934},
+    {"id":"tucarro","url":"https://tucarro.sv/ford-expedition/63f2c0e8","price":16500,"year":2018,"km":300000},
+    {"id":"caragencia","url":"https://caragencia.com/car-finder/2023-chevrolet-trailblazer","price":13900,"year":2023,"km":65983},
+    {"id":"carros.com","url":"https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/","price":9500,"year":2015,"km":125837},
 ]
 
 async def main():
@@ -36,7 +36,7 @@ async def main():
                     row["source_stage"]=data.get("source_stage")
                     row["verified_fields"]=bool(
                         data.get("title") and data.get("price_usd")==case["price"]
-                        and data.get("year")==case["year"] and data.get("photos")
+                        and data.get("year")==case["year"] and data.get("km")==case["km"] and data.get("photos")
                         and data.get("saved") is False
                     )
                 else:
@@ -52,7 +52,8 @@ async def main():
     assert report["/health"]["status"]==200
     assert report["/api/sources"]["status"]==200
     assert len(report["/api/sources"]["data"]["sources"]) >= 8
-    assert report["results"][0].get("verified_fields"), "previously validated Kia must still work"
+    assert all(row.get("verified_fields") for row in report["results"]), (
+        "One or more experimental source field checks remain incomplete")
 
 if __name__=="__main__":
     asyncio.run(main())
