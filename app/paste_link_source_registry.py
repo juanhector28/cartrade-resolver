@@ -6,6 +6,7 @@ Only exact roots and www hosts. No redirects, arbitrary subdomains, catalogs, or
 whole-site crawling are enabled here.
 """
 from __future__ import annotations
+import os
 import re
 from urllib.parse import urlparse, parse_qsl
 
@@ -99,6 +100,24 @@ SOURCES = {
         "route": None, "enabled": False,
     },
 }
+def enabled_now(domain: str) -> bool:
+    """Runtime kill switch can only DISABLE preapproved stage trial routes.
+
+    Example: PASTE_LINK_DISABLED_SOURCES=carvimax.com,julajups.sv
+    Env is read per request to support immediate operator rollback at restart
+    and never grants new source access.
+    """
+    source = SOURCES.get(domain)
+    if not source or not source["enabled"]:
+        return False
+    disabled = {
+        host.strip().lower() for host in os.getenv(
+            "PASTE_LINK_DISABLED_SOURCES", ""
+        ).split(",") if host.strip()
+    }
+    return domain not in disabled
+
+
 def source_for_url(url: str):
     """Return (canonical host, source definition) only for permitted listing route."""
     if not isinstance(url, str) or len(url) > 2048:
@@ -112,7 +131,7 @@ def source_for_url(url: str):
         host = (p.hostname or "").lower().rstrip(".")
         host = host[4:] if host.startswith("www.") else host
         entry = SOURCES.get(host)
-        if not entry or not entry["enabled"]:
+        if not entry or not enabled_now(host):
             return None
         if not re.fullmatch(entry["route"], p.path.lower()):
             return None
@@ -139,4 +158,4 @@ def source_for_url(url: str):
 
 def public_status():
     return [{"domain": domain, "name": src["name"], "stage": src["stage"],
-             "enabled": src["enabled"]} for domain, src in SOURCES.items()]
+             "enabled": enabled_now(domain)} for domain, src in SOURCES.items()]
