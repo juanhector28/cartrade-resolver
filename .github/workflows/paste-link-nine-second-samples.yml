@@ -1,9 +1,6 @@
 name: Paste Link nine-source second-sample audit
+# First bounded source audit complete; subsequent checks by manual dispatch only.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_nine_second_samples.py"
-      - ".github/workflows/paste-link-nine-second-samples.yml"
   workflow_dispatch:
 permissions:
   contents: read
