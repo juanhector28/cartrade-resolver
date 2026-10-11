@@ -81,7 +81,7 @@ SOURCES = {
     },
     "autosale.com.sv": {
         "name": "Autosale", "stage": "candidate_review",
-        "route": r"^/catalogo\\.php$", "enabled": False,
+        "route": r"^/catalogo\.php$", "enabled": False,
         "fragment_mode": "vehicle_detail",
     },
     "credipro.com.sv": {
