@@ -18,6 +18,9 @@ import asyncio
 import sqlite3
 import logging
 import inspect
+import hmac
+import hashlib
+import json
 import httpx
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -1477,10 +1480,20 @@ async def wa_verify(request: Request):
 @app.post("/whatsapp/webhook")
 async def wa_incoming(request: Request):
     """Incoming WhatsApp messages. Returns 200 immediately and works in background."""
+    secret = os.environ.get("META_APP_SECRET")
+    if not secret:
+        raise HTTPException(status_code=503, detail="Webhook authentication is not configured")
+    raw = await request.body()
+    if len(raw) > 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Webhook payload too large")
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    expected = "sha256=" + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise HTTPException(status_code=403, detail="Invalid webhook signature")
     try:
-        data = await request.json()
-    except Exception:
-        return {"status": "ignored"}
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid webhook JSON")
     try:
         for entry in data.get("entry", []):
             for change in entry.get("changes", []):
