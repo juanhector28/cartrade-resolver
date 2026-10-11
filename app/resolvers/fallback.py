@@ -221,7 +221,7 @@ def _autospublicidad_detail(html: str, listing: Listing) -> None:
     for image in soup.select("img[src]"):
         raw = str(image.get("src") or "").strip()
         alt = str(image.get("alt") or "").lower()
-        alt_match = re.fullmatch(r"imagen\\s*[1-9][0-9]*\\s+del\\s+(.+)", alt, re.I)
+        alt_match = re.fullmatch(r"imagen\s*[1-9][0-9]*\s+del\s+(.+)", alt, re.I)
         if not raw or not alt_match:
             continue
         vehicle_name = re.findall(r"[a-záéíóúñ0-9]+", alt_match.group(1).lower())
