@@ -1,9 +1,6 @@
 name: Excel Usados exact DOM layout inspection
+# One-time source access test completed. Manual revalidation only.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_excel_dom.py"
-      - ".github/workflows/paste-link-excel-dom.yml"
   workflow_dispatch:
 permissions:
   contents: read
