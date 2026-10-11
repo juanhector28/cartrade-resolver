@@ -1,0 +1,33 @@
+name: CarTrade Paste Link frontend E2E (mocked backend)
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/paste_link_live_frontend_e2e.py
+      - .github/workflows/paste-link-live-frontend-e2e.yml
+
+permissions:
+  contents: read
+
+jobs:
+  public-frontend-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Playwright
+        run: |
+          python -m pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - name: Verify frontend paste-link-to-request journey
+        run: python scripts/paste_link_live_frontend_e2e.py
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paste-link-live-frontend-e2e
+          path: /tmp/cartrade-ui-e2e
+          retention-days: 7
