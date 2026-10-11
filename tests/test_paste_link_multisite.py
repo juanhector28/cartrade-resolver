@@ -62,3 +62,30 @@ def test_carros_com_current_listing_section_over_related_cars():
     listing = parse_html("https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/",html)
     assert listing.price_usd.value == 9500
     assert listing.km.value == 125837
+
+def test_carros_com_uses_only_vehicle_gallery_not_header_icons_or_qr():
+    html=(
+      '<meta property="og:title" content="Honda Civic • 2015">'
+      '<img src="/static/flags/gb.svg" alt="United Kingdom">'
+      '<h1>Honda Civic • 2015 • 125837 km</h1>'
+      '<p>Cash</p><p>$ 9,500 USD</p>'
+      '<img class="gallery-img" src="https://carros.com/uploads/a.jpg" '
+      'alt="Honda Civic • 2015 • 125837 km 1">'
+      '<img class="gallery-img" src="https://carros.com/uploads/wrong.jpg" '
+      'alt="Toyota Camry • 2021 1">'
+      '<img src="/qr.png" alt="QR Code">'
+      '<h3>Vehicle Details</h3><div>Mileage 125837 km</div>'
+      '<h3>Description</h3><p>Great Honda Civic</p>'
+    )
+    listing=parse_html("https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/", html)
+    assert listing.photos == ["https://carros.com/uploads/a.jpg"]
+
+def test_caragencia_multiline_odometer_notes():
+    html=(
+      '<meta property="og:title" content="2023 Chevrolet TrailBlazer">'
+      '<h1>2023 Chevrolet TrailBlazer</h1>'
+      '<div>Seller notes</div><p>Modelo LS, excelente estado.\\n41,000 Millas reales</p>'
+      '<div>Listing Price</div><div>USD 13,900</div>'
+    )
+    listing=parse_html("https://caragencia.com/car-finder/2023-chevrolet-trailblazer",html)
+    assert listing.km.value == 65983
