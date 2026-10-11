@@ -36,6 +36,20 @@ Revisar `paste_link_sv_release_controls.json`. Todas las siguientes puertas sigu
 
 La aprobación debe incluir evidencia, propietario responsable y cambio explícito. Un CI verde **no** concede automáticamente autorización de lanzamiento.
 
+### Kill switch operativo del staging
+
+El registro permite desactivar un dominio sin alterar los demás. En el servicio de staging de Render configurar, por ejemplo:
+
+```text
+PASTE_LINK_DISABLED_SOURCES=carvimax.com,julajups.sv
+```
+
+Tras aplicar/reiniciar la configuración del servicio, el host seleccionado deja de estar autorizado por `source_for_url`; `/health`, `/api/sources` y `/api/coverage` reflejan la reducción. Este parámetro **solo deshabilita**; jamás puede habilitar un dominio que no esté aprobado en código. Para restaurarlo, quitar el dominio de la variable y verificar las rutas y la salud del servicio. Este mecanismo existe en staging, no constituye una integración ni un rollback ya probado en Carly producción.
+
+### Registro de evidencia y observabilidad
+
+`GET /api/coverage` devuelve la matriz consolidada a nivel de dominio, con el número de pruebas API y fotografías observadas en navegador, los errores de evidencias, los dominios pendientes y las cinco puertas de producción. La respuesta se computa al leer los archivos versionados: **no monitoriza en vivo las páginas ajenas**. Las pruebas que consultan fuentes externas permanecen manuales y sujetas a acceso permitido.
+
 ## 4. Próximas integraciones
 
 [Cola de 9 oportunidades con evidencia y definición de terminado](paste_link_sv_next_wave.json).
@@ -51,6 +65,9 @@ La aprobación debe incluir evidencia, propietario responsable y cambio explíci
 | P7 | Porsche Finder | Preflight 429 | Revisar acceso antes de nuevas consultas |
 | P8 | xAutoMarket | No publica precio verificable | No aceptar precio supuesto |
 | P9 | BAC catálogo | `#vehicle` y contenido potencialmente condicionado | Asociación unívoca + permiso |
+
+
+**Resultados del primer diagnóstico de la siguiente ola:** [Github Actions](https://github.com/juanhector28/cartrade-resolver/actions/runs/38105415995). Autosale devolvió HTML HTTP 200, pero el fragmento `#vehicle-145` no apareció en el DOM, ni como enlace exacto ni como texto. Credipro devolvió HTTP 202 a `robots.txt`; no se consultó el catálogo. Ambos casos siguen bloqueados para evitar asociar a un vehículo el precio de otro.
 
 ## 5. Cómo avanzar sin romper Carly
 
