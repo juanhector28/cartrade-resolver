@@ -1,0 +1,28 @@
+name: Paste Link nine-source second-sample audit
+on:
+  pull_request:
+    paths:
+      - "scripts/paste_link_nine_second_samples.py"
+      - ".github/workflows/paste-link-nine-second-samples.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  nine-known-urls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 11
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx==0.27.2
+      - run: python scripts/paste_link_nine_second_samples.py
+      - name: Keep field-level audit receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paste-link-nine-second-samples
+          path: /tmp/paste-link-nine-samples.json
+          retention-days: 7
+          if-no-files-found: warn
