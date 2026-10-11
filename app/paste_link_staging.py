@@ -74,7 +74,7 @@ async def robots_allows(url: str) -> bool:
 @app.get("/health")
 def health():
     return {"ok": True, "environment": "staging", "source": SOURCE_HOST,
-            "sources_enabled": sum(x["enabled"] for x in SOURCES.values()),
+            "sources_enabled": sum(x["enabled"] for x in public_status()),
             "storage": False, "production": False}
 
 
