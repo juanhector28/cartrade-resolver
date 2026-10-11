@@ -1241,6 +1241,12 @@ async def resolve_link(body: ResolveRequest, request: Request):
     if not allowed:
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
 
+    # Safe opt-out for individual source domains without reverting the entire resolver.
+    disabled_sources = {host.strip().lower() for host in os.getenv("PASTE_LINK_DISABLED_SOURCES", "").split(",") if host.strip()}
+    request_host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+    if request_host in disabled_sources:
+        raise HTTPException(status_code=503, detail="Esta fuente está temporalmente deshabilitada. Intenta más tarde.")
+
     if not platforms.is_allowed(url):
         raise HTTPException(status_code=400, detail="URL is not from a supported listing platform.")
     if not platforms.is_listing_url(url):
