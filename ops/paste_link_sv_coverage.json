@@ -21,23 +21,27 @@
     "domains_fully_certified_for_release": 0,
     "field_recovery_on_passed_pilot": "5/5 per listing (title, price, year, km, photo URL); images not GET-verified",
     "last_pilot_workflow": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38095284698",
-    "staging_e2e_verified_domains": 7,
+    "staging_e2e_verified_domains": 9,
     "staging_browser_cases_passed": 1,
     "staging_browser_checks_passed": 35,
     "production_accepted_new_domains": 0,
     "staging_live_url": "https://cartrade-paste-link-staging.onrender.com",
     "staging_e2e_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38096244781",
     "staging_sources_enabled_for_individual_link_trials": 12,
-    "staging_sources_with_one_full_browser_sample": 7,
-    "staging_browser_samples_passed": 7,
+    "staging_sources_with_one_full_browser_sample": 9,
+    "staging_browser_samples_passed": 9,
     "staging_browser_latest_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341",
     "sources_pending_individual_listing_route": 1,
     "target_sources": 56,
-    "note": "Seven source domains have one passing browser listing sample each; NO domain-wide certification.",
+    "note": "9 distinct sites with >=1 browser example: 7 previous + Carvimax + Julajups. Julajups sample has NO published odometer; missing field displayed honestly. 12 staging-allowed domains, not 12 E2E-certified.",
     "other_source_note": "Nissan model catalog lacks listing-level asking price; remain disabled.",
     "wave3_sources_with_200_and_price_and_photo_url": 2,
     "wave3_sources_requiring_dynamic_api_or_browser": 2,
-    "wave3_sources_access_unverified": 1
+    "wave3_sources_access_unverified": 1,
+    "wave3_sources_browser_sample_passed": 2,
+    "wave3_browser_checks_passed": 12,
+    "wave3_browser_latest_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38099065124",
+    "wave3_sites_needing_dynamic_or_restricted_access": 3
   },
   "sample_cases": [
     {
@@ -279,12 +283,15 @@
       "atlas_last_check": "2026-10-10T17:05:33.855604+00:00",
       "atlas_production_verified": false,
       "paste_link_endpoint_verified": false,
-      "paste_link_price_verified": false,
-      "paste_link_photo_verified": false,
-      "paste_link_year_verified": false,
-      "paste_link_mileage_verified": false,
+      "paste_link_price_verified": true,
+      "paste_link_photo_verified": true,
+      "paste_link_year_verified": true,
+      "paste_link_mileage_verified": true,
       "access_permission_review": "pending",
-      "last_paste_link_test": null
+      "last_paste_link_test": "2026-10-11T00:41:04Z",
+      "paste_link_staging_browser_sample_verified": true,
+      "paste_link_staging_sample_count": 1,
+      "paste_link_staging_sample_evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38099065124"
     },
     {
       "source_id": "sv-carrocarros",
@@ -336,12 +343,15 @@
       "atlas_last_check": "2026-10-10T17:03:24.707836+00:00",
       "atlas_production_verified": false,
       "paste_link_endpoint_verified": false,
-      "paste_link_price_verified": false,
-      "paste_link_photo_verified": false,
-      "paste_link_year_verified": false,
+      "paste_link_price_verified": true,
+      "paste_link_photo_verified": true,
+      "paste_link_year_verified": true,
       "paste_link_mileage_verified": false,
       "access_permission_review": "pending",
-      "last_paste_link_test": null
+      "last_paste_link_test": "2026-10-11T00:41:04Z",
+      "paste_link_staging_browser_sample_verified": true,
+      "paste_link_staging_sample_count": 1,
+      "paste_link_staging_sample_evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38099065124"
     },
     {
       "source_id": "sv-excel-usados",
@@ -1368,7 +1378,7 @@
     "source_audit": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098814018",
     "dom_audit": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38098907497",
     "staging_enabled": 12,
-    "summary": "Carvimax and Julajups listing-local price, year and photo URL found; Carvimax mileage corrected using 46,445 mi in og:description. EasyCar/Eurosport client-rendered pages; CrediQ robots returned 403 in diagnostic. No domain-wide certification.",
+    "summary": "Carvimax and Julajups passed actual Chromium listing UI including photos; Carvimax odometer 46,445 mi -> 74,746 km; Julajups odometer not published and displayed as unavailable. EasyCar & Eurosport require client-side data/API; CrediQ access review pending.",
     "candidates": [
       {
         "site": "carvimax.com",
@@ -1376,8 +1386,9 @@
         "price_usd": 19700,
         "mileage_normalized_km": 74746,
         "photo_url_observed": true,
-        "visual_photo_pending": true,
-        "certification": "pending_browser"
+        "visual_photo_pending": false,
+        "certification": "one_browser_listing_sample_passed",
+        "photo_rendered_in_browser": true
       },
       {
         "site": "julajups.sv",
@@ -1385,8 +1396,9 @@
         "price_usd": 4000,
         "mileage_normalized_km": null,
         "photo_url_observed": true,
-        "visual_photo_pending": true,
-        "certification": "pending_browser_mileage_unknown"
+        "visual_photo_pending": false,
+        "certification": "one_browser_listing_sample_passed_missing_odometer",
+        "photo_rendered_in_browser": true
       },
       {
         "site": "easycar.com.sv",
@@ -1405,6 +1417,10 @@
       }
     ],
     "read_only": true,
-    "production_untouched": true
+    "production_untouched": true,
+    "browser_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38099065124",
+    "browser_run_artifact": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38099065124/artifacts/11686668102",
+    "browser_samples_passed": 2,
+    "browser_checks_including_kia_regression": 12
   }
 }
