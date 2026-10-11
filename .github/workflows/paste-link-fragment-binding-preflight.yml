@@ -1,9 +1,6 @@
 name: Carly next-wave fragment binding preflight
+# Initial bounded source preflight completed; further attempts require manual dispatch.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_fragment_binding_preflight.py"
-      - ".github/workflows/paste-link-fragment-binding-preflight.yml"
   workflow_dispatch:
 permissions:
   contents: read
