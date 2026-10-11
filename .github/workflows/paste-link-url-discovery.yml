@@ -1,9 +1,6 @@
 name: Carly QA exact URL discovery, four sources
+# One-time source access test completed. Manual revalidation only.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_test_url_discovery.py"
-      - ".github/workflows/paste-link-url-discovery.yml"
   workflow_dispatch:
 permissions:
   contents: read
