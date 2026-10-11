@@ -19,10 +19,10 @@ def document(vehicle,price,year,km,photo="2026/09/IMG_6050-scaled.jpg"):
       '<div>Anuncios relacionados $ 95,000 2024 15 km</div>'
     )
 
-def test_excel_route_candidate_must_remain_disabled_until_live_validation():
-    assert not SOURCES["usados.excelautomotriz.com"]["enabled"]
-    assert source_for_url(DZIRE) is None
-    assert source_for_url(FUSO) is None
+def test_excel_listing_route_enabled_only_in_staging_registry():
+    assert SOURCES["usados.excelautomotriz.com"]["enabled"]
+    assert source_for_url(DZIRE)
+    assert source_for_url(FUSO)
 
 def test_excel_dzire_exact_labelled_price_year_km_and_gallery():
     listing=parse_html(DZIRE,document("SUZUKI DZIRE P 79ACA","13,000",2025,"48109"))
