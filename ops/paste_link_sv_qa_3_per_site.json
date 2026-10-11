@@ -25,7 +25,8 @@
           "url": "https://www.carroselsalvador.com/anuncios/subaru-justy-1995-sedanes-la-libertad-3465/",
           "atlas_reference_price": 2500,
           "expected_year": 1995,
-          "status": "pending"
+          "status": "api_passed",
+          "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032"
         }
       ]
     },
@@ -48,7 +49,8 @@
           "url": "https://tucarro.sv/hyundai-venue/090bc1ab",
           "atlas_reference_price": 11000,
           "expected_year": 2022,
-          "status": "pending"
+          "status": "api_passed",
+          "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032"
         }
       ]
     },
@@ -71,7 +73,8 @@
           "url": "https://caragencia.com/es/car-finder/2019-nissan-frontier-4",
           "atlas_reference_price": 14000,
           "expected_year": 2019,
-          "status": "pending"
+          "status": "api_passed",
+          "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032"
         }
       ]
     },
@@ -94,7 +97,8 @@
           "url": "https://carros.com/car/d8dc08898a3c4d1c9817268b42007df9-p89539/",
           "atlas_reference_price": 6000,
           "expected_year": 1980,
-          "status": "pending"
+          "status": "api_partial_year_fixed_pending_retest",
+          "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032"
         }
       ]
     },
@@ -117,7 +121,8 @@
           "url": "https://motorasv.com/cars/5569f7e4-6a99-4271-a1b9-84b32bc8ed43",
           "atlas_reference_price": 39500,
           "expected_year": 2026,
-          "status": "pending"
+          "status": "api_passed",
+          "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032"
         }
       ]
     },
@@ -140,7 +145,8 @@
           "url": "https://www.autospublicidad.com/sv/detalles?auto=toyota-corolla&id=35",
           "atlas_reference_price": 3550,
           "expected_year": 2000,
-          "status": "pending"
+          "status": "api_passed",
+          "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032"
         }
       ]
     },
@@ -163,7 +169,8 @@
           "url": "https://www.disazautos.com/product-page/mitsubishi-outlander-se-2024",
           "atlas_reference_price": 15800,
           "expected_year": 2024,
-          "status": "pending"
+          "status": "api_passed",
+          "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032"
         }
       ]
     },
@@ -186,7 +193,8 @@
           "url": "https://www.carvimax.com/hyundai-elantra/1398",
           "atlas_reference_price": 10900,
           "expected_year": 2022,
-          "status": "pending"
+          "status": "api_passed",
+          "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032"
         }
       ]
     },
@@ -232,7 +240,8 @@
           "url": "https://sv.anuto.app/ad/nissan-versa-2022-full-extras-todas-sus-bolsas-buenas-pocas-millas-b4z2iMBuAAD8UtrrUT2M",
           "atlas_reference_price": 9500,
           "expected_year": 2022,
-          "status": "pending"
+          "status": "api_passed",
+          "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032"
         }
       ]
     },
@@ -249,15 +258,20 @@
           "url": "https://usados.excelautomotriz.com/autos-el-salvador/fuso-fi-2025-26-15-unidades/",
           "atlas_reference_price": 34500,
           "expected_year": 2026,
-          "status": "pending"
+          "status": "api_passed",
+          "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104168032"
         },
         {
-          "url": "https://usados.excelautomotriz.com/autos-el-salvador/kia-sorento-lx-p-95-999/",
-          "atlas_reference_price": 20500,
-          "expected_year": 2018,
-          "status": "pending"
+          "url": "https://usados.excelautomotriz.com/autos-el-salvador/kia-sportage-p-874162/",
+          "atlas_reference_price": 20900,
+          "expected_year": 2019,
+          "status": "source_parser_passed",
+          "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38104298773",
+          "note": "Direct robots-allowed source fetch: 200, price/year/km/photo URL. Staging API/browser still pending."
         }
       ]
     }
-  ]
+  ],
+  "updated_at": "2026-10-11T02:12:00Z",
+  "note": "11x3=33 real observed URLs. Mustang 1980 requires fresh staging rerun after parser fix; Excel Kia Sportage independently passed direct source extraction but not yet staged."
 }
