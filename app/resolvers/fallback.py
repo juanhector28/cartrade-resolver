@@ -352,6 +352,12 @@ def _excel_usados_listing_detail(html: str, listing: Listing) -> None:
         r"/autos-el-salvador/[a-z0-9][a-z0-9-]+/?", parsed.path, re.I
     ):
         return
+    # Reject generic/related-ad metadata when the individual vehicle price is absent.
+    listing.title = None
+    listing.price_usd = None
+    listing.year = None
+    listing.km = None
+    listing.photos = []
     soup = BeautifulSoup(html, "html.parser")
     headings = soup.select("h1")
     if len(headings) != 1:
