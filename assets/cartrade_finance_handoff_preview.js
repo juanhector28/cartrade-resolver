@@ -5,6 +5,27 @@
   'use strict';
   if (window.CT_FINANCE_PREVIEW_INSTALLED) return;
   window.CT_FINANCE_PREVIEW_INSTALLED = true;
+  // Observe only the user's successful read-only resolver response.
+  var originalFetch = window.fetch;
+  window.fetch = function (resource, options) {
+    var requestUrl = typeof resource === 'string' ? resource : (resource && resource.url || '');
+    var captures = requestUrl.indexOf('/resolve-link') !== -1 && options &&
+      String(options.method || 'GET').toUpperCase() === 'POST';
+    var sourceUrl = '';
+    if (captures) {
+      try { sourceUrl = JSON.parse(options.body || '{}').url || ''; } catch (e) {}
+    }
+    return originalFetch.apply(this, arguments).then(function (response) {
+      if (captures && response.ok && sourceUrl) {
+        response.clone().json().then(function (data) {
+          if (data && data.title && data.price_usd) {
+            window.CT_FINANCE_RESOLVED = Object.assign({_source_url: sourceUrl}, data);
+          }
+        }).catch(function () {});
+      }
+      return response;
+    });
+  };
 
   function node(tag, text, cls) {
     var el = document.createElement(tag);
@@ -13,16 +34,21 @@
     return el;
   }
   function getContext() {
-    var state = window.ST || {};
-    var listing = state.listing || {};
-    var url = String(window.CT_LAST_URL || state.url || '').trim();
+    var data = window.CT_FINANCE_RESOLVED || {};
+    function value(field) {
+      var entry = data[field];
+      return entry && typeof entry === 'object' && 'value' in entry ? entry.value : entry;
+    }
+    var url = String(window.CT_LAST_URL || '').trim();
+    if (!url || url !== data._source_url) return null;
     var parsed;
     try { parsed = new URL(url); } catch (e) { return null; }
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return null;
-    var title = String(listing.name || '').trim().slice(0, 200);
-    var price = Number(String(listing.price || '').replace(/[^0-9]/g, ''));
-    var yearMatch = title.match(/\b(?:19|20)\d{2}\b/);
-    var year = yearMatch ? Number(yearMatch[0]) : null;
+    var title = String(value('title') || '').trim().slice(0, 200);
+    var price = Number(value('price_usd'));
+    var yearValue = value('year');
+    var year = yearValue == null ? null : Number(yearValue);
+    if (year != null && (!Number.isInteger(year) || year < 1950 || year > 2035)) return null;
     if (!title || !Number.isInteger(price) || price < 500 || price > 200000) return null;
     return {
       schema_version: 1, source_url: parsed.href, title: title,
@@ -94,7 +120,7 @@
     check.focus();
   }
   function insertEntry() {
-    if (!window.ST || window.ST.cur !== 'req2') return;
+    if (document.body.getAttribute('data-ct-screen') !== 'req2') return;
     var stage = document.getElementById('ct-stage');
     if (!stage || stage.querySelector('#ct-finance-start')) return;
     var demo = stage.querySelector('[data-go="req3"]');
