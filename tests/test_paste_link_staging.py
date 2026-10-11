@@ -53,6 +53,7 @@ def test_valid_pilot_response_never_persisted(monkeypatch):
     assert data["photos"] == ["https://example.com/kia.jpg"]
     assert data["saved"] is False and data["pilot_readonly"] is True
     assert data["photo_url_verified"] is False
+    assert "no-store" in r.headers["cache-control"]
 
 
 def test_mismatched_or_missing_price_does_not_look_successful(monkeypatch):
