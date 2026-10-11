@@ -1,9 +1,6 @@
 name: Carly classic Mustang and Excel Sportage final stage proof
+# Initial two-case smoke tested; explicit manual dispatch only thereafter.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_final_two_audit.py"
-      - ".github/workflows/paste-link-final-two-audit.yml"
   workflow_dispatch:
 permissions:
   contents: read
