@@ -1,9 +1,5 @@
 name: Carly four-source browser verification
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_multisite_browser.py"
-      - ".github/workflows/paste-link-multisite-browser.yml"
   workflow_dispatch:
 permissions:
   contents: read
