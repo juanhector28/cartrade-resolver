@@ -444,6 +444,16 @@ def parse_html(url: str, html: str) -> Listing:
     )
     if structured_price is not None:
         listing.price_usd = Field(value=structured_price, confidence="high")
+    # Carros.com supports classic vehicles pre-1990. The current listing's
+    # OG title has a model • year • mileage structure even if no H1 is rendered.
+    # Do not relax the generic year rules or search related vehicle content.
+    if source_host == "carros.com" and og_title:
+        classic_year = re.match(
+            r"^[^•·\n]{3,95}\s*[•·]\s*((?:19|20)\d{2})\s*[•·]",
+            og_title,
+        )
+        if classic_year and 1950 <= int(classic_year.group(1)) <= 2035:
+            listing.year = Field(value=int(classic_year.group(1)), confidence="high")
     pr = parsers.extract_price_usd(og_title) if structured_price is None else None
     if pr:
         listing.price_usd = Field(value=pr[0], confidence="low")
