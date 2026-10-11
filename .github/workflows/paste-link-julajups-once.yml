@@ -1,0 +1,33 @@
+name: One-time Julajups staged HTTP and browser validation
+on:
+  push:
+    branches:
+      - feat/paste-link-sv-observed-domains-20261010
+    paths:
+      - .github/workflows/paste-link-julajups-once.yml
+permissions:
+  contents: read
+jobs:
+  julajups-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser dependencies
+        run: |
+          python -m pip install playwright==1.48.0 httpx==0.27.2
+          python -m playwright install --with-deps chromium
+      - name: Verify Toyota 4Runner via staging HTTP and browser
+        env:
+          TEST_LISTING_URL: https://www.julajups.sv/anuncio/toyota-4-runner-trd-2019-4x4-N3tSneYO52
+        run: python scripts/paste_link_staging_e2e.py
+      - name: Upload receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: julajups-one-time-e2e
+          path: /tmp/carly-staging-browser
+          if-no-files-found: warn
