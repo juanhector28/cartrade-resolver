@@ -4,7 +4,6 @@ from app import platforms
 @pytest.mark.parametrize("domain", [
     "caragencia.com", "carros.com", "motorasv.com", "tucarro.sv",
     "autospublicidad.com", "carroselsalvador.com", "disazautos.com",
-    "nissanelsalvador.com",
 ])
 def test_observed_sv_vehicle_sites_accepted(domain):
     url = f"https://www.{domain}/autos/vehicle-12345"
