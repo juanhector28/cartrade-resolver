@@ -22,26 +22,28 @@
       "domain": "credipro.com.sv",
       "source": "Credipro",
       "atlas_valid_field_count": 18,
-      "status": "fragment_id_needs_binding",
+      "status": "robots_not_confirmed_fragment_unmapped",
       "sample_url": "https://credipro.com.sv/stock/#vehicle-09209cf893fa62c3",
       "evidence": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38101550715",
-      "blocker": "HTML catalog lists several cars and prices, but #vehicle id is not proven to map uniquely to a specific vehicle block.",
-      "next_acceptance": "Find a deterministic permitted ID->vehicle mapping and validate identity, asking price, year and image on three hash IDs.",
+      "blocker": "Exact robots check returned HTTP 202, so no catalogue HTML was fetched on this diagnostic; earlier inspection also did not establish a unique fragment-to-price binding.",
+      "next_acceptance": "First confirm permission to fetch the page, then show an exact #vehicle ID maps unambiguously to the vehicle and its asking price for three samples.",
       "staging_enabled": false,
-      "production_approved": false
+      "production_approved": false,
+      "latest_audit": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38105415995"
     },
     {
       "rank": 3,
       "domain": "autosale.com.sv",
       "source": "Autosale",
       "atlas_valid_field_count": 13,
-      "status": "fragment_vehicle_link",
+      "status": "catalogue_fragment_missing_in_static_dom",
       "sample_url": "https://autosale.com.sv/catalogo.php#vehicle-145",
       "evidence": "https://github.com/juanhector28/cartrade-atlas",
-      "blocker": "Listing link is a catalog fragment, not proven to resolve to a unique priced listing without JS.",
-      "next_acceptance": "Confirm fragment anchors and one-to-one price/vehicle matching for three ads, then review rights and allowlist.",
+      "blocker": "Public catalog HTTP 200 and robots 404, but the literal #vehicle-145 identifier is absent from static HTML (0 matching DOM id, anchor or token); no current price may be attributed to this URL safely.",
+      "next_acceptance": "Investigate a published vehicle-detail URL or permitted client-side mapping, then verify three exact ID-bound offers; no nearest-price heuristics.",
       "staging_enabled": false,
-      "production_approved": false
+      "production_approved": false,
+      "latest_audit": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38105415995"
     },
     {
       "rank": 4,
@@ -121,5 +123,6 @@
       "staging_enabled": false,
       "production_approved": false
     }
-  ]
+  ],
+  "last_update": "2026-10-11T02:31:00Z"
 }
