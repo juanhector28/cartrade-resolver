@@ -62,7 +62,7 @@ SOURCES = {
     # Wave 4 candidate routes from Atlas SV individual listing receipts.
     # Disabled until the site-local robots/metadata preflight has passed.
     "usados.excelautomotriz.com": {
-        "name": "Excel Usados", "stage": "experimental",
+        "name": "Excel Usados", "stage": "browser_sample_verified",
         "route": r"^/autos-el-salvador/[a-z0-9][a-z0-9-]+/?$", "enabled": True,
     },
     "encuentra24.com": {
