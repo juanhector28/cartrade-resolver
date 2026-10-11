@@ -43,7 +43,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) if SUPABASE_UR
 
 # Auto-save every NEW valid link consulted via /resolve-link (dedup by URL is automatic).
 # Set AUTO_SAVE_LINKS=0 to disable and revert to explicit save-only behavior.
-AUTO_SAVE_LINKS = os.environ.get("AUTO_SAVE_LINKS", "1") != "0"
+AUTO_SAVE_LINKS = False  # Public link resolution is read-only; use a separate authenticated publishing workflow.
 
 COUNTRY_SEARCH_URLS = {
     "sv": "https://www.encuentra24.com/el-salvador-es/autos-usados",
@@ -1337,7 +1337,7 @@ async def resolve_link(body: ResolveRequest, request: Request):
 
     # --- SAVE into inventory: by default for any NEW valid car (AUTO_SAVE_LINKS),
     # or when explicitly requested (body.save). Bad links are REJECTED, not saved.
-    want_save = (bool(body.save) or AUTO_SAVE_LINKS) and not (platform == "encuentra24" and payload.get("in_inventory") is True) and not pilot_readonly
+    want_save = False  # A public request, including save=true, is never a publishing authorization.
     if want_save:
         valid, reason = _is_valid_car_listing(payload, url=url, platform=platform)
         if not supabase:
@@ -1397,7 +1397,7 @@ async def _wa_send(to: str, body: str) -> None:
 
 async def _ingest_link(url: str, country: Optional[str] = None) -> dict:
     """Resolve a pasted link and save it to inventory. Returns a small summary."""
-    if not platforms.is_allowed(url):
+    if not platforms.is_allowed(url) or not platforms.is_listing_url(url):
         return {"ok": False, "saved": False}
     platform = platforms.detect(url)
     try:
@@ -1418,14 +1418,7 @@ async def _ingest_link(url: str, country: Optional[str] = None) -> dict:
     payload = listing.to_dict()
     has_essentials = listing.title is not None or len(listing.photos) > 0
     saved = False
-    if has_essentials and supabase:
-        try:
-            c = (country or _infer_country(url) or "").lower().strip() or None
-            record = _build_db_record(payload, source=platform, country=c, url=url)
-            supabase.table("scraped_listings").upsert(record, on_conflict="url").execute()
-            saved = True
-        except Exception:
-            log.exception("WA ingest save error url=%s", url)
+    # WhatsApp messages are untrusted buyer inputs; no inventory writes.
     return {"ok": has_essentials, "saved": saved, "payload": payload}
 
 
@@ -1435,7 +1428,7 @@ async def _handle_wa_text(sender: str, text: str) -> None:
         return
     m = _URL_RE.search(text)
 
-    # Seller sent a car (link) -> save it
+    # A pasted link is a read-only diagnostic, not authorization to publish it
     if m:
         url = m.group(0).rstrip(").,;")
         res = await _ingest_link(url)
