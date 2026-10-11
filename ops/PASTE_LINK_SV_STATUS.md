@@ -66,3 +66,22 @@ GitHub Actions ran an HTTP health check, an actual `POST /api/resolve`, and a he
 Confirmed individual staging E2E: KIA Sportage 2006, USD 5,700, 160,934 km.
 
 **Important distinction:** Three source listing URLs passed the parser-level live checks; only the Kia has a full staging browser E2E. The other 55 sources and any commercial redisplay rights are not certified. The existing production Carly /resolve-link and frontend remain unchanged. Stage is an isolated scoped preview, not the full production Carly frontend.
+
+## Staging multisitio: first four-browser pilot (10 Oct 2026 local / 11 Oct UTC)
+
+**Public staging:** https://cartrade-paste-link-staging.onrender.com
+
+**Evidence:** https://github.com/juanhector28/cartrade-resolver/actions/runs/38097370645
+
+Four different individual listing URLs passed full Chromium browser validation, with all five client-facing checks passed on each URL:
+
+| Domain | Vehicle | Asking price | Model year | Mileage (normalized) | Photo visually loaded |
+|---|---|---:|---:|---:|---|
+| carroselsalvador.com | Kia Sportage | USD 5,700 | 2006 | 160,934 km | Yes |
+| tucarro.sv | Ford Expedition | USD 16,500 | 2018 | 300,000 km | Yes |
+| caragencia.com | Chevrolet TrailBlazer | USD 13,900 | 2023 | 65,983 km | Yes |
+| carros.com | Honda Civic | USD 9,500 | 2015 | 125,837 km | Yes |
+
+The staging source registry has 8 observed sites: 4 enabled for a single URL supplied by the tester and 4 awaiting confirmation of a distinct listing URL shape. These are **one-sample-per-domain E2E checks**, not a claim that an entire domain is covered or ready for production. The full target universe remains 56 Atlas source entries (not all independent vehicle domains). Three additional Carros El Salvador individual listings had already passed the parser-level real-page audit.
+
+The staging environment does not access or write Supabase and has no persistent inventory/cache, and no production deployment has occurred. It respects robots directives and uses bounded URL routes and per-IP throttling. Live audit workflows are manual after the initial receipt to avoid repeated third-party requests. Image display and content reuse permissions must be reviewed before commercial rollout.
