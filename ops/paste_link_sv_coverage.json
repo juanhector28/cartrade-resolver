@@ -26,7 +26,13 @@
     "staging_browser_checks_passed": 12,
     "production_accepted_new_domains": 0,
     "staging_live_url": "https://cartrade-paste-link-staging.onrender.com",
-    "staging_e2e_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38096244781"
+    "staging_e2e_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38096244781",
+    "staging_sources_enabled_for_individual_link_trials": 4,
+    "staging_sources_with_one_full_browser_sample": 4,
+    "staging_browser_samples_passed": 4,
+    "staging_browser_latest_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38097370645",
+    "sources_pending_individual_listing_route": 4,
+    "target_sources": 56
   },
   "sample_cases": [
     {
@@ -1199,5 +1205,52 @@
     "all_checks_passed": 12,
     "checks_total": 12,
     "limitations": "Only Kia passed full browser E2E; two other vehicle pages passed extractor-level checks. No production rollout; other domains unverified."
+  },
+  "multisite_browser_pilot": {
+    "staging_url": "https://cartrade-paste-link-staging.onrender.com",
+    "source_status": "Four separate source-specific vehicle examples passed browser-level tests; not domain-wide certification",
+    "executed_at": "2026-10-11T00:08:36Z",
+    "test_run": "https://github.com/juanhector28/cartrade-resolver/actions/runs/38097370645",
+    "count": 4,
+    "passed": 4,
+    "checks": [
+      "correct price",
+      "title visible",
+      "year visible",
+      "mileage visible",
+      "vehicle photo actually rendered"
+    ],
+    "cases": [
+      {
+        "source": "carroselsalvador.com",
+        "price_usd": 5700,
+        "year": 2006,
+        "km": 160934,
+        "photo_rendered": true
+      },
+      {
+        "source": "tucarro.sv",
+        "price_usd": 16500,
+        "year": 2018,
+        "km": 300000,
+        "photo_rendered": true
+      },
+      {
+        "source": "caragencia.com",
+        "price_usd": 13900,
+        "year": 2023,
+        "km": 65983,
+        "photo_rendered": true
+      },
+      {
+        "source": "carros.com",
+        "price_usd": 9500,
+        "year": 2015,
+        "km": 125837,
+        "photo_rendered": true
+      }
+    ],
+    "persistence": "none",
+    "warnings": "Only one sample per new source, no permission to commercially reuse content established. Rendering proves photo loads in test browser, not indefinite third-party image uptime."
   }
 }
