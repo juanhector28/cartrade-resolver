@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -89,7 +89,9 @@ def coverage():
 
 
 @app.post("/api/resolve")
-async def resolve(body: ResolveBody, request: Request):
+async def resolve(body: ResolveBody, request: Request, response: Response):
+    # Asking prices are source observations and must never be cached by clients.
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     url = body.url.strip()
     source = source_for_url(url)
     if not source:
