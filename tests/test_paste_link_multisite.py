@@ -7,7 +7,7 @@ def test_multisite_exact_allowed_shapes():
     assert source_for_url("https://tucarro.sv/ford-expedition/63f2c0e8")
     assert source_for_url("https://caragencia.com/car-finder/2023-chevrolet-trailblazer")
     assert source_for_url("https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/")
-    assert sum(bool(x["enabled"]) for x in SOURCES.values()) == 4
+    assert sum(bool(x["enabled"]) for x in SOURCES.values()) == 7
 
 def test_multisite_rejects_catalog_open_redirects_and_unknown():
     for url in [
