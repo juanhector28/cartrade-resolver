@@ -157,6 +157,11 @@ def _experimental_listing_detail(html: str, listing: Listing) -> None:
         if note:
             miles_match = re.search(r"(?<![\d,])(\d[\d,]*)\s*(millas|mi|km)\b", note.group(1), re.I)
     else:  # carros.com
+        # Carros.com includes classic 1980s vehicles; generic year parser starts
+        # at 1990. Only accept the year between separators in THIS vehicle's H1.
+        exact_year = re.search(r"[•·]\\s*((?:19|20)\\d{2})\\s*[•·]", title)
+        if exact_year and 1950 <= int(exact_year.group(1)) <= 2035:
+            listing.year = Field(value=int(exact_year.group(1)), confidence="high")
         # Use only the current page's header and Vehicle Details block.
         lead = text.split("Vehicle Details", 1)[0][:1600]
         price_match = re.search(r"\$\s*([\d,]+)\s*USD\b", lead, re.I)
