@@ -1,9 +1,6 @@
 name: Carly three real URLs per site bounded audit
+# One-time source access test completed. Manual revalidation only.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_three_per_site_audit.py"
-      - ".github/workflows/paste-link-three-per-site.yml"
   workflow_dispatch:
 permissions:
   contents: read
