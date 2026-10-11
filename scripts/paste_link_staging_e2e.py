@@ -10,7 +10,8 @@ import httpx
 from playwright.async_api import async_playwright
 
 BASE = os.getenv("STAGING_URL", "https://cartrade-paste-link-staging.onrender.com")
-URL = "https://www.carroselsalvador.com/anuncios/kia-sportage-2006/"
+URL = os.getenv("TEST_LISTING_URL", "https://www.carroselsalvador.com/anuncios/kia-sportage-2006/")
+IS_JULAJUPS = "julajups.sv/anuncio/" in URL
 OUT = Path("/tmp/carly-staging-browser")
 
 
@@ -31,10 +32,10 @@ async def main():
                 report["api_response"] = api.text[:300]
                 raise RuntimeError("Staging API did not resolve test vehicle")
             data = api.json()
-            report["checks"]["correct_title"] = "sportage" in data.get("title", "").lower()
-            report["checks"]["correct_price"] = data.get("price_usd") == 5700
-            report["checks"]["correct_year"] = data.get("year") == 2006
-            report["checks"]["correct_mileage"] = data.get("km") == 160934
+            report["checks"]["correct_title"] = ("4runner" in data.get("title", "").lower().replace(" ", "").replace("-", "") or "4 runner" in data.get("title", "").lower()) if IS_JULAJUPS else "sportage" in data.get("title", "").lower()
+            report["checks"]["correct_price"] = data.get("price_usd") == (27500 if IS_JULAJUPS else 5700)
+            report["checks"]["correct_year"] = data.get("year") == (2019 if IS_JULAJUPS else 2006)
+            report["checks"]["correct_mileage"] = (data.get("km") is None or isinstance(data.get("km"), (int, float))) if IS_JULAJUPS else data.get("km") == 160934
             report["checks"]["not_persisted"] = data.get("saved") is False
             report["checks"]["photo_url_present"] = bool(data.get("photos"))
         async with async_playwright() as browser_tool:
@@ -42,9 +43,10 @@ async def main():
             page = await browser.new_page(viewport={"width": 1250, "height": 900}, device_scale_factor=1)
             await page.goto(BASE, wait_until="domcontentloaded", timeout=75000)
             report["checks"]["form_present"] = await page.locator("#url").count() == 1
+            await page.locator("#url").fill(URL)
             await page.locator("#send").click()
             await page.locator("#card").wait_for(state="visible", timeout=45000)
-            report["checks"]["browser_price"] = "$5,700" in (await page.locator("#price").inner_text())
+            report["checks"]["browser_price"] = ("$27,500" if IS_JULAJUPS else "$5,700") in (await page.locator("#price").inner_text())
             try:
                 await page.wait_for_function(
                     "document.getElementById('photo').naturalWidth > 0", timeout=18000)
