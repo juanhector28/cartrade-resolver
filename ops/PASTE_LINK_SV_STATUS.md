@@ -85,3 +85,27 @@ Four different individual listing URLs passed full Chromium browser validation, 
 The staging source registry has 8 observed sites: 4 enabled for a single URL supplied by the tester and 4 awaiting confirmation of a distinct listing URL shape. These are **one-sample-per-domain E2E checks**, not a claim that an entire domain is covered or ready for production. The full target universe remains 56 Atlas source entries (not all independent vehicle domains). Three additional Carros El Salvador individual listings had already passed the parser-level real-page audit.
 
 The staging environment does not access or write Supabase and has no persistent inventory/cache, and no production deployment has occurred. It respects robots directives and uses bounded URL routes and per-IP throttling. Live audit workflows are manual after the initial receipt to avoid repeated third-party requests. Image display and content reuse permissions must be reviewed before commercial rollout.
+
+## Second source batch: 7/7 browser samples PASS (10 Oct 2026 local)
+
+**Staging:** https://cartrade-paste-link-staging.onrender.com
+
+**Recorded browser run:** https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341
+
+**Screenshot artifact:** https://github.com/juanhector28/cartrade-resolver/actions/runs/38098249341/artifacts/11686982519
+
+Chromium opened the staging UI, pasted one real listing URL per domain, and verified correct listing price, visible title, visible year, displayed mileage and HTML image loading (`naturalWidth > 0`). **7/7 listing examples passed, 35/35 per-field UI checks.**
+
+| Domain | Vehicle example | Asking price | Normalized km | Photo loaded |
+|---|---|---:|---:|---|
+| carroselsalvador.com | Kia Sportage 2006 | USD 5,700 | 160,934 | Yes |
+| tucarro.sv | Ford Expedition 2018 | USD 16,500 | 300,000 | Yes |
+| caragencia.com | Chevrolet TrailBlazer 2023 | USD 13,900 | 65,983 | Yes |
+| carros.com | Honda Civic 2015 | USD 9,500 | 125,837 | Yes |
+| motorasv.com | Kia Forte 2017 | USD 7,200 | 111,000 | Yes |
+| disazautos.com | Kia Seltos 2023 | USD 18,900 | 83,172 | Yes |
+| autospublicidad.com | Toyota Tacoma 2020 | USD 23,500 | 107,826 | Yes |
+
+AutosPublicidad's page labels its odometer only as "67" in a field but explicitly says "67 mil millas" in its description; the parser converts only when the unit is explicit. Images come from that vehicle's own ID-based gallery. The other two new domain samples passed extractor-level and browser-level tests without requiring their own dedicated rules.
+
+**Scope limitations:** only one browser-validated sample on six domains, three earlier extractor-level samples on Carros El Salvador; not domain-wide certification, current inventory/price guarantees, permission to commercially re-display third-party content, or production integration. Existing Carly production is unchanged. Nissan El Salvador stays disabled because the Atlas examples are model-catalog pages without verifiable per-car asking prices. Automated external-domain workflows have been reverted to manual-only after validation.
