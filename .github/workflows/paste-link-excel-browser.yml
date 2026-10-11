@@ -1,9 +1,6 @@
 name: Carly Excel Usados live browser acceptance
+# One-time source access test completed. Manual revalidation only.
 on:
-  pull_request:
-    paths:
-      - "scripts/paste_link_excel_browser.py"
-      - ".github/workflows/paste-link-excel-browser.yml"
   workflow_dispatch:
 permissions:
   contents: read
