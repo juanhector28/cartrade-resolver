@@ -176,10 +176,10 @@ const $=id=>document.getElementById(id);
 fetch("/api/sources").then(r=>r.json()).then(d=>{
  (d.sources||[]).filter(x=>x.enabled).forEach(x=>{
   const chip=document.createElement("span");
-  const verified=x.stage==="browser_verified";
+  const verified=x.stage==="browser_sample_verified"||x.stage==="browser_verified";
   const pending=x.stage==="javascript_required"||x.stage==="access_review";
   chip.className="source-chip"+(pending?" pending":verified?"":" experimental");
-  const suffix=verified?" · ficha validada":x.stage==="javascript_required"?" · integración JS pendiente":x.stage==="access_review"?" · acceso pendiente":" · experimental";
+  const suffix=verified?" · muestra probada":x.stage==="javascript_required"?" · integración JS pendiente":x.stage==="access_review"?" · acceso pendiente":" · experimental";
   chip.textContent=x.name+suffix;
   $("sources").appendChild(chip);
  });
