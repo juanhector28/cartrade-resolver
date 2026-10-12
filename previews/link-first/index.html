@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<meta name="theme-color" content="#fafbf9">
+<title>CarTrade | Pega el enlace</title>
+<style>
+:root{--green:#17684e;--ink:#172821;--muted:#637267;--line:#dfe8e0;--bg:#fafbf9;--mint:#e6f4ec;font-family:"Hanken Grotesk",Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);color-scheme:light}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);min-height:100vh}
+a{color:var(--green)}
+.wrap{max-width:1160px;margin:0 auto;padding:0 30px}
+header{height:88px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+.brand{font-weight:850;font-size:28px;letter-spacing:-1.6px;color:#222f28;text-decoration:none}
+.brand b{color:#29805f}
+.header-note{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:9px}
+.dot{width:8px;height:8px;border-radius:99px;background:#52a57c}
+main{padding-top:95px}
+.hero{display:grid;grid-template-columns:minmax(0,1.13fr) minmax(300px,.87fr);gap:64px;align-items:center}
+.eyebrow{font-weight:800;text-transform:uppercase;letter-spacing:2.5px;font-size:11px;color:var(--green);margin-bottom:26px}
+h1{font-size:clamp(44px,6.2vw,78px);letter-spacing:-4.1px;line-height:1.06;font-weight:800;margin:0 0 25px}
+h1 span{color:var(--green)}
+.lead{font-size:19px;line-height:1.6;max-width:600px;color:#576b5e;margin:0 0 38px}
+.search-shell{background:white;border:1px solid var(--line);border-radius:19px;padding:8px;box-shadow:0 25px 65px rgba(36,75,51,.065)}
+.search-tabs{padding:15px 16px 11px}
+.search-tab{background:none;border:0;font-weight:750;font-size:13px;color:var(--green);letter-spacing:.25px;padding:6px 0}
+.search-row{margin:0 8px;background:#f8faf8;border:1px solid #e6ede6;border-radius:11px}
+.search-field{display:block;width:100%}
+.search-field input{width:100%;border:0;background:transparent;outline:0;padding:21px 17px;font-size:15px;color:var(--ink);font-family:inherit}
+.search-field input:focus{box-shadow:inset 0 0 0 2px #91beaa;border-radius:10px}
+#ct-link-first-entry{padding:9px 8px 9px;margin-top:0!important;display:flex!important;flex-direction:column;align-items:stretch!important;gap:10px}
+#ct-link-first-start{width:100%;background:var(--green)!important;border-radius:12px!important;padding:17px!important;font:750 15px inherit!important}
+#ct-link-first-entry small{padding:0 5px 4px!important;line-height:1.6;text-align:center}
+.disclaimer{margin:14px 3px 0;color:#77857c;font-size:12px;line-height:1.6}
+.visual{position:relative;min-height:500px;display:grid;place-items:center}
+.visual:before{content:"";position:absolute;inset:40px 0;background:radial-gradient(ellipse at center,#ddefdf 0%,#edf6ee 44%,transparent 73%);border-radius:50%;transform:rotate(-10deg)}
+.visual-frame{position:relative;width:100%;max-width:415px;background:white;border:1px solid #d6e3d9;border-radius:22px;padding:25px;box-shadow:0 25px 75px #16472b19;transform:rotate(-3deg)}
+.visual-head{display:flex;align-items:center;gap:10px;border-bottom:1px solid #e8efe9;padding-bottom:21px;font-size:12px;font-weight:700;color:#45634c}
+.visual-icon{width:34px;height:34px;background:var(--mint);border-radius:11px;display:grid;place-items:center;color:var(--green);font-size:16px}
+.visual-link{font-size:13px;color:#83928a;overflow-wrap:anywhere;margin-top:19px}
+.visual-title{font-size:24px;font-weight:800;letter-spacing:-.7px;margin:16px 0 9px}
+.visual-copy{font-size:14px;color:var(--muted);line-height:1.65}
+.steps{display:flex;align-items:center;justify-content:space-between;gap:6px;border-top:1px solid #e7ede9;margin-top:23px;padding-top:23px;font-size:11px;font-weight:750;color:#557262}
+.steps strong{display:block;font-size:15px;background:var(--mint);color:var(--green);width:32px;height:32px;border-radius:99px;text-align:center;line-height:32px;margin-bottom:7px}
+.steps .arrow{font-size:18px;color:#a3b4a7;align-self:center}
+.foot{border-top:1px solid var(--line);margin-top:90px;padding:28px 0 35px;display:flex;align-items:center;justify-content:space-between;color:#89948b;font-size:12px}
+.demo-banner{position:fixed;bottom:18px;right:18px;background:#173f30;color:#fff;padding:11px 16px;border-radius:99px;font-weight:650;font-size:12px;box-shadow:0 12px 32px #183a2d35;z-index:1000;max-width:calc(100% - 36px)}
+@media(max-width:900px){.hero{grid-template-columns:1fr;gap:12px}main{padding-top:58px}.visual{min-height:400px}.visual-frame{max-width:440px}h1{letter-spacing:-2.5px}.foot{margin-top:50px}}
+@media(max-width:550px){.wrap{padding:0 19px}header{height:72px}.brand{font-size:25px}.header-note{font-size:11px}main{padding-top:48px}h1{font-size:47px;letter-spacing:-2px}.lead{font-size:16px}.visual{min-height:335px}.visual-frame{padding:18px;transform:rotate(-1deg)}.demo-banner{left:14px;right:14px;bottom:12px;text-align:center;border-radius:12px}.foot{padding-bottom:80px}}
+</style>
+</head>
+<body>
+<div id="lp9" class="wrap">
+<header>
+  <a class="brand" href="#" aria-label="CarTrade, inicio">cartrade<b>.</b></a>
+  <div class="header-note"><span class="dot"></span> Tu próximo auto empieza aquí.</div>
+</header>
+<main class="hero">
+  <section aria-labelledby="hero-title">
+    <div class="eyebrow">CarTrade · Compra asistida</div>
+    <h1 id="hero-title">¿Ya viste <span>un auto?</span><br>Pega el enlace.</h1>
+    <p class="lead">No importa dónde lo encontraste. Compártenos la publicación y nosotros nos encargamos de revisar el auto y acompañarte en los siguientes pasos.</p>
+    <div class="search-shell">
+      <div class="search-tabs">
+        <button class="search-tab active" data-mode="link" type="button" aria-selected="true">01 / El enlace del anuncio</button>
+      </div>
+      <div class="search-row">
+        <label class="search-field" for="heroInput">
+          <input id="heroInput" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://www.facebook.com/marketplace/item/..." aria-label="Enlace del anuncio">
+        </label>
+      </div>
+    </div>
+    <p class="disclaimer">Sin búsquedas adicionales, formularios de vehículos ni solicitudes bancarias. Puedes pegar un enlace de cualquier sitio público.</p>
+  </section>
+  <aside class="visual" aria-label="Cómo funciona">
+    <div class="visual-frame">
+      <div class="visual-head"><div class="visual-icon">↗</div> CarTrade / Solicitud de compra</div>
+      <div class="visual-link">facebook.com/marketplace/item/…</div>
+      <div class="visual-title">Un enlace.<br>Nosotros hacemos el resto.</div>
+      <div class="visual-copy">CarTrade recibe tu interés, revisa la publicación y te escribe para coordinar el próximo paso.</div>
+      <div class="steps">
+        <div><strong>01</strong>Comparte</div><span class="arrow">→</span>
+        <div><strong>02</strong>Revisamos</div><span class="arrow">→</span>
+        <div><strong>03</strong>Seguimos</div>
+      </div>
+    </div>
+  </aside>
+</main>
+<footer class="foot">
+  <span>cartrade · Compra asistida, sin complicaciones.</span>
+  <span>Tu consentimiento importa.</span>
+</footer>
+</div>
+<div class="demo-banner" role="status">VISTA PREVIA · No se envían ni guardan solicitudes</div>
+<script>window.CT_LINK_FIRST_DEMO = true; window.CARTRADE_API = {base:""};</script>
+<script src="./cartrade_link_first_request.js"></script>
+</body>
+</html>

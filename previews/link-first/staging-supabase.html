@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<meta name="theme-color" content="#fafbf9">
+<title>CarTrade | Pega el enlace</title>
+<style>
+:root{--green:#17684e;--ink:#172821;--muted:#637267;--line:#dfe8e0;--bg:#fafbf9;--mint:#e6f4ec;font-family:"Hanken Grotesk",Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);color-scheme:light}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);min-height:100vh}
+a{color:var(--green)}
+.wrap{max-width:1160px;margin:0 auto;padding:0 30px}
+header{height:88px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+.brand{font-weight:850;font-size:28px;letter-spacing:-1.6px;color:#222f28;text-decoration:none}
+.brand b{color:#29805f}
+.header-note{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:9px}
+.dot{width:8px;height:8px;border-radius:99px;background:#52a57c}
+main{padding-top:95px}
+.hero{display:grid;grid-template-columns:minmax(0,1.13fr) minmax(300px,.87fr);gap:64px;align-items:center}
+.eyebrow{font-weight:800;text-transform:uppercase;letter-spacing:2.5px;font-size:11px;color:var(--green);margin-bottom:26px}
+h1{font-size:clamp(44px,6.2vw,78px);letter-spacing:-4.1px;line-height:1.06;font-weight:800;margin:0 0 25px}
+h1 span{color:var(--green)}
+.lead{font-size:19px;line-height:1.6;max-width:600px;color:#576b5e;margin:0 0 38px}
+.search-shell{background:white;border:1px solid var(--line);border-radius:19px;padding:8px;box-shadow:0 25px 65px rgba(36,75,51,.065)}
+.search-tabs{padding:15px 16px 11px}
+.search-tab{background:none;border:0;font-weight:750;font-size:13px;color:var(--green);letter-spacing:.25px;padding:6px 0}
+.search-row{margin:0 8px;background:#f8faf8;border:1px solid #e6ede6;border-radius:11px}
+.search-field{display:block;width:100%}
+.search-field input{width:100%;border:0;background:transparent;outline:0;padding:21px 17px;font-size:15px;color:var(--ink);font-family:inherit}
+.search-field input:focus{box-shadow:inset 0 0 0 2px #91beaa;border-radius:10px}
+#ct-link-first-entry{padding:9px 8px 9px;margin-top:0!important;display:flex!important;flex-direction:column;align-items:stretch!important;gap:10px}
+#ct-link-first-start{width:100%;background:var(--green)!important;border-radius:12px!important;padding:17px!important;font:750 15px inherit!important}
+#ct-link-first-entry small{padding:0 5px 4px!important;line-height:1.6;text-align:center}
+.disclaimer{margin:14px 3px 0;color:#77857c;font-size:12px;line-height:1.6}
+.visual{position:relative;min-height:500px;display:grid;place-items:center}
+.visual:before{content:"";position:absolute;inset:40px 0;background:radial-gradient(ellipse at center,#ddefdf 0%,#edf6ee 44%,transparent 73%);border-radius:50%;transform:rotate(-10deg)}
+.visual-frame{position:relative;width:100%;max-width:415px;background:white;border:1px solid #d6e3d9;border-radius:22px;padding:25px;box-shadow:0 25px 75px #16472b19;transform:rotate(-3deg)}
+.visual-head{display:flex;align-items:center;gap:10px;border-bottom:1px solid #e8efe9;padding-bottom:21px;font-size:12px;font-weight:700;color:#45634c}
+.visual-icon{width:34px;height:34px;background:var(--mint);border-radius:11px;display:grid;place-items:center;color:var(--green);font-size:16px}
+.visual-link{font-size:13px;color:#83928a;overflow-wrap:anywhere;margin-top:19px}
+.visual-title{font-size:24px;font-weight:800;letter-spacing:-.7px;margin:16px 0 9px}
+.visual-copy{font-size:14px;color:var(--muted);line-height:1.65}
+.steps{display:flex;align-items:center;justify-content:space-between;gap:6px;border-top:1px solid #e7ede9;margin-top:23px;padding-top:23px;font-size:11px;font-weight:750;color:#557262}
+.steps strong{display:block;font-size:15px;background:var(--mint);color:var(--green);width:32px;height:32px;border-radius:99px;text-align:center;line-height:32px;margin-bottom:7px}
+.steps .arrow{font-size:18px;color:#a3b4a7;align-self:center}
+.foot{border-top:1px solid var(--line);margin-top:90px;padding:28px 0 35px;display:flex;align-items:center;justify-content:space-between;color:#89948b;font-size:12px}
+.demo-banner{position:fixed;bottom:18px;right:18px;background:#173f30;color:#fff;padding:11px 16px;border-radius:99px;font-weight:650;font-size:12px;box-shadow:0 12px 32px #183a2d35;z-index:1000;max-width:calc(100% - 36px)}
+@media(max-width:900px){.hero{grid-template-columns:1fr;gap:12px}main{padding-top:58px}.visual{min-height:400px}.visual-frame{max-width:440px}h1{letter-spacing:-2.5px}.foot{margin-top:50px}}
+@media(max-width:550px){.wrap{padding:0 19px}header{height:72px}.brand{font-size:25px}.header-note{font-size:11px}main{padding-top:48px}h1{font-size:47px;letter-spacing:-2px}.lead{font-size:16px}.visual{min-height:335px}.visual-frame{padding:18px;transform:rotate(-1deg)}.demo-banner{left:14px;right:14px;bottom:12px;text-align:center;border-radius:12px}.foot{padding-bottom:80px}}
+</style>
+</head>
+<body>
+<div id="lp9" class="wrap">
+<header>
+  <a class="brand" href="#" aria-label="CarTrade, inicio">cartrade<b>.</b></a>
+  <div class="header-note"><span class="dot"></span> Tu próximo auto empieza aquí.</div>
+</header>
+<main class="hero">
+  <section aria-labelledby="hero-title">
+    <div class="eyebrow">CarTrade · Compra asistida</div>
+    <h1 id="hero-title">¿Ya viste <span>un auto?</span><br>Pega el enlace.</h1>
+    <p class="lead">No importa dónde lo encontraste. Compártenos la publicación y nosotros nos encargamos de revisar el auto y acompañarte en los siguientes pasos.</p>
+    <div class="search-shell">
+      <div class="search-tabs">
+        <button class="search-tab active" data-mode="link" type="button" aria-selected="true">01 / El enlace del anuncio</button>
+      </div>
+      <div class="search-row">
+        <label class="search-field" for="heroInput">
+          <input id="heroInput" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://www.facebook.com/marketplace/item/..." aria-label="Enlace del anuncio">
+        </label>
+      </div>
+    </div>
+    <p class="disclaimer">Sin búsquedas adicionales, formularios de vehículos ni solicitudes bancarias. Puedes pegar un enlace de cualquier sitio público.</p>
+  </section>
+  <aside class="visual" aria-label="Cómo funciona">
+    <div class="visual-frame">
+      <div class="visual-head"><div class="visual-icon">↗</div> CarTrade / Solicitud de compra</div>
+      <div class="visual-link">facebook.com/marketplace/item/…</div>
+      <div class="visual-title">Un enlace.<br>Nosotros hacemos el resto.</div>
+      <div class="visual-copy">CarTrade recibe tu interés, revisa la publicación y te escribe para coordinar el próximo paso.</div>
+      <div class="steps">
+        <div><strong>01</strong>Comparte</div><span class="arrow">→</span>
+        <div><strong>02</strong>Revisamos</div><span class="arrow">→</span>
+        <div><strong>03</strong>Seguimos</div>
+      </div>
+    </div>
+  </aside>
+</main>
+<footer class="foot">
+  <span>cartrade · Compra asistida, sin complicaciones.</span>
+  <span>Tu consentimiento importa.</span>
+</footer>
+</div>
+<div class="demo-banner" role="status">PRUEBA DE CONEXIÓN · Solo datos ficticios, ningún contacto real</div>
+<script>window.CT_LINK_FIRST_DEMO = true; window.CARTRADE_API = {base:""};</script>
+<script>
+/* CarTrade: link-first buyer-intent handoff. Never scrapes third-party pages.
+ * Requires verified POST /buyer-intents receipt; no false "request sent" UI.
+ * Safe to inject into the existing CarTrade hero; feature remains release gated.
+ */
+(function () {
+  "use strict";
+  if (window.CT_LINK_FIRST_INSTALLED) return;
+  window.CT_LINK_FIRST_INSTALLED = true;
+  const host = document.querySelector("#lp9 .search-shell");
+  const searchRow = document.querySelector("#lp9 .search-row");
+  const input = document.getElementById("heroInput");
+  if (!host || !input) return;
+
+  function node(tag, txt) {
+    const e = document.createElement(tag);
+    if (txt !== undefined) e.textContent = txt;
+    return e;
+  }
+  function safeUrl(value) {
+    if (value.length > 2048) return null;
+    try {
+      const p = new URL(value);
+      if (p.protocol !== "https:" || p.username || p.password || p.port || !p.hostname
+          || !p.hostname.includes(".") || /\s/.test(value)) return null;
+      const h = p.hostname.toLowerCase().replace(/\.$/, "");
+      if (h === "localhost" || /\.(?:localhost|local|internal)$/.test(h)) return null;
+      if (/^\d+(?:\.\d+){3}$/.test(h) || /^\[/.test(p.host)) return null;
+      return p.href;
+    } catch (_) { return null; }
+  }
+  const css = node("style");
+  css.textContent = [
+    "#ct-link-first-entry{margin-top:12px;display:none;align-items:center;gap:11px;flex-wrap:wrap}",
+    "#lp9 .search-row[data-link-first-mode=on] .location-wrap,#lp9 .search-row[data-link-first-mode=on] #compareBtn{display:none!important}",
+    "#lp9 .search-row[data-link-first-mode=on]{display:block!important;height:auto!important;min-height:70px!important}",
+    "#lp9 .search-row[data-link-first-mode=on] .search-field{border:0!important;width:100%!important;min-height:52px}",
+    "#ct-link-first-entry button{border:1px solid #15803d;border-radius:11px;padding:12px 18px;background:#166534;color:#fff;cursor:pointer;font:700 13px system-ui,sans-serif}",
+    "#ct-link-first-entry small{font:400 12px system-ui,sans-serif;color:#66736b}",
+    "#ct-link-first-dialog{position:fixed;inset:0;z-index:2147482000;display:grid;place-items:center;padding:14px;background:rgba(12,24,15,.65)}",
+    "#ct-link-first-dialog .panel{width:min(460px,100%);max-height:96vh;overflow:auto;background:#fff;color:#20332a;border-radius:18px;padding:25px;font:14px system-ui,sans-serif;box-shadow:0 20px 60px #0002}",
+    "#ct-link-first-dialog input[type=tel]{display:block;width:100%;border:1px solid #b7cdc0;border-radius:9px;padding:12px;margin:8px 0 16px;box-sizing:border-box;font:16px system-ui,sans-serif}",
+    "#ct-link-first-dialog button{font:700 13px system-ui,sans-serif;padding:12px 15px;border-radius:9px;border:1px solid #ddd;cursor:pointer}",
+    "#ct-link-first-dialog button.primary{background:#166534;color:white;border-color:#166534}",
+    "#ct-link-first-dialog button:disabled{opacity:.55;cursor:not-allowed}"
+  ].join("\n");
+  document.head.append(css);
+  const entry = node("div");
+  entry.id = "ct-link-first-entry";
+  const start = node("button", "Pedir ayuda con este auto →");
+  start.id = "ct-link-first-start";
+  start.type = "button";
+  entry.append(start, node("small", "Solo necesitamos el enlace. Nosotros nos encargamos del resto."));
+  host.append(entry);
+  if (searchRow) searchRow.setAttribute("data-link-first-mode", "off");
+
+  function syncVisibility() {
+    const selected = document.querySelector("#lp9 .search-tab.active");
+    const isLink = selected && selected.dataset.mode === "link";
+    entry.style.display = isLink ? "flex" : "none";
+    if (searchRow) searchRow.setAttribute("data-link-first-mode", isLink ? "on" : "off");
+  }
+  document.querySelectorAll("#lp9 .search-tab").forEach(t =>
+    t.addEventListener("click", () => queueMicrotask(syncVisibility))
+  );
+  syncVisibility();
+
+  let busy = false;
+  start.addEventListener("click", () => {
+    const link = safeUrl(input.value.trim());
+    if (!link) {
+      input.setCustomValidity("Pega un enlace HTTPS válido.");
+      input.reportValidity();
+      input.addEventListener("input", () => input.setCustomValidity(""), {once:true});
+      input.focus();
+      return;
+    }
+    const prev = document.getElementById("ct-link-first-dialog");
+    prev?.remove();
+    const overlay = node("div");
+    overlay.id = "ct-link-first-dialog";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "Pedir ayuda con este auto");
+    const panel = node("div");
+    panel.className = "panel";
+    const title = node("h2", "Nos encargamos del resto.");
+    title.style.margin = "0 0 12px";
+    const expl = node("p", "Recibiremos el enlace de este anuncio y podremos ayudarte a revisar el vehículo y sus próximos pasos. Aún no hemos contactado al vendedor ni enviado una solicitud bancaria.");
+    expl.style.lineHeight = "1.55";
+    const linkLine = node("p", link);
+    linkLine.style.cssText = "word-break:break-all;font-size:12px;color:#597064;line-height:1.5";
+    const phoneLabel = node("label", "Tu WhatsApp para dar seguimiento");
+    phoneLabel.htmlFor = "ct-link-first-phone";
+    const phone = node("input");
+    phone.id = "ct-link-first-phone";
+    phone.type = "tel";
+    phone.inputMode = "tel";
+    phone.maxLength = 25;
+    phone.placeholder = "Ej. +503 7000 0000";
+    const consentLabel = node("label");
+    consentLabel.style.cssText = "display:flex;gap:10px;line-height:1.5;font-size:13px";
+    const checkbox = node("input");
+    checkbox.type = "checkbox";
+    checkbox.id = "ct-link-first-consent";
+    consentLabel.append(checkbox, node("span", "Autorizo a CarTrade a contactarme por WhatsApp sobre este enlace. Entiendo que aún no se ha confirmado disponibilidad ni financiamiento."));
+    const errors = node("p");
+    errors.id = "ct-link-first-errors";
+    errors.setAttribute("role", "alert");
+    errors.style.cssText = "font-size:12px;color:#a13232;min-height:15px";
+    const submit = node("button", "Enviar mi solicitud");
+    submit.className = "primary";
+    submit.id = "ct-link-first-submit";
+    submit.disabled = true;
+    const cancel = node("button", "Cancelar");
+    cancel.id = "ct-link-first-cancel";
+    cancel.style.marginLeft = "8px";
+    checkbox.addEventListener("change", () => { submit.disabled = !checkbox.checked; });
+    const requestId = crypto.randomUUID();
+    cancel.addEventListener("click", () => { if (!busy) overlay.remove(); });
+    submit.addEventListener("click", async () => {
+      if (busy || !checkbox.checked) return;
+      const normalizedPhone = phone.value.replace(/\D/g, "");
+      if (normalizedPhone.length < 8 || normalizedPhone.length > 15) {
+        errors.textContent = "Introduce un número de WhatsApp válido.";
+        phone.focus();
+        return;
+      }
+      if (safeUrl(input.value.trim()) !== link) {
+        errors.textContent = "El enlace cambió. Cierra esta ventana y vuelve a intentarlo.";
+        return;
+      }
+      const api = String(window.CARTRADE_API?.base || "").replace(/\/$/, "");
+      if (window.CT_LINK_FIRST_DEMO === true) {
+        // Production lead intake remains entirely OFF. This call sends only
+        // a fixed synthetic reference; it never sends the buyer's phone or URL.
+        busy = true; submit.disabled = true; cancel.disabled = true;
+        errors.textContent = "";
+        try {
+          const anon = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlybnh2YWprc2Vma2hsbGNlYXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NTY2OTUsImV4cCI6MjA5NjAzMjY5NX0.BMJCMomlBeNRmu_a7li7fujf2shNnzDVK9gBjvVes_U";
+          const response = await fetch(
+            "https://irnxvajksefkhllceazs.supabase.co/functions/v1/cartrade-link-first-staging-probe", {
+            method: "POST", credentials: "omit", cache: "no-store",
+            headers: {
+              "Authorization": "Bearer " + anon, "apikey": anon,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              mode: "synthetic_demo",
+              probe_id: "a4c3a9e4-2d7c-44ab-b53d-9b57409c2026",
+              listing_url: "https://example.org/cartrade-demo-vehicle",
+              consent_preview: true
+            })
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || result.status !== "synthetic_probe_recorded" ||
+              result.buyer_data_recorded !== false) throw new Error("Probe failed");
+          panel.replaceChildren(
+            node("h2", "Prueba técnica registrada"),
+            node("p", "La conexión con Supabase funcionó. Solo registramos datos ficticios. Tu WhatsApp y el enlace que pegaste NO se guardaron.")
+          );
+          const done = node("button", "Cerrar prueba");
+          done.type = "button";
+          done.addEventListener("click", () => overlay.remove());
+          panel.append(done);
+        } catch (_) {
+          errors.textContent = "No pudimos verificar la conexión con Supabase. No se registraron tus datos. Inténtalo después.";
+          submit.disabled = false; cancel.disabled = false;
+        } finally { busy = false; }
+        return;
+      }
+      if (!api) {
+        errors.textContent = "El registro de solicitudes no está disponible por ahora.";
+        return;
+      }
+      busy = true; submit.disabled = true; cancel.disabled = true;
+      errors.textContent = "";
+      try {
+        const response = await fetch(api + "/buyer-intents", {
+          method: "POST", credentials: "omit", cache: "no-store",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            request_id: requestId, buyer_contact: normalizedPhone,
+            contact_channel: "whatsapp", listing_url: link,
+            country: "sv", source: "paste_link", consent_to_contact: true
+          })
+        });
+        const receipt = await response.json().catch(() => ({}));
+        if (response.status !== 201 || receipt.status !== "received" ||
+            receipt.request_id !== requestId) throw Error("not_received");
+        window.CT_LINK_FIRST_RECEIPT = {request_id: requestId, status: "received"};
+        panel.replaceChildren(node("h2", "Solicitud registrada"), node("p", "CarTrade recibió tu enlace. Te contactaremos por WhatsApp para revisar los siguientes pasos."));
+        const done = node("button", "Cerrar");
+        done.type = "button";
+        done.addEventListener("click", () => overlay.remove());
+        panel.append(done);
+      } catch (_) {
+        errors.textContent = "No se pudo registrar. No se ha enviado tu solicitud; inténtalo más tarde.";
+        submit.disabled = false; cancel.disabled = false;
+      } finally { busy = false; }
+    });
+    panel.append(title, expl, linkLine, phoneLabel, phone, consentLabel, errors, submit, cancel);
+    overlay.append(panel);
+    document.body.append(overlay);
+    phone.focus();
+  });
+})();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+name: CarTrade Supabase Synthetic Staging Proof
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/cartrade-link-first-netlify-preview-20261012
+    paths:
+      - "previews/link-first/staging-supabase.html"
+      - "scripts/test_link_first_supabase_probe.py"
+      - "scripts/test_link_first_supabase_browser.py"
+      - ".github/workflows/link-first-supabase-probe.yml"
+  pull_request:
+    paths:
+      - "previews/link-first/staging-supabase.html"
+      - "scripts/test_link_first_supabase_probe.py"
+      - ".github/workflows/link-first-supabase-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  safe-synthetic-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test live Supabase Edge Function with synthetic, immutable test record
+        run: python scripts/test_link_first_supabase_probe.py
+      - name: Install Chromium
+        run: |
+          python -m pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - name: Test single-file Netlify candidate in real Chromium with Supabase CORS
+        run: python scripts/test_link_first_supabase_browser.py
+      - name: Pack single HTML for the existing Netlify staging site
+        run: |
+          mkdir -p dist
+          cp previews/link-first/staging-supabase.html dist/index.html
+          cd dist
+          zip -q CarTrade_Supabase_Staging_HTML.zip index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CarTrade_Supabase_Staging_HTML
+          path: dist/CarTrade_Supabase_Staging_HTML.zip
+          if-no-files-found: error
+          retention-days: 14
