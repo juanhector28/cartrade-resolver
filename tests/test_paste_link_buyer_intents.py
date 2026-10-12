@@ -103,9 +103,45 @@ def test_no_false_success_on_database_failure(monkeypatch):
     assert "private db message" not in res.text
 
 
-def test_unrecognized_listing_is_rejected(monkeypatch):
-    setup(monkeypatch, FakeDatabase())
+def test_user_link_without_scraper_or_vehicle_details_is_received(monkeypatch):
+    db = FakeDatabase()
+    setup(monkeypatch, db)
+    data = make_payload()
+    data["listing_url"] = "https://www.facebook.com/marketplace/item/123456789/?ref=share"
+    data.pop("car_name")
+    data.pop("price_usd")
+    with nullcontext(TestClient(app)) as client:
+        response = client.post("/buyer-intents", json=data, headers=ORIGIN)
+    assert response.status_code == 201
+    assert response.json()["request_id"] == data["request_id"]
+    assert db.row["listing_url"] == data["listing_url"]
+    assert db.row["car_name"] == "Vehículo pendiente de identificar"
+    assert db.row["price_usd"] is None
+
+
+def test_link_intake_never_requires_supported_scraper(monkeypatch):
+    db = FakeDatabase()
+    setup(monkeypatch, db)
     data = make_payload()
     data["listing_url"] = "https://some-unknown-vendor.example/offer"
+    data.pop("car_name")
     with nullcontext(TestClient(app)) as client:
-        assert client.post("/buyer-intents", json=data, headers=ORIGIN).status_code == 422
+        response = client.post("/buyer-intents", json=data, headers=ORIGIN)
+    assert response.status_code == 201
+
+
+def test_private_network_and_unsafe_link_rejected(monkeypatch):
+    setup(monkeypatch, FakeDatabase())
+    with nullcontext(TestClient(app)) as client:
+        for link in (
+            "http://example.com/car",
+            "https://localhost/vehicle",
+            "https://127.0.0.1/vehicle",
+            "https://10.0.0.12/vehicle",
+            "https://cartrade.live@attacker.example/car",
+            "https://internal.local/car",
+            "https://[::1]/vehicle",
+        ):
+            data = make_payload()
+            data["listing_url"] = link
+            assert client.post("/buyer-intents", json=data, headers=ORIGIN).status_code == 422, link
