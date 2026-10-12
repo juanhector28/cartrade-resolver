@@ -7,6 +7,8 @@ on:
       - app/paste_link_staging.py
       - app/paste_link_manual_fallback.py
       - scripts/paste_link_manual_fallback_browser_e2e.py
+      - scripts/link_first_browser_e2e.py
+      - assets/cartrade_link_first_request.js
       - app/buyer_ops_page.py
       - scripts/buyer_ops_auth_browser_e2e.py
   workflow_dispatch:
@@ -114,3 +116,5 @@ jobs:
           PY
       - name: Offline browser test for unsupported vehicle URLs and manual fallback
         run: python scripts/paste_link_manual_fallback_browser_e2e.py
+      - name: Offline link-first request E2E without scraping
+        run: python scripts/link_first_browser_e2e.py
