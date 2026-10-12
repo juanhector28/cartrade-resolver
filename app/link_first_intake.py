@@ -76,7 +76,7 @@ async def capture_link_first(body: BuyerLinkRequest, request: Request):
     db, table, verify_abuse = _configured(request)
     origins = {
         origin.strip() for origin in os.getenv(
-            "LINK_FIRST_ALLOWED_ORIGINS", "https://cartrade.live"
+            "LINK_FIRST_ALLOWED_ORIGINS", "https://bright-dragon-cd29a3.netlify.app"
         ).split(",") if origin.strip()
     }
     # Origin checking is a defense-in-depth measure, not authentication.
