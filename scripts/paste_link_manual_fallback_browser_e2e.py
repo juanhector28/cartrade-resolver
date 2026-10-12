@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import ast
 import json
+import sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.paste_link_manual_fallback import attach_manual_fallback
 
 ROOT = Path(__file__).resolve().parents[1]
