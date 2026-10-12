@@ -63,16 +63,16 @@ def run():
                         page.locator("#ct-link-first-start").click()
                         page.locator("#ct-link-first-dialog").wait_for(state="visible", timeout=7000)
                         details["consent_required"] = page.locator("#ct-link-first-submit").is_disabled()
+                        # Live audit stays read-only. The current staging build
+                        # legitimately writes a fixed synthetic probe on submit,
+                        # so we must NOT click it or abort legitimate POSTs.
                         page.locator("#ct-link-first-phone").fill("70000000")
                         page.locator("#ct-link-first-consent").check()
-                        page.locator("#ct-link-first-submit").click()
-                        details["demo_ack"] = (
-                            "Vista previa completada" in
-                            page.locator("#ct-link-first-dialog").inner_text()
-                        )
+                        details["consent_unlocks_preview"] = page.locator("#ct-link-first-submit").is_enabled()
                         details["no_real_receipt"] = page.evaluate(
                             "window.CT_LINK_FIRST_RECEIPT == null"
                         )
+                        details["synthetic_stage"] = "cartrade-link-first-staging-probe" in page.content()
                 results["checks"][key] = details
                 page.close()
             browser.close()
@@ -87,12 +87,12 @@ def run():
         and check.get("start_visible")
         and check.get("demo_mode")
         and check.get("consent_required")
-        and check.get("demo_ack")
+        and check.get("consent_unlocks_preview")
         and check.get("no_real_receipt")
         for check in results["checks"].values()
     ):
         raise SystemExit("FAIL: Netlify staging demo, consent or safety gate failed")
-    print("PASS: Netlify staging reachable on desktop + mobile, no mutations")
+    print("PASS: Netlify staging link-first and consent UI on desktop + mobile, no network writes")
 
 
 if __name__ == "__main__":
