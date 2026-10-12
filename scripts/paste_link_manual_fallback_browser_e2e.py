@@ -87,6 +87,7 @@ def main() -> None:
         page.locator("#manual-form button[type=submit]").click()
         assert page.locator("#card").is_visible()
         assert page.locator("#manual-helper").is_hidden()
+        print("DEBUG manual badge:", repr(page.locator("#card .meta").inner_text()), "manual visible", page.locator("#manual-helper").is_visible(), "title", repr(page.locator("#title").inner_text()), flush=True)
         assert "No verificados" in page.locator("#card .meta").inner_text()
         assert "<img src=x" in page.locator("#title").inner_text()
         assert page.locator("#card img").count() == 1  # existing image placeholder only
