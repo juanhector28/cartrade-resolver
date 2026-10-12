@@ -71,6 +71,7 @@
     checkbox.type = 'checkbox';
     checkbox.style.marginTop = '3px';
     label.append(checkbox, el('span', 'Autorizo a CarTrade a contactarme por WhatsApp acerca de este vehículo. Entiendo que aún no se ha contactado al vendedor.'));
+    const requestId = uuid(); // Stable across retries to avoid duplicate buyer requests.
     const submit = el('button', 'Registrar mi solicitud');
     submit.id = 'ct-buyer-intent-submit';
     submit.disabled = true;
@@ -86,7 +87,6 @@
       if (!checkbox.checked || active) return;
       active = true; submit.disabled = true;
       error.textContent = '';
-      const requestId = uuid();
       const priceRaw = field(resolved, 'price_usd');
       const price = Number(priceRaw);
       const country = window.CT_SEARCH_CONTEXT?.countryCode || 'sv';
