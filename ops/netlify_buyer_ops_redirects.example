@@ -1,0 +1,8 @@
+# Netlify preview proxy example; NOT installed on cartrade.live.
+# Apply only after resolving the backend staging deployment in the approved workspace.
+# Keep these BEFORE any SPA catch-all redirect.
+#
+# Path on cartrade.live: /ops/solicitudes
+# Proxy target: CarTrade resolver (must have buyer_ops.py deployed and flags reviewed).
+#
+/ops/*  https://cartrade-resolver.onrender.com/ops/:splat  200
