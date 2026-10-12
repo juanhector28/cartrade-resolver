@@ -38,7 +38,7 @@
     let parsed;
     try { parsed = new URL(url); } catch (_) {}
     if (phone.length < 8 || phone.length > 15 || !parsed ||
-        parsed.protocol !== 'https:' || !title || title.length > 200) {
+        parsed.protocol !== 'https:' || title.length > 200) {
       input?.focus();
       return;
     }
@@ -60,7 +60,7 @@
     });
     const h = el('h2', 'Confirma tu solicitud');
     h.style.margin = '0 0 10px';
-    const summary = el('p', title + ' · Contacto WhatsApp: ' + phone);
+    const summary = el('p', (title || 'Vehículo pendiente de identificar') + ' · Contacto WhatsApp: ' + phone);
     summary.style.cssText = 'font-size:14px;line-height:1.5;overflow-wrap:anywhere';
     const hint = el('p', 'CarTrade registrará tu interés para dar seguimiento. Esto no inicia una solicitud bancaria ni garantiza disponibilidad del auto.');
     hint.style.cssText = 'font-size:13px;line-height:1.6;color:#60716a';
@@ -101,7 +101,7 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             request_id: requestId, buyer_contact: phone,
-            contact_channel: 'whatsapp', listing_url: url, car_name: title,
+            contact_channel: 'whatsapp', listing_url: url, car_name: title || null,
             price_usd: Number.isInteger(price) && price >= 500 ? price : null,
             country: country, source: 'paste_link', consent_to_contact: true
           })
