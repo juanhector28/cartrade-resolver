@@ -5,6 +5,7 @@ All requests are local or mocked; no real buyer is contacted or saved.
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -12,6 +13,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.build_link_first_netlify import build
 
 SAMPLE = "https://www.facebook.com/marketplace/item/789123456/?ref=share"
