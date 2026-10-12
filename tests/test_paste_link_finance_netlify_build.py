@@ -1,7 +1,7 @@
 """Netlify preview build must be additive and reject duplicate insertion."""
 from pathlib import Path
 import pytest
-from scripts.build_cartrade_netlify_preview import integrate, integrate_lead_capture, MARKER, LEAD_GATE_MARKER
+from scripts.build_cartrade_netlify_preview import integrate, integrate_lead_capture, integrate_link_first, MARKER, LEAD_GATE_MARKER, LINK_FIRST_MARKER
 
 
 def test_finance_preview_integration_preserves_original_html():
@@ -46,3 +46,26 @@ def test_buyer_gate_requires_explicit_receipt_and_removes_silent_capture():
 def test_buyer_gate_fails_without_known_legacy_capture():
     with pytest.raises(ValueError):
         integrate_lead_capture('<html><body></body></html>', 'console.log("gate")')
+
+
+def test_link_first_entry_is_additive_and_independent_of_scrapers():
+    base = '<html><body><div id="lp9"><input id="heroInput"></div></body></html>'
+    module = '(function(){window.CT_LINK_FIRST_INSTALLED=true})()'
+    out = integrate_link_first(base, module)
+    assert LINK_FIRST_MARKER in out
+    assert out.startswith(base.split('</body>')[0])
+    assert out.endswith('</body></html>')
+    assert 'window.CT_LINK_FIRST_INSTALLED' in out
+    with pytest.raises(ValueError):
+        integrate_link_first(out, module)
+
+
+def test_link_first_module_has_no_scraper_dependency():
+    script = Path('assets/cartrade_link_first_request.js').read_text()
+    assert 'ct-link-first-start' in script
+    assert 'ct-link-first-consent' in script
+    assert '/buyer-intents' in script
+    assert 'window.CT_LINK_FIRST_RECEIPT' in script
+    assert 'resolve-link' not in script
+    assert 'innerHTML' not in script
+    assert '</script>' not in script.lower()
