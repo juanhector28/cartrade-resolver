@@ -5,6 +5,8 @@ on:
       - .github/workflows/buyer-ops-staging-smoke.yml
       - app/buyer_ops_demo.py
       - app/paste_link_staging.py
+      - app/paste_link_manual_fallback.py
+      - scripts/paste_link_manual_fallback_browser_e2e.py
       - app/buyer_ops_page.py
       - scripts/buyer_ops_auth_browser_e2e.py
   workflow_dispatch:
@@ -98,3 +100,5 @@ jobs:
           PY
       - name: Verify operator OTP and private dashboard browser flow with synthetic credentials
         run: python scripts/buyer_ops_auth_browser_e2e.py
+      - name: Offline browser test for unsupported vehicle URLs and manual fallback
+        run: python scripts/paste_link_manual_fallback_browser_e2e.py
