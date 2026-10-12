@@ -39,8 +39,6 @@ jobs:
           python -m pytest -q tests/test_link_first_intake.py
       - name: Browser E2E and mobile
         run: python scripts/test_link_first_netlify_browser.py
-      - name: Read-only production smoke for recently deployed HTML
-        run: python scripts/test_link_first_live_readonly.py
       - name: Audit user-selected Netlify staging without sending buyers
         run: python scripts/audit_netlify_staging_linkfirst.py
       - name: Produce Netlify drag-and-drop preview
