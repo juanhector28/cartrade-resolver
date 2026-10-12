@@ -138,3 +138,19 @@ def test_storage_failure_never_acknowledged(monkeypatch):
     result = client.post("/buyer-intents", json=payload(), headers={"origin": FAKE_SITE})
     assert result.status_code == 503
     assert "Sensitive database error" not in result.text
+
+
+def test_default_staging_origin_is_not_production(monkeypatch):
+    db = FakeDB()
+    client = build(monkeypatch, db=db)
+    monkeypatch.delenv("LINK_FIRST_ALLOWED_ORIGINS", raising=False)
+    accepted = client.post(
+        "/buyer-intents", json=payload(),
+        headers={"origin": "https://bright-dragon-cd29a3.netlify.app"},
+    )
+    assert accepted.status_code == 201
+    denied = client.post(
+        "/buyer-intents", json=payload(),
+        headers={"origin": "https://cartrade.live"},
+    )
+    assert denied.status_code == 403
