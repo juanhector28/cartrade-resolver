@@ -52,17 +52,39 @@ def integrate_lead_capture(html: str, module: str) -> str:
     return html[:closing] + snippet + html[closing:]
 
 
+LINK_FIRST_MARKER = 'id="ct-link-first-entry-script"'
+
+
+def integrate_link_first(html: str, module: str) -> str:
+    """Add a buyer-request CTA directly to the hero link tab, no scraper needed."""
+    if LINK_FIRST_MARKER in html:
+        raise ValueError("Link-first buyer request already included")
+    if "</script>" in module.lower():
+        raise ValueError("Unsafe closing script sequence")
+    if 'id="heroInput"' not in html or 'id="lp9"' not in html:
+        raise ValueError("Expected original CarTrade hero")
+    close = html.lower().rfind("</body>")
+    if close == -1:
+        raise ValueError("Missing closing body")
+    addition = '\n<!-- Link-first buyer request. Requires active, authorized backend. -->\n'
+    addition += '<script ' + LINK_FIRST_MARKER + '>\n' + module + '\n</script>\n'
+    return html[:close] + addition + html[close:]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--html", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--module", default="assets/cartrade_finance_handoff_preview.js", type=Path)
     parser.add_argument("--buyer-module", default="assets/cartrade_buyer_intent_submit.js", type=Path)
+    parser.add_argument("--link-first-module", default="assets/cartrade_link_first_request.js", type=Path)
     args = parser.parse_args()
     html = args.html.read_text(encoding="utf-8")
     module = args.module.read_text(encoding="utf-8")
     buyer_module = args.buyer_module.read_text(encoding="utf-8")
-    args.out.write_text(integrate_lead_capture(integrate(html, module), buyer_module), encoding="utf-8")
+    link_first_module = args.link_first_module.read_text(encoding="utf-8")
+    result = integrate_lead_capture(integrate(html, module), buyer_module)
+    args.out.write_text(integrate_link_first(result, link_first_module), encoding="utf-8")
     print(f"Created {args.out} ({args.out.stat().st_size} bytes), no deployment performed")
 
 
