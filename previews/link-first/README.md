@@ -8,6 +8,29 @@ coverage or the internal operator inbox.
 **UX:** paste link → WhatsApp → explicit opt-in → receipt only after successful
 server storage. Title, price, year and photos are NEVER mandatory.
 
+## Supabase connected synthetic test (2026-10-12)
+
+The standalone `staging-supabase.html` is a single HTML with an inlined
+link-first UI and a public Supabase anon JWT. The **service-role key is not in
+the HTML**. It calls the deployed Supabase Edge Function
+`cartrade-link-first-staging-probe`, which requires JWT and allows only
+`https://bright-dragon-cd29a3.netlify.app` as its Origin. The function
+accepts a *fixed* synthetic URL, a fixed synthetic request ID, and a boolean
+test consent. It never sends or saves the buyer's typed WhatsApp or URL.
+The SQL table admits at most one immutable synthetic row; RLS denies
+public read/write. The real `buyer_intents` table is unchanged.
+
+Deploy this file into the existing **staging** Netlify site as `index.html`
+to test browser → Supabase. Until then, the published staging page is still
+the older demo. Run `scripts/test_link_first_supabase_probe.py` and
+`scripts/test_link_first_supabase_browser.py` in GitHub Actions to verify
+JWT, CORS, fake-only receipts and failure modes without sending real contacts.
+
+**Not ready for real buyers.** Enabling collection requires a *separate*
+protected endpoint with verified Turnstile/anti-bot challenges, rate limits,
+privacy/retention disclosures, access controls, and an explicit activation
+review. Do not copy this demo's synthetic response into real confirmation.
+
 ## Selected staging site (2026-10-12)
 
 [https://bright-dragon-cd29a3.netlify.app/](https://bright-dragon-cd29a3.netlify.app/)
