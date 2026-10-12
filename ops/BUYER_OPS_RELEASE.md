@@ -37,3 +37,47 @@
 
 ## Supabase: esquema ya provisionado (2026-10-12)
 Proyecto de CarTrade existente: tablas `buyer_intents` y `buyer_ops_staff` creadas mediante migraciones no destructivas. Ambas tienen RLS activo, cero políticas de lectura pública y `anon`/`authenticated` sin SELECT. Filas iniciales: cero. No se concedió autorización a ningún operador.
+
+## Alta segura del primer operador (pendiente de correo autorizado)
+
+El enrolamiento **no debe inventar correos ni IDs**, ni conceder permisos automáticos.
+Hasta recibir el correo del primer operador y su confirmación expresa, dejar
+`buyer_ops_staff` con 0 filas y `BUYER_OPS_ENABLED=0`.
+
+1. En el proyecto Supabase **existente**, confirmar el correo que tendrá acceso.
+2. Dar de alta o invitar ese correo en **Authentication > Users**. La persona debe
+   verificar su correo; el código temporal solo funcionará con una cuenta Auth real.
+3. Preparar la membresía inicialmente **inactiva** mediante una consulta
+   parametrizada del servidor o el siguiente bloque en el editor SQL, sustituyendo
+   el marcador antes de ejecutar:
+
+```sql
+insert into public.buyer_ops_staff (user_id, email, role, active)
+select id, lower(email), 'admin', false
+from auth.users
+where lower(email) = lower('<EMAIL_DE_OPERADOR_AUTORIZADO>')
+  and email_confirmed_at is not null
+on conflict (user_id) do update
+set email = excluded.email, active = false;
+```
+
+4. Revisar que la plantilla de correo de Supabase Auth para OTP contiene
+   `{{ .Token }}`, no únicamente el enlace de confirmación, y probar la entrega
+   al correo **del operador**. Sin esa configuración, un formulario de seis
+   dígitos puede quedar sin un código utilizable.
+5. Solo después de comprobar la identidad, cambiar `active = true` para
+   esa fila individual. Usar un entorno de prueba y credenciales Supabase
+   `sb_publishable_...` para el cliente público; la service-role key permanece
+   exclusivamente del lado servidor.
+6. Validar primer login con un código real, token expirado, reintentos,
+   revocación al cambiar `active=false` y cierre de sesión. Definir un proceso
+   para revocar sesiones ya emitidas y auditar cambios de estado.
+
+**Nota**: la vista en `cartrade-paste-link-staging.onrender.com/ops/solicitudes`
+es una demostración pública con datos ficticios. **No** pide un código real.
+Su operación está separada de la futura API privada.
+
+Prueba de navegador local con Auth simulado:
+`scripts/buyer_ops_auth_browser_e2e.py`. El workflow
+`.github/workflows/buyer-ops-staging-smoke.yml` ejecuta esa prueba sin enviar
+correos ni solicitudes reales.
