@@ -8,6 +8,7 @@ on:
       - "scripts/build_link_first_netlify.py"
       - "scripts/test_link_first_netlify_browser.py"
       - "scripts/test_link_first_live_readonly.py"
+      - "scripts/audit_netlify_staging_linkfirst.py"
       - "tests/test_link_first_intake.py"
       - ".github/workflows/link-first-preview.yml"
   workflow_dispatch:
@@ -40,11 +41,20 @@ jobs:
         run: python scripts/test_link_first_netlify_browser.py
       - name: Read-only production smoke for recently deployed HTML
         run: python scripts/test_link_first_live_readonly.py
+      - name: Audit user-selected Netlify staging without sending buyers
+        run: python scripts/audit_netlify_staging_linkfirst.py
       - name: Produce Netlify drag-and-drop preview
         run: |
           python scripts/build_link_first_netlify.py --out dist/netlify-preview
           cd dist/netlify-preview
           zip -q -r ../CarTrade_LinkFirst_Netlify_Preview.zip .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CarTrade_Netlify_Staging_Audit
+          path: /tmp/cartrade_staging_site_audit.json
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
         with:
