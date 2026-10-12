@@ -58,3 +58,38 @@ jobs:
               assert e.code == 404, f"Unexpected status {e.code}"
           print("PASS: staging preview 200, fake data only, no private buyer API")
           PY
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser test dependencies
+        run: |
+          python -m pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - name: Browser UI test: only mock data, client-only status update
+        run: |
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+          url = "https://cartrade-paste-link-staging.onrender.com/ops/solicitudes"
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+              page = browser.new_page(viewport={"width": 1200, "height": 900})
+              writes = []
+              page.on("request", lambda r: writes.append((r.method, r.url)) if r.method in ("POST", "PATCH", "PUT", "DELETE") else None)
+              page.goto(url, wait_until="domcontentloaded", timeout=90000)
+              page.locator("#rows tr").first.wait_for(state="visible", timeout=20000)
+              assert page.locator("#rows tr").count() == 3
+              assert "DATOS FICTICIOS" in page.locator("body").inner_text()
+              assert page.locator("#login").is_hidden()
+              assert page.locator("#app").is_visible()
+              first = page.locator("#rows tr").first
+              assert first.locator("select").input_value() == "received"
+              first.locator("select").select_option("in_review")
+              assert first.locator("select").input_value() == "in_review"
+              assert not writes, f"No server writes permitted in demo: {writes}"
+              page.reload(wait_until="domcontentloaded")
+              page.locator("#rows tr").first.wait_for(state="visible", timeout=20000)
+              assert page.locator("#rows tr").first.locator("select").input_value() == "received"
+              browser.close()
+          print("PASS: 3 fake rows; status UI works; reload resets; 0 remote writes")
+          PY
