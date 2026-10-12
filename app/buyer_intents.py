@@ -74,7 +74,7 @@ async def create_buyer_intent(body: BuyerIntentRequest, request: Request):
         "status": "received",
     }
     try:
-        database.table(table).upsert(row, on_conflict="request_id").execute()
+        database.table(table).upsert(row, on_conflict="request_id", ignore_duplicates=True).execute()
     except Exception:
         # Never log private contact information or return database error text.
         raise HTTPException(503, "No se pudo registrar la solicitud. Inténtalo otra vez")
