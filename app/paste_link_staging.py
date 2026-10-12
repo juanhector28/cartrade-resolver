@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from . import platforms
+from .social_intake import social_platform, capture_reference
 from .paste_link_source_registry import SOURCES, public_status, source_for_url
 from .paste_link_readiness import get_readiness
 from .resolvers import fallback
@@ -32,6 +33,7 @@ _limits: dict[str, deque] = defaultdict(deque)
 
 class ResolveBody(BaseModel):
     url: str
+    country: str | None = None
 
 
 def is_pilot_listing(url: str) -> bool:
@@ -93,6 +95,11 @@ async def resolve(body: ResolveBody, request: Request, response: Response):
     # Asking prices are source observations and must never be cached by clients.
     response.headers["Cache-Control"] = "no-store, max-age=0"
     url = body.url.strip()
+    if social_platform(url):
+        ip = request.client.host if request.client else "unrecognized"
+        if not rate_check(ip):
+            raise HTTPException(429, "Límite de pruebas por hora alcanzado.")
+        return await capture_reference(url, body.country)
     source = source_for_url(url)
     if not source:
         raise HTTPException(status_code=400, detail="Enlace no habilitado o no corresponde a un anuncio individual de una fuente en pruebas.")
@@ -169,9 +176,10 @@ input{border:0;outline:0;min-width:0;flex:1;padding:13px;font-size:15px}button{b
 </head>
 <body><div class="shell"><header class="header"><div class="brand">carly<span style="color:#42896b">.</span></div><div class="tag">Entorno de pruebas</div></header>
 <h1>¿Ya viste un carro?<br>Pega el link.</h1>
-<p class="sub">Probamos la extracción automática de precio, fotografía y características de anuncios de <strong>sitios participantes en nuestro entorno de pruebas</strong>. Sin guardar vehículos ni modificar la plataforma principal.</p>
+<p class="sub">Probamos la extracción automática de precio, fotografía y características de anuncios de <strong>sitios participantes en nuestro entorno de pruebas</strong>. Los enlaces sociales se reciben como candidatos pendientes de revisión.</p>
 <form class="form" id="form"><input id="url" aria-label="URL del anuncio" type="url" required placeholder="Pega el enlace de un vehículo..." autocomplete="url">
-<button id="send" type="submit">Analizar enlace</button></form>
+<select id="country" aria-label="País del vehículo"><option value="SV">El Salvador</option><option value="GT">Guatemala</option></select>
+<button id="send" type="submit">Continuar</button></form>
 <p class="note">Entorno multisitio: cada fuente tiene reglas individuales. Una muestra exitosa no certifica todos los anuncios ni autoriza reutilizar contenido. La fotografía se verifica directamente en tu navegador.</p>
 <div id="coverage" class="coverage" aria-live="polite">Verificando el registro de pruebas…</div>
 <div id="sources" class="sources" aria-label="Fuentes en pruebas"></div>
@@ -206,9 +214,14 @@ $("form").addEventListener("submit",async e=>{
  e.preventDefault();$("send").disabled=true;$("card").style.display="none";
  $("status").className="status";$("status").textContent="Consultando el anuncio…";
  try{
-  const r=await fetch("/api/resolve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:$("url").value})});
+  const r=await fetch("/api/resolve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:$("url").value,country:$("country").value})});
   const d=await r.json();
   if(!r.ok)throw new Error(d.detail||"No se pudo recuperar el anuncio");
+  if(d.candidate_saved === true && typeof d.candidate_id === "string" && d.candidate_id){
+   $("status").textContent="Recibimos el enlace. Nos encargamos del resto.";
+   return;
+  }
+  if(d.status === "pending_review")throw new Error("No se pudo confirmar la recepción del enlace.");
   $("title").textContent=d.title;
   $("price").textContent=Number(d.price_usd).toLocaleString("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0});
   $("year").textContent=d.year?"Año · "+d.year:"Año no disponible";
@@ -245,3 +258,4 @@ def buyer_ops_demo():
 @app.get("/", response_class=HTMLResponse)
 def home():
     return STAGING_PAGE
+

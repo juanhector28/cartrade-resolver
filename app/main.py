@@ -34,6 +34,7 @@ from selectolax.parser import HTMLParser
 from supabase import create_client
 
 from . import cache, rate_limit, platforms
+from .social_intake import social_platform, capture_reference
 from .buyer_intents import router as buyer_intents_router
 from .buyer_ops import router as buyer_ops_router
 from .resolvers import encuentra24, olx, facebook, mercadolibre, fallback
@@ -1257,6 +1258,10 @@ async def resolve_link(body: ResolveRequest, request: Request):
     request_host = (urlparse(url).hostname or "").lower().removeprefix("www.")
     if request_host in disabled_sources:
         raise HTTPException(status_code=503, detail="Esta fuente está temporalmente deshabilitada. Intenta más tarde.")
+
+    # Social posts enter Atlas's candidate queue without invoking a scraper.
+    if social_platform(url):
+        return await capture_reference(url, body.country)
 
     if not platforms.is_allowed(url):
         raise HTTPException(status_code=400, detail="URL is not from a supported listing platform.")
