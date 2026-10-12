@@ -1,0 +1,12 @@
+# Deployment template only. Do not commit real credentials.
+# Obtain SUPABASE_URL and a non-secret sb_publishable_... key from the approved Supabase project.
+# The existing Supabase service-role key stays server-side only.
+SUPABASE_PUBLISHABLE_KEY=
+BUYER_INTENTS_TABLE=buyer_intents
+BUYER_OPS_STAFF_TABLE=buyer_ops_staff
+BUYER_INTENTS_ORIGINS=https://cartrade.live,https://www.cartrade.live
+
+# Remain OFF until staff enrollment, verified email OTP, privacy/retention,
+# anti-bot, monitoring, staged E2E, and the explicit release decision.
+BUYER_INTENTS_ENABLED=0
+BUYER_OPS_ENABLED=0
