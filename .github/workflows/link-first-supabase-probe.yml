@@ -1,0 +1,27 @@
+name: CarTrade Supabase Synthetic Staging Proof
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/cartrade-link-first-netlify-preview-20261012
+    paths:
+      - "previews/link-first/staging-supabase.html"
+      - "scripts/test_link_first_supabase_probe.py"
+      - ".github/workflows/link-first-supabase-probe.yml"
+  pull_request:
+    paths:
+      - "previews/link-first/staging-supabase.html"
+      - "scripts/test_link_first_supabase_probe.py"
+      - ".github/workflows/link-first-supabase-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  safe-synthetic-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test live Supabase Edge Function with synthetic, immutable test record
+        run: python scripts/test_link_first_supabase_probe.py
