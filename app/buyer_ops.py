@@ -32,6 +32,20 @@ class OperatorVerifyCode(OperatorEmail):
     code: str = Field(min_length=6, max_length=12)
 
 
+def _auth_client():
+    """Use a fresh low-privilege Auth client, never the shared service-role client.
+
+    OTP verification can mutate Auth client session state. Isolating that state
+    prevents one operator's token from becoming the server's global DB identity.
+    """
+    url = os.environ.get("SUPABASE_URL", "")
+    public_key = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "")
+    if not url.startswith("https://") or not public_key:
+        raise HTTPException(status_code=503, detail="Acceso de operadores no configurado")
+    from supabase import create_client
+    return create_client(url, public_key)
+
+
 def _normalize_email(raw: str) -> str:
     email = raw.strip().lower()
     if not re.fullmatch(r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}", email):
@@ -89,7 +103,7 @@ def _authorize(request: Request, authorization: str | None):
     # Supabase Auth verifies the JWT remotely. A signature-looking token is
     # never enough to authorize access. Then verify individual staff membership.
     try:
-        auth_result = database.auth.get_user(token)
+        auth_result = _auth_client().auth.get_user(token)
         user = auth_result.user
         if user is None or not user.id or not user.email:
             raise ValueError("Missing Auth identity")
@@ -118,7 +132,7 @@ async def operator_start(body: OperatorEmail, request: Request):
             .eq("email", email).eq("active", True).limit(1).execute().data
         ) or []
         if staff:
-            database.auth.sign_in_with_otp({
+            _auth_client().auth.sign_in_with_otp({
                 "email": email,
                 "options": {"should_create_user": False}
             })
@@ -136,7 +150,7 @@ async def operator_verify(body: OperatorVerifyCode, request: Request):
     _auth_rate_limit(request, "buyer-ops-verify")
     email = _normalize_email(body.email)
     try:
-        auth_result = database.auth.verify_otp({
+        auth_result = _auth_client().auth.verify_otp({
             "email": email, "token": body.code.strip(), "type": "email"
         })
         user = auth_result.user
