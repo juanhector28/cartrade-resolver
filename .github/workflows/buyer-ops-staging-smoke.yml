@@ -100,5 +100,17 @@ jobs:
           PY
       - name: Verify operator OTP and private dashboard browser flow with synthetic credentials
         run: python scripts/buyer_ops_auth_browser_e2e.py
+      - name: Confirm manual fallback is published in Carly staging
+        run: |
+          python - <<'PY'
+          from urllib.request import Request, urlopen
+          url = "https://cartrade-paste-link-staging.onrender.com/"
+          with urlopen(Request(url, headers={"User-Agent":"CarTrade-Stage-Manual-Fallback-Smoke/1.0"}),timeout=45) as r:
+              assert r.status == 200
+              body = r.read().decode("utf-8")
+          for expected in ('id="manual-helper"', 'Datos ingresados por ti', 'window.CT_manualFallback.show', 'window.CT_manualFallback.reset'):
+              assert expected in body, "Missing deployed feature marker: " + expected
+          print("PASS: live staging contains manual recovery UI and unverified provenance")
+          PY
       - name: Offline browser test for unsupported vehicle URLs and manual fallback
         run: python scripts/paste_link_manual_fallback_browser_e2e.py
