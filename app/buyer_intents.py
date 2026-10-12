@@ -1,4 +1,4 @@
-"""Opt-in buyer-intent intake. Disabled until an isolated lead table is provisioned.
+"""Opt-in link-first buyer-intent intake. Disabled until all release gates pass.
 
 This is not a loan application, credit decision, seller notification or Atlas import.
 """
@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import os
 import re
+import ipaddress
+from urllib.parse import urlsplit
 from typing import Literal
 from uuid import UUID
 
@@ -13,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl
 
-from . import platforms, rate_limit
+from . import rate_limit
 
 router = APIRouter()
 
@@ -23,11 +25,42 @@ class BuyerIntentRequest(BaseModel):
     buyer_contact: str = Field(min_length=8, max_length=25)
     contact_channel: Literal["whatsapp"] = "whatsapp"
     listing_url: HttpUrl
-    car_name: str = Field(min_length=2, max_length=200)
+    car_name: str | None = Field(default=None, min_length=2, max_length=200)
     price_usd: int | None = Field(default=None, ge=500, le=200000)
     country: Literal["sv", "gt", "cr", "hn", "ni", "pa"] = "sv"
     source: Literal["paste_link"] = "paste_link"
     consent_to_contact: Literal[True]
+
+
+def validate_intent_link(value: str) -> str:
+    """Validate a user-provided link without fetching or indexing its destination.
+
+    URLs are untrusted, especially when viewed later by an operator. This is an
+    intake-only feature and does not grant robots, scraping or photo permissions.
+    """
+    if len(value) > 2048:
+        raise HTTPException(422, "El enlace es demasiado largo")
+    try:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if (
+            parsed.scheme != "https" or not host or parsed.port is not None
+            or parsed.username is not None or parsed.password is not None
+            or len(host) > 253
+            or host in {"localhost", "local", "internal"}
+            or host.endswith((".localhost", ".local", ".internal"))
+            or "." not in host
+        ):
+            raise ValueError("unsafe URL")
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("IP-literal URL")
+    except (ValueError, TypeError):
+        raise HTTPException(422, "Introduce un enlace HTTPS público válido")
+    return value
 
 
 @router.post("/buyer-intents", status_code=201)
@@ -47,9 +80,7 @@ async def create_buyer_intent(body: BuyerIntentRequest, request: Request):
     if request.headers.get("origin") not in origins:
         raise HTTPException(403, "Origen no permitido")
 
-    url = str(body.listing_url)
-    if not platforms.is_allowed(url) or not platforms.is_listing_url(url):
-        raise HTTPException(422, "El enlace debe corresponder a un anuncio admitido")
+    url = validate_intent_link(str(body.listing_url))
 
     phone = re.sub(r"\D", "", body.buyer_contact)
     if not 8 <= len(phone) <= 15:
@@ -66,7 +97,7 @@ async def create_buyer_intent(body: BuyerIntentRequest, request: Request):
         "buyer_contact": phone,
         "contact_channel": "whatsapp",
         "listing_url": url,
-        "car_name": body.car_name.strip(),
+        "car_name": body.car_name.strip() if body.car_name else "Vehículo pendiente de identificar",
         "price_usd": body.price_usd,
         "country": body.country,
         "source": "paste_link",
