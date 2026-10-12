@@ -8,6 +8,23 @@ coverage or the internal operator inbox.
 **UX:** paste link → WhatsApp → explicit opt-in → receipt only after successful
 server storage. Title, price, year and photos are NEVER mandatory.
 
+## Selected staging site (2026-10-12)
+
+[https://bright-dragon-cd29a3.netlify.app/](https://bright-dragon-cd29a3.netlify.app/)
+
+This is the user's approved **Netlify staging hostname**, not the production
+`cartrade.live`. The site has been checked in desktop and mobile Chromium:
+it serves the self-contained link-first demo and accepts no buyer submissions.
+
+The backend's *default* `LINK_FIRST_ALLOWED_ORIGINS` is restricted to this
+staging domain. Its feature flag `LINK_FIRST_INTAKE_ENABLED` remains OFF,
+it is not mounted to a public production app, and Netlify's current HTML
+still explicitly sets `CT_LINK_FIRST_DEMO=true`.
+
+Do not remove the demo flag until the private backend, anti-bot checks,
+consent/retention policy and controlled release have been reviewed.
+No Netlify dashboard write or site redeploy is performed by the code changes.
+
 ## What's actually in this PR?
 - `previews/link-first/index.html`: standalone CarTrade landing, one clear CTA,
   **hardcoded demo mode**. No backend traffic or recording of entered phone
