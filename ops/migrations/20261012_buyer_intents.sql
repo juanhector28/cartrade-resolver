@@ -17,6 +17,7 @@ create table if not exists public.buyer_intents (
 
 create index if not exists buyer_intents_created_at_idx on public.buyer_intents (created_at desc);
 alter table public.buyer_intents enable row level security;
-revoke all on table public.buyer_intents from anon, authenticated;
+revoke all on table public.buyer_intents from public, anon, authenticated;
+grant select, insert, update, delete on table public.buyer_intents to service_role;
 -- No public RLS policies. Supabase service_role has bypass RLS.
 -- Configure retention/deletion workflow and privacy disclosures before enabling intake.
