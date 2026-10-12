@@ -230,6 +230,11 @@ $("form").addEventListener("submit",async e=>{
 </script></body></html>"""
 
 
+from .paste_link_manual_fallback import attach_manual_fallback
+
+STAGING_PAGE = attach_manual_fallback(STAGING_PAGE)
+
+
 @app.get("/ops/solicitudes", response_class=HTMLResponse)
 def buyer_ops_demo():
     # Fictitious records only, never connects to Supabase or real operator tokens.
