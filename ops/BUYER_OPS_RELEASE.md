@@ -81,3 +81,52 @@ Prueba de navegador local con Auth simulado:
 `scripts/buyer_ops_auth_browser_e2e.py`. El workflow
 `.github/workflows/buyer-ops-staging-smoke.yml` ejecuta esa prueba sin enviar
 correos ni solicitudes reales.
+
+## Autorización pendiente y activación controlada
+
+Existe una tabla privada `buyer_ops_enrollments`, para reservar administradores por
+correo **sin** concederles acceso. Una fila `pending_auth` no es una cuenta de
+Supabase Auth y no permite leer contactos. Los correos reales se guardan solo
+en Supabase privado, no en el repositorio público.
+
+**Si el correo preautorizado aún no aparece en `auth.users`:** en
+[Supabase Authentication > Users](https://supabase.com/dashboard/project/irnxvajksefkhllceazs/auth/users),
+seleccionar **Invite user** e introducir el correo autorizado. Solo quien recibe
+el mensaje de invitación podrá completar la validación. No insertar identidades
+manualmente en `auth.users` ni inventar UUID.
+
+Después de confirmar su correo, ejecutar de forma explícita y supervisada el
+siguiente SQL en el editor del proyecto, sustituyendo el marcador. La operación
+solo permite activar una cuenta **previamente autorizada** y confirmada:
+
+```sql
+begin;
+do $$
+declare
+    target_email text := lower(trim('<EMAIL_PREAUTORIZADO>'));
+    target_user_id uuid;
+    approved_role text;
+begin
+    select u.id, e.role into target_user_id, approved_role
+    from public.buyer_ops_enrollments e
+    join auth.users u on lower(u.email) = e.email
+    where e.email = target_email
+      and e.status = 'pending_auth'
+      and u.email_confirmed_at is not null;
+    if target_user_id is null then
+        raise exception 'No confirmed Supabase Auth identity with pending approval';
+    end if;
+    insert into public.buyer_ops_staff(user_id,email,role,active)
+    values (target_user_id,target_email,approved_role,true)
+    on conflict (user_id) do update set
+        email=excluded.email,role=excluded.role,active=true;
+    update public.buyer_ops_enrollments
+    set status='active',activated_at=now(),auth_user_id=target_user_id
+    where email=target_email and status='pending_auth';
+end $$;
+commit;
+```
+
+El primer acceso **real** requiere además que el backend privado esté desplegado
+y que `BUYER_OPS_ENABLED=1` se active solo después de pasar las revisiones de
+seguridad y privacidad. El staging actual sigue siendo exclusivamente una demo.
