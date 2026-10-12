@@ -6,7 +6,11 @@ production customers, OTP delivery, or the live buyer-intent write path.
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 from urllib.parse import urlsplit
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from playwright.sync_api import sync_playwright
 from app.buyer_ops_page import PAGE
