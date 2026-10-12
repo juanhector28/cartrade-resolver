@@ -32,7 +32,9 @@ def run():
 
         def route_request(route):
             req = route.request
-            if req.url.endswith("/buyer-intents") and req.method == "POST":
+            if req.url == "https://cartrade-link-first.invalid/" and req.method == "GET":
+                route.fulfill(status=200, content_type="text/html", body=FIXTURE)
+            elif req.url.endswith("/buyer-intents") and req.method == "POST":
                 data = json.loads(req.post_data or "{}")
                 seen.append(data)
                 if state["success"]:
@@ -46,7 +48,7 @@ def run():
                 raise AssertionError("Unexpected remote request: " + req.method + " " + req.url)
 
         page.route("**/*", route_request)
-        page.set_content(FIXTURE)
+        page.goto("https://cartrade-link-first.invalid/", wait_until="domcontentloaded")
         page.evaluate("window.CARTRADE_API={base:'https://api.cartrade.invalid'}")
         page.add_script_tag(path=str(JS))
         assert page.locator("#ct-link-first-start").is_visible()
