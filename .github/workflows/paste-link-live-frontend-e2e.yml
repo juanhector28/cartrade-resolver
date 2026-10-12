@@ -5,6 +5,7 @@ on:
     paths:
       - scripts/paste_link_live_frontend_e2e.py
       - assets/cartrade_finance_handoff_preview.js
+      - assets/cartrade_buyer_intent_submit.js
       - .github/workflows/paste-link-live-frontend-e2e.yml
 
 permissions:
