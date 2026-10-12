@@ -22,7 +22,7 @@ h1{font-size:30px;letter-spacing:-1px;margin:0 0 6px}
 h2{font-size:18px;margin:0 0 16px}
 label{font-size:13px;font-weight:600;display:block}
 input,select,button{font:inherit}
-input[type=password]{display:block;width:100%;padding:12px 14px;border:1px solid #d2dfd7;border-radius:9px;margin:8px 0 16px;font-size:14px}
+input[type=password],input[type=email],input[type=text]{display:block;width:100%;padding:12px 14px;border:1px solid #d2dfd7;border-radius:9px;margin:8px 0 16px;font-size:14px}
 button{border-radius:9px;padding:10px 15px;background:#277853;border:0;color:#fff;font-size:13px;font-weight:700;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
 button.secondary{background:white;color:#315c46;border:1px solid #d5e4d9}
@@ -50,12 +50,19 @@ td select{padding:8px;border:1px solid #d8e4dc;border-radius:8px;background:whit
   <h1>Acceso privado</h1>
   <p class="sub">Bandeja de solicitudes de compradores</p>
   <form id="login-form">
-    <label for="token">Clave de acceso del operador</label>
-    <input id="token" type="password" required minlength="32" autocomplete="off" spellcheck="false">
-    <button type="submit">Ingresar a Solicitudes</button>
-    <p id="login-error" role="alert" class="error"></p>
+    <label for="email">Correo de operador autorizado</label>
+    <input id="email" type="email" required autocomplete="email" spellcheck="false" maxlength="254">
+    <button type="submit">Enviar código de acceso</button>
   </form>
-  <p class="note">La clave se mantiene únicamente en la memoria de esta pestaña. No se almacena en el navegador.</p>
+  <form id="verify-form" hidden>
+    <p class="sub">Revisa tu correo e introduce el código de acceso.</p>
+    <label for="code">Código temporal</label>
+    <input id="code" type="text" required inputmode="numeric" pattern="[0-9]{6,12}" autocomplete="one-time-code" minlength="6" maxlength="12">
+    <button type="submit">Ingresar a Solicitudes</button>
+    <button type="button" class="secondary" id="back">Cambiar correo</button>
+  </form>
+  <p id="login-error" role="alert" class="error"></p>
+  <p class="note">El acceso requiere una cuenta de operador habilitada. La sesión solo permanece en memoria; cerrar la pestaña la finaliza.</p>
 </section>
 <section id="app" hidden>
   <div class="actions">
@@ -82,6 +89,7 @@ td select{padding:8px;border:1px solid #d8e4dc;border-radius:8px;background:whit
 (function(){
   'use strict';
   var token = '';
+  var operatorEmail = '';
   var offset = 0;
   var PAGE_SIZE = 50;
   var statuses = [['received','Nueva'],['in_review','En gestión'],['contacted','Contactado'],['closed','Cerrada']];
@@ -175,14 +183,38 @@ td select{padding:8px;border:1px solid #d8e4dc;border-radius:8px;background:whit
     }finally{$('refresh').disabled=false;}
   }
   function logout(){
-    token='';offset=0;$('rows').replaceChildren();$('token').value='';
+    token='';operatorEmail='';offset=0;$('rows').replaceChildren();
+    $('email').value='';$('code').value='';
+    $('verify-form').hidden=true;$('login-form').hidden=false;
     $('app').hidden=true;$('login').hidden=false;
   }
   $('login-form').addEventListener('submit',async function(e){
-    e.preventDefault();token=$('token').value.trim();$('login-error').textContent='';
+    e.preventDefault();
+    operatorEmail=$('email').value.trim().toLowerCase();
+    $('login-error').textContent='';
     try{
-      await load(true);$('token').value='';$('login').hidden=true;$('app').hidden=false;
-    }catch(error){$('login-error').textContent=statusMessage(error);token='';}
+      await api('/ops/auth/start',{method:'POST',body:{email:operatorEmail}});
+      $('login-form').hidden=true;$('verify-form').hidden=false;
+      $('code').focus();
+    }catch(error){$('login-error').textContent=statusMessage(error);}
+  });
+  $('verify-form').addEventListener('submit',async function(e){
+    e.preventDefault();$('login-error').textContent='';
+    try{
+      var session=await api('/ops/auth/verify',{
+        method:'POST',body:{email:operatorEmail,code:$('code').value.trim()}
+      });
+      if(!session.access_token)throw Error('401');
+      token=session.access_token;
+      await load(true);
+      $('code').value='';$('login').hidden=true;$('app').hidden=false;
+    }catch(error){
+      $('login-error').textContent=statusMessage(error);token='';
+    }
+  });
+  $('back').addEventListener('click',function(){
+    operatorEmail='';$('code').value='';$('verify-form').hidden=true;
+    $('login-form').hidden=false;$('login-error').textContent='';
   });
   $('logout').addEventListener('click',logout);
   $('refresh').addEventListener('click',function(){load(true).catch(function(){});});
