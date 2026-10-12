@@ -1,4 +1,5 @@
 """Buyer intake must require explicit consent, isolate PII and fail closed."""
+from contextlib import nullcontext
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -60,7 +61,7 @@ def setup(monkeypatch, db):
 
 def test_disabled_by_default(monkeypatch):
     monkeypatch.delenv("BUYER_INTENTS_ENABLED", raising=False)
-    with TestClient(app) as client:
+    with nullcontext(TestClient(app)) as client:
         assert client.post("/buyer-intents", json=make_payload(), headers=ORIGIN).status_code == 503
 
 
@@ -68,7 +69,7 @@ def test_captures_only_consent_based_buyer_request(monkeypatch):
     db = FakeDatabase()
     setup(monkeypatch, db)
     data = make_payload()
-    with TestClient(app) as client:
+    with nullcontext(TestClient(app)) as client:
         res = client.post("/buyer-intents", json=data, headers=ORIGIN)
     assert res.status_code == 201
     assert res.json() == {"status": "received", "request_id": data["request_id"]}
@@ -84,19 +85,19 @@ def test_without_consent_refused(monkeypatch):
     setup(monkeypatch, FakeDatabase())
     data = make_payload()
     data["consent_to_contact"] = False
-    with TestClient(app) as client:
+    with nullcontext(TestClient(app)) as client:
         assert client.post("/buyer-intents", json=data, headers=ORIGIN).status_code == 422
 
 
 def test_invalid_origin_refused(monkeypatch):
     setup(monkeypatch, FakeDatabase())
-    with TestClient(app) as client:
+    with nullcontext(TestClient(app)) as client:
         assert client.post("/buyer-intents", json=make_payload(), headers={"Origin": "https://evil.test"}).status_code == 403
 
 
 def test_no_false_success_on_database_failure(monkeypatch):
     setup(monkeypatch, FakeDatabase(fail=True))
-    with TestClient(app) as client:
+    with nullcontext(TestClient(app)) as client:
         res = client.post("/buyer-intents", json=make_payload(), headers=ORIGIN)
     assert res.status_code == 503
     assert "private db message" not in res.text
@@ -106,5 +107,5 @@ def test_unrecognized_listing_is_rejected(monkeypatch):
     setup(monkeypatch, FakeDatabase())
     data = make_payload()
     data["listing_url"] = "https://some-unknown-vendor.example/offer"
-    with TestClient(app) as client:
+    with nullcontext(TestClient(app)) as client:
         assert client.post("/buyer-intents", json=data, headers=ORIGIN).status_code == 422
