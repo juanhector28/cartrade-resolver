@@ -56,6 +56,23 @@ def run():
                 })
                 if details["start_button"] and details["hero_input"]:
                     details["start_visible"] = page.locator("#ct-link-first-start").is_visible()
+                    if details["demo_mode"]:
+                        page.locator("#heroInput").fill(
+                            "https://www.facebook.com/marketplace/item/123456789012345/"
+                        )
+                        page.locator("#ct-link-first-start").click()
+                        page.locator("#ct-link-first-dialog").wait_for(state="visible", timeout=7000)
+                        details["consent_required"] = page.locator("#ct-link-first-submit").is_disabled()
+                        page.locator("#ct-link-first-phone").fill("70000000")
+                        page.locator("#ct-link-first-consent").check()
+                        page.locator("#ct-link-first-submit").click()
+                        details["demo_ack"] = (
+                            "Vista previa completada" in
+                            page.locator("#ct-link-first-dialog").inner_text()
+                        )
+                        details["no_real_receipt"] = page.evaluate(
+                            "window.CT_LINK_FIRST_RECEIPT == null"
+                        )
                 results["checks"][key] = details
                 page.close()
             browser.close()
@@ -65,8 +82,16 @@ def run():
         results["fatal"] = f"{type(exc).__name__}: {str(exc)[:320]}"
     RESULT.write_text(json.dumps(results, indent=2, ensure_ascii=False))
     print("STAGING_AUDIT=" + json.dumps(results, ensure_ascii=False))
-    if results["fatal"] or not all(x.get("http_status")==200 for x in results["checks"].values()):
-        raise SystemExit("FAIL: Netlify staging website could not be verified")
+    if results["fatal"] or not all(
+        check.get("http_status")==200
+        and check.get("start_visible")
+        and check.get("demo_mode")
+        and check.get("consent_required")
+        and check.get("demo_ack")
+        and check.get("no_real_receipt")
+        for check in results["checks"].values()
+    ):
+        raise SystemExit("FAIL: Netlify staging demo, consent or safety gate failed")
     print("PASS: Netlify staging reachable on desktop + mobile, no mutations")
 
 
