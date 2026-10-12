@@ -6,9 +6,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-spec = importlib.util.spec_from_file_location("social_intake", Path(__file__).parents[1] / "app/social_intake.py")
-intake = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(intake)
+from app import social_intake as intake
 
 
 @pytest.mark.parametrize("url", ["https://instagram.com/p/abc", "https://vm.tiktok.com/abc", "https://facebook.com/story.php?story_fbid=1&id=2"])
