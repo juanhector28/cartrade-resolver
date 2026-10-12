@@ -33,7 +33,7 @@
     const input = document.getElementById('req-wa-input');
     const phone = String(input?.value || '').replace(/\D/g, '');
     const url = String(window.CT_LAST_URL || '');
-    const resolved = window.CT_RESOLVED || {};
+    const resolved = window.CT_RESOLVED || window.CT_FINANCE_RESOLVED || {};
     const title = String(field(resolved, 'title') || '').trim();
     let parsed;
     try { parsed = new URL(url); } catch (_) {}
