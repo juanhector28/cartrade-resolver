@@ -230,6 +230,13 @@ $("form").addEventListener("submit",async e=>{
 </script></body></html>"""
 
 
+@app.get("/ops/solicitudes", response_class=HTMLResponse)
+def buyer_ops_demo():
+    # Fictitious records only, never connects to Supabase or real operator tokens.
+    from .buyer_ops_demo import demo_response
+    return demo_response()
+
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     return STAGING_PAGE
