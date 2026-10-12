@@ -1,7 +1,8 @@
 """Private operational inbox for CarTrade buyer requests.
 
-Feature-off by default. Authentication uses an operator-issued, high-entropy
-bearer token whose SHA-256 hash is configured server-side. No public list route.
+Feature-off by default. Supabase Auth email OTP issues per-operator access
+sessions, which are separately checked against active private staff records.
+The HTML shell contains no customer records and the JSON API requires JWT.
 """
 from __future__ import annotations
 
