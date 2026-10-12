@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import HTTPException
+from .social_metadata import recover_metadata
 
 HOSTS = {
     "facebook": {"facebook.com", "www.facebook.com", "m.facebook.com", "fb.com", "www.fb.com", "fb.watch"},
@@ -40,11 +41,12 @@ async def capture_reference(url: str, country: str | None) -> dict:
         valid_base = False
     if not valid_base or not token:
         raise HTTPException(503, "La recepción de publicaciones sociales aún no está habilitada.")
+    metadata = await recover_metadata(url, platform)
     try:
         async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
             reply = await client.post(base + "/v1/social/ingest", headers={"X-Atlas-Token": token},
                                       json={"url": url, "country": country, "platform": platform,
-                                            "source_type": "user_contributed", "intake_channel": "carly_paste_link"})
+                                            "source_type": "user_contributed", "intake_channel": "carly_paste_link", **metadata})
             reply.raise_for_status()
             row = reply.json()
             candidate_id = row["id"]
@@ -53,4 +55,6 @@ async def capture_reference(url: str, country: str | None) -> dict:
     return {"source_url": url, "platform": platform, "country": country,
             "candidate_id": candidate_id, "candidate_saved": True, "saved": False,
             "in_inventory": False, "live_verified": False, "status": "pending_review",
+            "metadata_status": metadata.get("metadata_status"),
+            "vehicle_card": row.get("vehicle_card"),
             "message": "Recibimos la publicación. Revisaremos el vehículo y su disponibilidad."}

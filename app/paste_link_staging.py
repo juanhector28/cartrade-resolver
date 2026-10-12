@@ -219,6 +219,27 @@ $("form").addEventListener("submit",async e=>{
   if(!r.ok)throw new Error(d.detail||"No se pudo recuperar el anuncio");
   if(d.candidate_saved === true && typeof d.candidate_id === "string" && d.candidate_id){
    $("status").textContent="Recibimos el enlace. Nos encargamos del resto.";
+   const c=d.vehicle_card;
+   if(c && c.fields && Object.keys(c.fields).length){
+    const f=c.fields,v=k=>f[k]&&f[k].value;
+    $("title").textContent=[v("make"),v("model"),v("year")].filter(Boolean).join(" ")||"Publicación recibida";
+    $("price").textContent=v("price")!=null&&v("currency")?Number(v("price")).toLocaleString("es",{style:"currency",currency:v("currency")}):"Precio pendiente";
+    $("year").textContent=v("year")?"Año · "+v("year"):"Año pendiente";
+    $("km").textContent=v("km")!=null?Number(v("km")).toLocaleString("es")+" km":"Kilometraje pendiente";
+    document.querySelector("#card .meta").textContent="Datos de la publicación · Pendientes de verificar";
+    $("source").href=d.source_url;
+    $("photo").style.display="none";$("photo").removeAttribute("src");
+    $("placeholder").style.display="block";$("placeholder").textContent="Fotografía pendiente";
+    $("photo-status").textContent="Disponibilidad pendiente de confirmar";
+    $("card").style.display="block";
+    $("status").textContent="Recibimos el enlace. Ficha preliminar lista para revisión.";
+    if(c.photos && c.photos[0]){
+     const preview=new Image();preview.referrerPolicy="no-referrer";
+     preview.onload=()=>{$("photo").src=preview.src;$("photo").style.display="block";$("placeholder").style.display="none";$("photo-status").textContent="Portada del video · No confirma condición ni disponibilidad"};
+     preview.onerror=()=>{$("placeholder").textContent="Portada no disponible"};
+     preview.src=c.photos[0];
+    }
+   }
    return;
   }
   if(d.status === "pending_review")throw new Error("No se pudo confirmar la recepción del enlace.");

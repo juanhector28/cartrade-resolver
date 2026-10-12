@@ -17,6 +17,8 @@ def test_staging_receipt_persists_only_candidate(tmp_path, monkeypatch, platform
     monkeypatch.setenv('ATLAS_SOCIAL_TOKEN','test-token')
     def handle(request):
         import json
+        if request.url.host == 'www.tiktok.com':
+            return httpx.Response(403)
         assert request.url.host == 'atlas.example'
         return httpx.Response(200,json=engine.ingest(json.loads(request.content)))
     original = httpx.AsyncClient
