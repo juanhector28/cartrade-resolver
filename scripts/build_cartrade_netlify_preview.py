@@ -47,8 +47,8 @@ def integrate_lead_capture(html: str, module: str) -> str:
     closing = html.lower().rfind("</body>")
     if closing < 0:
         raise ValueError("Cannot find document body closing tag")
-    snippet = '\\n<!-- Opt-in buyer request; no false confirmation on API failure. -->\\n'
-    snippet += '<script ' + LEAD_GATE_MARKER + '>\\n' + module + '\\n</script>\\n'
+    snippet = '\n<!-- Opt-in buyer request; no false confirmation on API failure. -->\n'
+    snippet += '<script ' + LEAD_GATE_MARKER + '>\n' + module + '\n</script>\n'
     return html[:closing] + snippet + html[closing:]
 
 
