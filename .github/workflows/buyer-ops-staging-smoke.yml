@@ -66,7 +66,7 @@ jobs:
         run: |
           python -m pip install playwright==1.48.0
           python -m playwright install --with-deps chromium
-      - name: Browser UI test: only mock data, client-only status update
+      - name: 'Browser UI test: only mock data, client-only status update'
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
