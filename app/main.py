@@ -35,6 +35,7 @@ from supabase import create_client
 
 from . import cache, rate_limit, platforms
 from .buyer_intents import router as buyer_intents_router
+from .buyer_ops import router as buyer_ops_router
 from .resolvers import encuentra24, olx, facebook, mercadolibre, fallback
 from .resolvers.base import Listing
 
@@ -485,6 +486,7 @@ app = FastAPI(title="CarTrade Link Resolver", version="1.5.0", lifespan=lifespan
 # Opt-in buyer requests are isolated from vehicle inventory and disabled by default.
 app.state.buyer_intents_db = supabase
 app.include_router(buyer_intents_router)
+app.include_router(buyer_ops_router)
 
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://cartrade.live,https://www.cartrade.live").split(",")
 if os.environ.get("RESOLVER_DEV") == "1":
