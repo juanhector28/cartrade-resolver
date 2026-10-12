@@ -5,6 +5,8 @@ on:
       - .github/workflows/buyer-ops-staging-smoke.yml
       - app/buyer_ops_demo.py
       - app/paste_link_staging.py
+      - app/buyer_ops_page.py
+      - scripts/buyer_ops_auth_browser_e2e.py
   workflow_dispatch:
 
 permissions:
@@ -15,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 7
     steps:
+      - uses: actions/checkout@v4
       - name: Read-only verification of published staging
         env:
           STAGING_URL: https://cartrade-paste-link-staging.onrender.com
@@ -93,3 +96,5 @@ jobs:
               browser.close()
           print("PASS: 3 fake rows; status UI works; reload resets; 0 remote writes")
           PY
+      - name: Verify operator OTP and private dashboard browser flow with synthetic credentials
+        run: python scripts/buyer_ops_auth_browser_e2e.py
