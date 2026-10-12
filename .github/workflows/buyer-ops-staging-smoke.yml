@@ -1,0 +1,60 @@
+name: Buyer Ops staging HTTP smoke
+on:
+  pull_request:
+    paths:
+      - .github/workflows/buyer-ops-staging-smoke.yml
+      - app/buyer_ops_demo.py
+      - app/paste_link_staging.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging-buyer-ops:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Read-only verification of published staging
+        env:
+          STAGING_URL: https://cartrade-paste-link-staging.onrender.com
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+          from urllib.parse import urljoin
+          root = os.environ["STAGING_URL"]
+          def get(path):
+              request = Request(root + path, headers={"User-Agent": "CarTrade-Staging-Safe-Smoke/1.0"})
+              with urlopen(request, timeout=50) as response:
+                  return response.status, response.headers, response.read().decode("utf-8", errors="replace")
+          response = None
+          for attempt in range(4):
+              try:
+                  response = get("/ops/solicitudes")
+                  break
+              except Exception as exc:
+                  print("Staging cold start/retry", attempt+1, type(exc).__name__, str(exc)[:200])
+                  if attempt == 3:
+                      raise
+                  time.sleep(12)
+          status, headers, body = response
+          assert status == 200
+          assert "no-store" in headers.get("Cache-Control", "")
+          assert "noindex" in headers.get("X-Robots-Tag", "")
+          for marker in ("STAGING · DEMOSTRACIÓN · DATOS FICTICIOS",
+                         "Toyota 4Runner TRD 2019 · ejemplo",
+                         "Vista previa sin autenticación"):
+              assert marker in body, "Missing demo-only marker"
+          assert "SUPABASE_SERVICE_ROLE_KEY" not in body
+          assert "localStorage" not in body
+          assert "sessionStorage" not in body
+          try:
+              get("/ops/api/solicitudes")
+              raise AssertionError("Staging must not expose buyer intent API")
+          except HTTPError as e:
+              assert e.code == 404, f"Unexpected status {e.code}"
+          print("PASS: staging preview 200, fake data only, no private buyer API")
+          PY
