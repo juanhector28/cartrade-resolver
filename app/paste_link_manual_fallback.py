@@ -137,6 +137,16 @@ def attach_manual_fallback(page: str) -> str:
     page = page.replace(
         ERROR_MARKER,
         '  if(!r.ok){window.CT_manualFallback.show($("url").value.trim()); '
+        'let recognized=null;try{const rr=await fetch("/api/reference",'
+        '{method:"POST",headers:{"Content-Type":"application/json"},'
+        'body:JSON.stringify({url:$("url").value.trim(),country:$("country").value})});'
+        'if(rr.ok)recognized=await rr.json()}catch(_){/* offline or blocked */}'
+        'if(recognized && recognized.status==="recognized_unstored"){'
+        '$("status").className="status";'
+        '$("status").textContent="Fuente identificada: "+recognized.source_name+'
+        '". Enlace reconocido para pruebas; no se guardó ni se consultó su contenido. "+'
+        '"Datos del vehículo pendientes de verificar. Puedes completar los datos abajo.";'
+        'return;}'
         'throw new Error(d.detail||"No se pudo recuperar el anuncio");}',
     )
     page = page.replace(SCRIPT_MARKER, SCRIPT + "\n" + SCRIPT_MARKER)
