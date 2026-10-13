@@ -1,0 +1,512 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-10-12",
+  "meaning": "Domain-reference recognition of original Atlas SV 56; not a scraper, permission grant, or buyer-intent receipt",
+  "source_count": 56,
+  "sources": [
+    {
+      "source_id": "sv-encuentra24",
+      "name": "Encuentra24",
+      "homepage": "https://www.encuentra24.com/el-salvador-es/autos",
+      "kind": "marketplace",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 21,
+      "link_status": "not_validated"
+    },
+    {
+      "source_id": "sv-carros-com",
+      "name": "Carros.com",
+      "homepage": "https://carros.com/cars-for-sale/el-salvador-co96-cnused/?lang=es",
+      "kind": "marketplace",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 57,
+      "link_status": "sample_verified"
+    },
+    {
+      "source_id": "sv-tucarro-sv",
+      "name": "TuCarro.sv",
+      "homepage": "https://tucarro.sv/carros",
+      "kind": "marketplace",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 24,
+      "link_status": "sample_verified"
+    },
+    {
+      "source_id": "sv-motora-sv",
+      "name": "Motora SV",
+      "homepage": "https://motorasv.com/",
+      "kind": "marketplace",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 18,
+      "link_status": "sample_verified"
+    },
+    {
+      "source_id": "sv-carros-el-salvador",
+      "name": "Carros El Salvador",
+      "homepage": "https://www.carroselsalvador.com/inventario/",
+      "kind": "marketplace",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 15,
+      "link_status": "sample_verified"
+    },
+    {
+      "source_id": "sv-carvimax",
+      "name": "Carvimax",
+      "homepage": "https://www.carvimax.com/",
+      "kind": "marketplace",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 534,
+      "link_status": "sample_verified"
+    },
+    {
+      "source_id": "sv-carrocarros",
+      "name": "CarroCarros",
+      "homepage": "https://elsalvador.carrocarros.com/",
+      "kind": "marketplace",
+      "atlas_observation_status": "access_blocked",
+      "atlas_valid_field_count": 0,
+      "link_status": "access_blocked"
+    },
+    {
+      "source_id": "sv-autospublicidad",
+      "name": "AutosPublicidad",
+      "homepage": "https://www.autospublicidad.com/sv/autos",
+      "kind": "marketplace",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 52,
+      "link_status": "sample_verified"
+    },
+    {
+      "source_id": "sv-julajups",
+      "name": "Julajups",
+      "homepage": "https://julajups.sv/autos/vehiculos-comerciales",
+      "kind": "marketplace",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 9,
+      "link_status": "sample_verified"
+    },
+    {
+      "source_id": "sv-excel-usados",
+      "name": "Excel Usados",
+      "homepage": "https://usados.excelautomotriz.com/el-salvador/",
+      "kind": "used_dealer",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 26,
+      "link_status": "sample_verified"
+    },
+    {
+      "source_id": "sv-easycar",
+      "name": "EasyCar",
+      "homepage": "https://easycar.com.sv/cars",
+      "kind": "used_dealer",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 109,
+      "link_status": "trial_unverified"
+    },
+    {
+      "source_id": "sv-autosale",
+      "name": "Autosale",
+      "homepage": "https://autosale.com.sv/",
+      "kind": "used_dealer",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 13,
+      "link_status": "not_validated"
+    },
+    {
+      "source_id": "sv-oss-inversiones",
+      "name": "OSS Inversiones",
+      "homepage": "https://www.ossinversiones.autos/",
+      "kind": "used_dealer",
+      "atlas_observation_status": "access_blocked",
+      "atlas_valid_field_count": 0,
+      "link_status": "access_blocked"
+    },
+    {
+      "source_id": "sv-disaz-autos",
+      "name": "Disaz Autos",
+      "homepage": "https://www.disazautos.com/importados",
+      "kind": "used_dealer",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 24,
+      "link_status": "sample_verified"
+    },
+    {
+      "source_id": "sv-eurosport-autos",
+      "name": "Eurosport Autos",
+      "homepage": "https://www.eurosportautos.com/",
+      "kind": "used_dealer",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 15,
+      "link_status": "trial_unverified"
+    },
+    {
+      "source_id": "sv-ofercars",
+      "name": "Ofercars",
+      "homepage": "https://ofercars.com/",
+      "kind": "used_dealer",
+      "atlas_observation_status": "empty_or_closed_public_feed",
+      "atlas_valid_field_count": 0,
+      "link_status": "no_public_stock"
+    },
+    {
+      "source_id": "sv-importaciones-ecampos",
+      "name": "Importaciones ECampos",
+      "homepage": "https://automovilecampos.com/",
+      "kind": "used_dealer",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 7,
+      "link_status": "not_validated"
+    },
+    {
+      "source_id": "sv-autobid-el-salvador",
+      "name": "AutoBid El Salvador",
+      "homepage": "https://autobidelsalvador.com/",
+      "kind": "used_dealer",
+      "atlas_observation_status": "access_blocked",
+      "atlas_valid_field_count": 0,
+      "link_status": "access_blocked"
+    },
+    {
+      "source_id": "sv-inbakcar",
+      "name": "INBAKCAR",
+      "homepage": "https://www.inbakcar.net/inventory-1.html",
+      "kind": "used_dealer",
+      "atlas_observation_status": "empty_or_closed_public_feed",
+      "atlas_valid_field_count": 0,
+      "link_status": "no_public_stock"
+    },
+    {
+      "source_id": "sv-xautomarket",
+      "name": "xAutoMarket",
+      "homepage": "https://xautomarket.com/",
+      "kind": "used_dealer",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 8,
+      "link_status": "not_validated"
+    },
+    {
+      "source_id": "sv-crediq",
+      "name": "CrediQ",
+      "homepage": "https://crediq.com/sv/product-category/autolote/",
+      "kind": "used_dealer",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 14,
+      "link_status": "trial_unverified"
+    },
+    {
+      "source_id": "sv-toyota",
+      "name": "Toyota",
+      "homepage": "https://www.toyota.com.sv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 38,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-nissan",
+      "name": "Nissan",
+      "homepage": "https://www.nissanelsalvador.com/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 10,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-hyundai",
+      "name": "Hyundai",
+      "homepage": "https://www.hyundaielsalvador.com/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 18,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-kia",
+      "name": "Kia",
+      "homepage": "https://kia.com.sv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 9,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-chevrolet",
+      "name": "Chevrolet",
+      "homepage": "https://www.chevrolet.com.sv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 13,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-mitsubishi",
+      "name": "Mitsubishi",
+      "homepage": "https://mitsubishi.com.sv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 4,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-suzuki",
+      "name": "Suzuki",
+      "homepage": "https://suzukisv.com/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 15,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-mazda",
+      "name": "Mazda",
+      "homepage": "https://mazdaelsalvador.com/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 6,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-honda",
+      "name": "Honda",
+      "homepage": "https://www.honda.sv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "not_independent_car_inventory",
+      "atlas_valid_field_count": 0,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-ford",
+      "name": "Ford",
+      "homepage": "https://www.centroamerica.ford.com/es/slv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 7,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-isuzu",
+      "name": "Isuzu",
+      "homepage": "https://isuzusv.com/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "catalog_configuration_extracted",
+      "atlas_valid_field_count": 13,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-bmw",
+      "name": "BMW",
+      "homepage": "https://www.bmw.com.sv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 22,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-mercedes-benz",
+      "name": "Mercedes-Benz",
+      "homepage": "https://www.mercedes-benz.com.sv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 15,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-audi",
+      "name": "Audi",
+      "homepage": "https://www.audi.com.sv/es/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 3,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-volkswagen",
+      "name": "Volkswagen",
+      "homepage": "https://www.volkswagenelsalvador.com/es.html",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 8,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-porsche-center",
+      "name": "Porsche Center",
+      "homepage": "https://dealer.porsche.com/sv/elsalvador",
+      "kind": "new_catalog",
+      "atlas_observation_status": "not_independent_car_inventory",
+      "atlas_valid_field_count": 0,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-porsche-finder",
+      "name": "Porsche Finder",
+      "homepage": "https://finder.porsche.com/sv/es-SV/search?condition=new&source=home",
+      "kind": "new_inventory",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 19,
+      "link_status": "not_validated"
+    },
+    {
+      "source_id": "sv-jeep",
+      "name": "Jeep",
+      "homepage": "https://www.jeep.com/sv",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 4,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-byd",
+      "name": "BYD",
+      "homepage": "https://bydelsalvador.com/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 8,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-geely",
+      "name": "Geely",
+      "homepage": "https://www.geely.com.sv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 4,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-mg",
+      "name": "MG",
+      "homepage": "https://elsalvador.mgmotor.lat/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 7,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-chery",
+      "name": "Chery",
+      "homepage": "https://cheryelsalvador.com/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 8,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-gwm",
+      "name": "GWM",
+      "homepage": "https://gwmelsalvador.com/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 11,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-changan",
+      "name": "Changan",
+      "homepage": "https://changan.com.sv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 10,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-jac",
+      "name": "JAC",
+      "homepage": "https://jacelsalvador.com/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 12,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-foton",
+      "name": "Foton",
+      "homepage": "https://fotonexcel.com.sv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 17,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-dfac-dongfeng",
+      "name": "DFAC Dongfeng",
+      "homepage": "https://www.dfacdongfeng.com/sv/",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 15,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-grupo-q",
+      "name": "Grupo Q",
+      "homepage": "https://www.grupoq.com/sv/",
+      "kind": "commercial_channel",
+      "atlas_observation_status": "not_independent_car_inventory",
+      "atlas_valid_field_count": 0,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-bac",
+      "name": "BAC",
+      "homepage": "https://www.baccredomatic.com/es-sv/personas/catalogo-de-vehiculos",
+      "kind": "commercial_channel",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 45,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-ram",
+      "name": "RAM",
+      "homepage": "https://www.ram.com/sv/index.html",
+      "kind": "new_catalog",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 4,
+      "link_status": "catalog_or_channel"
+    },
+    {
+      "source_id": "sv-caragencia",
+      "name": "CarAgencia",
+      "homepage": "https://caragencia.com/es/carros-usados/el-salvador",
+      "kind": "additional",
+      "atlas_observation_status": "observed_link_extraction",
+      "atlas_valid_field_count": 3,
+      "link_status": "sample_verified"
+    },
+    {
+      "source_id": "sv-credipro",
+      "name": "Credipro",
+      "homepage": "https://credipro.com.sv/",
+      "kind": "additional",
+      "atlas_observation_status": "feed_enumerated",
+      "atlas_valid_field_count": 18,
+      "link_status": "not_validated"
+    },
+    {
+      "source_id": "sv-wicho-cars",
+      "name": "Wicho Cars",
+      "homepage": "https://wichocars.wixsite.com/autolote",
+      "kind": "additional",
+      "atlas_observation_status": "partial_legacy_gallery",
+      "atlas_valid_field_count": 3,
+      "link_status": "not_validated"
+    },
+    {
+      "source_id": "sv-alvarez-imporcar",
+      "name": "Alvarez ImporCar",
+      "homepage": "https://alvarezimportcar.com/",
+      "kind": "additional",
+      "atlas_observation_status": "not_independent_car_inventory",
+      "atlas_valid_field_count": 0,
+      "link_status": "not_validated"
+    },
+    {
+      "source_id": "sv-mega-subastas",
+      "name": "Mega Subastas",
+      "homepage": "https://megasubastas.net/es-sl/nosotros-el-salvador/",
+      "kind": "additional",
+      "atlas_observation_status": "empty_or_closed_public_feed",
+      "atlas_valid_field_count": 0,
+      "link_status": "no_public_stock"
+    }
+  ]
+}
