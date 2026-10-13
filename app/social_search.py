@@ -22,7 +22,7 @@ def match_candidates(rows, query, country, limit=6):
         return []
     results=[];seen=set()
     for row in rows:
-        if row.get('country','').upper()!=country or row.get('status') in {'rejected_non_vehicle','duplicate','sold','removed'}:
+        if row.get('country','').upper()!=country or row.get('status') in {'duplicate','sold','removed'}:
             continue
         url=row.get('url') or ''
         try:
@@ -48,7 +48,15 @@ def match_candidates(rows, query, country, limit=6):
         for k in ('make','model','year'):
             if values[k] is None:
                 values[k]=vehicle.get(k)
-        text=' '.join(str(x or '') for x in [row.get('caption'),*values.values()])
+        evidence=[e.get('text','') for e in card.get('evidence',[]) if e.get('channel') in {'title','caption'}]
+        if row.get('status')=='rejected_non_vehicle':
+            # Fresh, attributed metadata can supersede a legacy rejection for discovery only.
+            fresh_vehicle=(row.get('source_type')=='user_contributed' and
+                           (fields.get('make') or {}).get('value') and
+                           any(words(t) & {'carro','carros','auto','autos','vehiculo','vehiculos'} for t in evidence))
+            if not fresh_vehicle:
+                continue
+        text=' '.join(str(x or '') for x in [row.get('caption'),*evidence,*values.values()])
         if not values['make'] or not wanted.issubset(words(text)):
             continue
         seen.add(url)

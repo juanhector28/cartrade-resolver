@@ -47,3 +47,12 @@ def test_endpoint_rejects_unselected_market():
     app=FastAPI();app.include_router(social_search.router)
     with TestClient(app) as client:
         assert client.get('/carly/social-search',params={'q':'Honda','country':'XX'}).status_code==422
+
+
+def test_fresh_caption_supersedes_stale_rejection_for_discovery_only():
+    card={'fields':{'make':{'value':'Honda'}},'evidence':[{'channel':'title','text':'Recién importado #carros #honda'}]}
+    candidate=row(status='rejected_non_vehicle',caption='',vehicle={},source_type='user_contributed',vehicle_card=card)
+    result=match_candidates([candidate],'Honda','GT')
+    assert len(result)==1 and not result[0]['inventory_eligible']
+    card['evidence'][0]['text']='Honda camiseta'
+    assert not match_candidates([candidate],'Honda','GT')
