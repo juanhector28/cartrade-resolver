@@ -25,7 +25,7 @@ _FRESH_MISSION_RE = re.compile(
     re.I | re.S,
 )
 _BUDGET_REPLY_RE = re.compile(
-    r"^\s*(?:\$?\s*\d+(?:[.,]\d+)?\s*(?:usd|d[oó]lares?)?|"
+    r"^\s*(?:(?:(?:usd|us\$)\s*)?\$?\s*\d+(?:[.,]\d+)?\s*(?:usd|d[oó]lares?)?|"
     r"\$?\s*\d+(?:[.,]\d+)?\s*(?:/\s*mes|al\s+mes|por\s+mes|mensuales?))\s*$",
     re.I,
 )
