@@ -10,6 +10,7 @@ on:
       - "app/paste_link_staging.py"
       - "app/paste_link_manual_fallback.py"
       - "tests/test_paste_link_sv56_reference.py"
+      - "scripts/test_paste_link_sv56_browser.py"
       - ".github/workflows/paste-link-sv56-ci.yml"
   workflow_dispatch:
 permissions:
@@ -29,3 +30,9 @@ jobs:
         run: python -m compileall -q app/paste_link_56_reference.py app/paste_link_staging.py app/paste_link_manual_fallback.py
       - name: Check all 56 references, SSRF safety, and existing QA
         run: python -m pytest -q tests/test_paste_link_sv56_reference.py tests/test_paste_link_readiness.py tests/test_paste_link_manual_fallback.py tests/test_paste_link_staging.py
+      - name: Install Playwright Chromium
+        run: |
+          python -m pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - name: Verify three blocked/catalogue fallbacks in desktop and mobile
+        run: python scripts/test_paste_link_sv56_browser.py
