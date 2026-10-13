@@ -1,0 +1,31 @@
+name: SV 56 reference acceptance
+on:
+  push:
+    branches:
+      - feat/paste-link-sv56-reference-20261012
+  pull_request:
+    paths:
+      - "ops/paste_link_sv_56_sources.json"
+      - "app/paste_link_56_reference.py"
+      - "app/paste_link_staging.py"
+      - "app/paste_link_manual_fallback.py"
+      - "tests/test_paste_link_sv56_reference.py"
+      - ".github/workflows/paste-link-sv56-ci.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reference-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install staging dependencies
+        run: python -m pip install -r requirements-paste-link-staging.txt pytest
+      - name: Verify module syntax
+        run: python -m compileall -q app/paste_link_56_reference.py app/paste_link_staging.py app/paste_link_manual_fallback.py
+      - name: Check all 56 references, SSRF safety, and existing QA
+        run: python -m pytest -q tests/test_paste_link_sv56_reference.py tests/test_paste_link_readiness.py tests/test_paste_link_manual_fallback.py tests/test_paste_link_staging.py
