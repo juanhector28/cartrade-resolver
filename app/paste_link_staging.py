@@ -202,6 +202,7 @@ input{border:0;outline:0;min-width:0;flex:1;padding:13px;font-size:15px}button{b
 <button id="send" type="submit">Continuar</button></form>
 <p class="note">Entorno multisitio: cada fuente tiene reglas individuales. Una muestra exitosa no certifica todos los anuncios ni autoriza reutilizar contenido. La fotografía se verifica directamente en tu navegador.</p>
 <div id="coverage" class="coverage" aria-live="polite">Verificando el registro de pruebas…</div>
+<div id="sv56-reference" class="note" aria-live="polite">Revisando los 56 dominios del censo…</div>
 <div id="sources" class="sources" aria-label="Fuentes en pruebas"></div>
 <div id="status" class="status" aria-live="polite"></div>
 <section id="card" class="card"><div class="image"><span id="placeholder">Esperando fotografía…</span><img id="photo" alt="Fotografía del vehículo"></div>
@@ -216,6 +217,16 @@ fetch("/api/coverage").then(r=>r.json()).then(d=>{
  $("coverage").textContent=count+" fuentes con muestras probadas · "+samples+
   " fichas con campos básicos verificados · Sin activación en producción";
 }).catch(()=>{$("coverage").textContent="Registro de cobertura temporalmente no disponible";});
+
+fetch("/api/coverage-56").then(r=>r.json()).then(d=>{
+ if(d.registered_sources!==56 || d.intake_enabled!==false)throw new Error("Expected safe registry");
+ $("sv56-reference").textContent=
+  "56 fuentes SV reconocibles por su dominio (más Anuto) · "+
+  "10 originales con muestras de extracción probadas · "+
+  "3 adaptadores en revisión · "+
+  "43 sin extracción validada. "+
+  "Reconocer un enlace no significa consultar ni guardar el anuncio.";
+}).catch(()=>{$("sv56-reference").textContent="Estado del censo de 56 fuentes temporalmente no disponible";});
 
 fetch("/api/sources").then(r=>r.json()).then(d=>{
  (d.sources||[]).filter(x=>x.enabled).forEach(x=>{
