@@ -21,6 +21,7 @@ from . import platforms
 from .social_intake import social_platform, capture_reference
 from .paste_link_source_registry import SOURCES, public_status, source_for_url
 from .paste_link_readiness import get_readiness
+from .paste_link_56_reference import reference_for_url, reference_coverage
 from .resolvers import fallback
 
 app = FastAPI(title="Carly · Pega el link · Staging", docs_url=None, redoc_url=None)
@@ -88,6 +89,25 @@ def sources():
 def coverage():
     """Static committed QA receipts, not live checks or production clearance."""
     return get_readiness()
+
+
+@app.get("/api/coverage-56")
+def coverage_56():
+    """Read-only census reconciliation, NOT live extraction certification."""
+    return reference_coverage()
+
+
+@app.post("/api/reference")
+async def recognize_reference(body: ResolveBody, request: Request, response: Response):
+    """Identify a known Atlas source without fetching URL or saving buyer data."""
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    peer = request.client.host if request.client else "unrecognized"
+    if not rate_check(peer):
+        raise HTTPException(429, "Límite de pruebas por hora alcanzado.")
+    candidate = reference_for_url(body.url.strip())
+    if candidate is None:
+        raise HTTPException(400, "Dominio fuera del censo de fuentes verificables.")
+    return candidate
 
 
 @app.post("/api/resolve")
