@@ -1,0 +1,17 @@
+name: Carly QA exact URL discovery, four sources
+# One-time source access test completed. Manual revalidation only.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  one-index-each:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx==0.27.2 beautifulsoup4==4.12.3
+      - run: python scripts/paste_link_test_url_discovery.py

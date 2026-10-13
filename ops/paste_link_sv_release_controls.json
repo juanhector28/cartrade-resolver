@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "policy": "Manual approvals are false until substantiated by evidence. This file does not authorize production.",
+  "pilot_requirements": {
+    "min_distinct_listing_samples_per_domain": 3,
+    "min_browser_loaded_photo_samples_per_domain": 1,
+    "required_fields": [
+      "title",
+      "price_usd",
+      "year",
+      "photo_url"
+    ],
+    "optional_fields": [
+      "km"
+    ],
+    "avoid_inventory_writes": true
+  },
+  "release_gates": {
+    "source_terms_and_photo_usage_review": {
+      "approved": false,
+      "evidence": null,
+      "owner": "legal",
+      "note": "Robots allowance does not grant commercial reuse or media display rights."
+    },
+    "prod_fresh_price_no_cache_contract": {
+      "approved": false,
+      "evidence": null,
+      "owner": "engineering",
+      "note": "Production backend currently caches platforms besides encuentra24; bypass third-party asking-price cache."
+    },
+    "integration_and_security_review": {
+      "approved": false,
+      "evidence": null,
+      "owner": "engineering",
+      "note": "End-to-end Carly integration, SSRF/CORS, API rate limits and source isolation."
+    },
+    "ongoing_health_and_alerting": {
+      "approved": false,
+      "evidence": null,
+      "owner": "operations",
+      "note": "Source error rates, price provenance, img load failures, opt-in permitted checks."
+    },
+    "rollback_and_feature_flags": {
+      "approved": false,
+      "evidence": null,
+      "owner": "engineering",
+      "note": "Per-domain kill switch, safe rollback and production validation."
+    }
+  },
+  "approved_production_domains": [],
+  "production_deploy_permitted": false,
+  "last_manual_review": null
+}

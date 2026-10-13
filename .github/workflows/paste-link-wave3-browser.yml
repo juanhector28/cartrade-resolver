@@ -1,0 +1,28 @@
+name: Carly wave-three visible card verification
+# Live three-source browser check already executed; rerun manually only.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  three-cards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - name: Verify actual vehicle photographs in headless Chromium
+        run: python scripts/paste_link_wave3_browser.py
+      - name: Save screenshots and field receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carly-wave3-browser-${{ github.run_id }}
+          path: /tmp/carly-wave3-browser
+          if-no-files-found: warn
+          retention-days: 7

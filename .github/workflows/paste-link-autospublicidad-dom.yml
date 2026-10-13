@@ -1,0 +1,17 @@
+name: AutosPublicidad single URL DOM diagnostic
+# One-shot real-source audit completed. Rerun manually only when needed.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  page-dom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx==0.27.2 beautifulsoup4==4.12.3
+      - run: python scripts/paste_link_autospublicidad_dom.py

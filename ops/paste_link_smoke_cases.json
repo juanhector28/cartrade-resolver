@@ -1,0 +1,41 @@
+[
+  {
+    "source_id": "sv-carros-el-salvador",
+    "url": "https://www.carroselsalvador.com/anuncios/kia-sportage-2006/",
+    "expected": {
+      "price_usd": 5700,
+      "year": 2006,
+      "title_tokens": [
+        "Kia",
+        "Sportage",
+        "2006"
+      ]
+    }
+  },
+  {
+    "source_id": "sv-caragencia",
+    "url": "https://caragencia.com/car-finder/2023-chevrolet-trailblazer",
+    "expected": {
+      "price_usd": 13900,
+      "year": 2023,
+      "title_tokens": [
+        "Chevrolet",
+        "Trailblazer",
+        "2023"
+      ]
+    }
+  },
+  {
+    "source_id": "sv-carros-com",
+    "url": "https://carros.com/car/b81740f31aee4629b3c8d1f7302a804f-p86776/",
+    "expected": {
+      "price_usd": 9500,
+      "year": 2015,
+      "title_tokens": [
+        "Honda",
+        "Civic",
+        "2015"
+      ]
+    }
+  }
+]

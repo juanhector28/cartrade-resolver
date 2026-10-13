@@ -1,0 +1,18 @@
+name: Julajups Toyota exact reported URL diagnosis
+# Exact Toyota source diagnosis completed. Recheck only when requested.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  one-reported-url:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-paste-link-staging.txt
+      - name: Check one source URL and staging response
+        run: python -m scripts.paste_link_julajups_toyota_diagnose

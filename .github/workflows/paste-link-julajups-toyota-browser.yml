@@ -1,0 +1,28 @@
+name: Carly Julajups Toyota exact link browser acceptance
+# Source-specific live browser audit is manual after validated success.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  two-real-vehicles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - name: Verify actual card and photo for reported Toyota link
+        run: python scripts/paste_link_julajups_toyota_browser.py
+      - name: Preserve screenshots and checked fields
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: julajups-toyota-browser-${{ github.run_id }}
+          path: /tmp/carly-julajups-toyota-browser
+          retention-days: 7
+          if-no-files-found: warn

@@ -1,0 +1,33 @@
+{
+  "updated_at": "2026-10-10",
+  "policy": "Only run unattended source network audits for cases explicitly reviewed as authorized.",
+  "sources": [
+    {
+      "source_id": "sv-carros-el-salvador",
+      "domain": "carroselsalvador.com",
+      "status": "review_required",
+      "basis": "Public robots.txt and terms could not be verified via the available tools; no commercial permission established.",
+      "terms_url": null,
+      "reviewed_at": "2026-10-10",
+      "authorized": false
+    },
+    {
+      "source_id": "sv-caragencia",
+      "domain": "caragencia.com",
+      "status": "permission_required",
+      "basis": "Published terms restrict copying and redistribution; obtain scope-specific permission for commercial automated extraction and display.",
+      "terms_url": "https://caragencia.com/es/page/terms-conditions",
+      "reviewed_at": "2026-10-10",
+      "authorized": false
+    },
+    {
+      "source_id": "sv-carros-com",
+      "domain": "carros.com",
+      "status": "permission_required",
+      "basis": "Published terms provide personal noncommercial viewing licence and prohibit commercial reproduction and public display.",
+      "terms_url": "https://carros.com/terms-service/",
+      "reviewed_at": "2026-10-10",
+      "authorized": false
+    }
+  ]
+}

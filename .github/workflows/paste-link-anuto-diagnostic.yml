@@ -1,0 +1,17 @@
+name: Anuto SV individual ad compatibility pilot
+# One-time public checks complete. Dispatch manually for intentional revalidation.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  two-public-ads:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-paste-link-staging.txt
+      - run: python -m scripts.paste_link_anuto_diagnostic

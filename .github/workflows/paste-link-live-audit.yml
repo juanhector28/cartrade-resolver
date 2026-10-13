@@ -1,0 +1,60 @@
+name: Paste the Link live source audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_access:
+        description: "Confirm written source access permission has been reviewed for ALL case URLs"
+        required: true
+        type: boolean
+        default: false
+      case_file:
+        description: "Checked-in approved test cases (default cases require separate source review)"
+        required: true
+        type: string
+        default: "ops/paste_link_smoke_cases.json"
+
+permissions:
+  contents: read
+
+jobs:
+  live-source-audit:
+    if: ${{ inputs.approved_source_access == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Validate test case path
+        env:
+          CASE_FILE: ${{ inputs.case_file }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          candidate = Path(os.environ["CASE_FILE"])
+          approved_root = Path("ops").resolve()
+          resolved = candidate.resolve()
+          if approved_root not in resolved.parents or resolved.suffix != ".json" or not resolved.is_file():
+              raise SystemExit("Invalid case file path")
+          PY
+      - name: Require documented source permission before outbound requests
+        env:
+          CASE_FILE: ${{ inputs.case_file }}
+        run: python -m scripts.paste_link_access_gate "$CASE_FILE" ops/paste_link_access_review.json
+      - name: Resolve approved test URLs without modifying production
+        env:
+          CASE_FILE: ${{ inputs.case_file }}
+        run: python -m scripts.paste_link_smoke --cases "$CASE_FILE" --output /tmp/paste-link-live-audit.json
+      - name: Upload immutable run receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paste-link-live-audit-${{ github.run_id }}
+          path: /tmp/paste-link-live-audit.json
+          if-no-files-found: warn
+          retention-days: 30

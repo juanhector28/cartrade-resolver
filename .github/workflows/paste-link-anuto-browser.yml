@@ -1,0 +1,27 @@
+name: Carly Anuto two-vehicle browser acceptance
+# One-time public checks complete. Dispatch manually for intentional revalidation.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  two-vehicles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - run: python scripts/paste_link_anuto_browser.py
+      - name: Retain screenshot and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anuto-two-vehicles-browser
+          path: /tmp/carly-anuto-browser
+          retention-days: 7
+          if-no-files-found: warn

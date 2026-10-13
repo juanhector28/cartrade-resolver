@@ -1,0 +1,17 @@
+name: Paste Link source DOM diagnostic
+# Manual after bounded one-shot pilot; prevents repeated public requests.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  one-shot-dom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx==0.27.2 beautifulsoup4==4.12.3
+      - run: python scripts/paste_link_dom_diagnostic.py

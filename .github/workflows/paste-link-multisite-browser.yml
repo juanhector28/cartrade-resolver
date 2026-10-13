@@ -1,0 +1,27 @@
+name: Carly seven-source browser verification
+# One-shot seven-site browser validation passed; repeat only when intentionally requested.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - run: python scripts/paste_link_multisite_browser.py
+      - name: Save browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carly-seven-source-browser-${{ github.run_id }}
+          path: /tmp/carly-multisite-browser
+          if-no-files-found: warn
+          retention-days: 7

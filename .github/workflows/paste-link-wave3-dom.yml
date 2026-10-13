@@ -1,0 +1,18 @@
+name: Carly five-source page structure diagnostic
+# Run manually after the initial bounded inspection to avoid repeated third-party requests.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-structure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx==0.27.2 beautifulsoup4==4.12.3
+      - name: Read only five known public listing URLs where robots allows
+        run: python scripts/paste_link_wave3_dom.py

@@ -1,0 +1,31 @@
+name: Paste the Link single public pilot
+
+# Deliberately manual: avoid sending repeated requests to third-party websites
+# after every PR update. The first limited trial already produced its receipt.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  one-page-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install required modules
+        run: python -m pip install -r requirements.txt
+      - name: Check one public listing only
+        run: python -m scripts.paste_link_public_pilot
+      - name: Upload field-only receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paste-link-public-pilot-${{ github.run_id }}
+          path: /tmp/paste_link_single_public_pilot.json
+          if-no-files-found: warn
+          retention-days: 7

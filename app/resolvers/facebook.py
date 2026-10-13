@@ -43,10 +43,13 @@ async def resolve(url: str) -> Listing:
     listing = Listing(platform="facebook", url=url)
 
     try:
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True,
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=False,
                                      headers={"User-Agent": USER_AGENT,
                                               "Accept-Language": "es-SV,es;q=0.9"}) as cli:
             r = await cli.get(url)
+            if 300 <= r.status_code < 400:
+                listing.errors.append("redirect requires independent source review")
+                return listing
             if r.status_code >= 400:
                 log.warning("facebook http %d for %s", r.status_code, url)
                 listing.errors.append(f"http {r.status_code}")

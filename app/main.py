@@ -18,9 +18,13 @@ import asyncio
 import sqlite3
 import logging
 import inspect
+import hmac
+import hashlib
+import json
 import httpx
 from typing import Optional, List
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +34,10 @@ from selectolax.parser import HTMLParser
 from supabase import create_client
 
 from . import cache, rate_limit, platforms
+from .social_search import router as social_search_router, search_social
+from .social_intake import social_platform, capture_reference
+from .buyer_intents import router as buyer_intents_router
+from .buyer_ops import router as buyer_ops_router
 from .resolvers import encuentra24, olx, facebook, mercadolibre, fallback
 from .resolvers.base import Listing
 
@@ -42,7 +50,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) if SUPABASE_UR
 
 # Auto-save every NEW valid link consulted via /resolve-link (dedup by URL is automatic).
 # Set AUTO_SAVE_LINKS=0 to disable and revert to explicit save-only behavior.
-AUTO_SAVE_LINKS = os.environ.get("AUTO_SAVE_LINKS", "1") != "0"
+AUTO_SAVE_LINKS = False  # Public link resolution is read-only; use a separate authenticated publishing workflow.
 
 COUNTRY_SEARCH_URLS = {
     "sv": "https://www.encuentra24.com/el-salvador-es/autos-usados",
@@ -476,6 +484,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="CarTrade Link Resolver", version="1.5.0", lifespan=lifespan)
+
+# Opt-in buyer requests are isolated from vehicle inventory and disabled by default.
+app.state.buyer_intents_db = supabase
+app.include_router(buyer_intents_router)
+app.include_router(social_search_router)
+app.include_router(buyer_ops_router)
 
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://cartrade.live,https://www.cartrade.live").split(",")
 if os.environ.get("RESOLVER_DEV") == "1":
@@ -1241,16 +1255,26 @@ async def resolve_link(body: ResolveRequest, request: Request):
     if not allowed:
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
 
+    # Safe opt-out for individual source domains without reverting the entire resolver.
+    disabled_sources = {host.strip().lower() for host in os.getenv("PASTE_LINK_DISABLED_SOURCES", "").split(",") if host.strip()}
+    request_host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+    if request_host in disabled_sources:
+        raise HTTPException(status_code=503, detail="Esta fuente está temporalmente deshabilitada. Intenta más tarde.")
+
+    # Social posts enter Atlas's candidate queue without invoking a scraper.
+    if social_platform(url):
+        return await capture_reference(url, body.country)
+
     if not platforms.is_allowed(url):
         raise HTTPException(status_code=400, detail="URL is not from a supported listing platform.")
+    if not platforms.is_listing_url(url):
+        raise HTTPException(status_code=422, detail="URL points to a vehicle catalog, not an individual listing.")
 
     platform = platforms.detect(url)
-    # Encuentra24 asking prices change frequently, and previous cached entries
-    # can contain stale prices. Always re-fetch for Paste the Link.
-    cached = cache.get(url) if platform != "encuentra24" else None
-    if cached and not body.save:
-        cached["cached"] = True
-        return cached
+    pilot_readonly = platforms.is_readonly_public_pilot(url)
+    # The buyer expects today's asking price. A 7-day cached response cannot
+    # prove price freshness for ANY marketplace. Keep cache for other workflows,
+    # but always re-fetch individual Paste the Link requests.
     started = time.time()
 
     try:
@@ -1330,7 +1354,7 @@ async def resolve_link(body: ResolveRequest, request: Request):
 
     # --- SAVE into inventory: by default for any NEW valid car (AUTO_SAVE_LINKS),
     # or when explicitly requested (body.save). Bad links are REJECTED, not saved.
-    want_save = (bool(body.save) or AUTO_SAVE_LINKS) and not (platform == "encuentra24" and payload.get("in_inventory") is True)
+    want_save = False  # A public request, including save=true, is never a publishing authorization.
     if want_save:
         valid, reason = _is_valid_car_listing(payload, url=url, platform=platform)
         if not supabase:
@@ -1351,8 +1375,11 @@ async def resolve_link(body: ResolveRequest, request: Request):
                 payload["save_error"] = str(e)[:200]
                 log.exception("resolve-link save error url=%s", url)
 
-    if has_essentials:
+    if has_essentials and not pilot_readonly:
         cache.put(url, payload)
+    if pilot_readonly:
+        payload["saved"] = False
+        payload["pilot_readonly"] = True
 
     return payload
 
@@ -1387,7 +1414,7 @@ async def _wa_send(to: str, body: str) -> None:
 
 async def _ingest_link(url: str, country: Optional[str] = None) -> dict:
     """Resolve a pasted link and save it to inventory. Returns a small summary."""
-    if not platforms.is_allowed(url):
+    if not platforms.is_allowed(url) or not platforms.is_listing_url(url):
         return {"ok": False, "saved": False}
     platform = platforms.detect(url)
     try:
@@ -1408,14 +1435,7 @@ async def _ingest_link(url: str, country: Optional[str] = None) -> dict:
     payload = listing.to_dict()
     has_essentials = listing.title is not None or len(listing.photos) > 0
     saved = False
-    if has_essentials and supabase:
-        try:
-            c = (country or _infer_country(url) or "").lower().strip() or None
-            record = _build_db_record(payload, source=platform, country=c, url=url)
-            supabase.table("scraped_listings").upsert(record, on_conflict="url").execute()
-            saved = True
-        except Exception:
-            log.exception("WA ingest save error url=%s", url)
+    # WhatsApp messages are untrusted buyer inputs; no inventory writes.
     return {"ok": has_essentials, "saved": saved, "payload": payload}
 
 
@@ -1425,7 +1445,7 @@ async def _handle_wa_text(sender: str, text: str) -> None:
         return
     m = _URL_RE.search(text)
 
-    # Seller sent a car (link) -> save it
+    # A pasted link is a read-only diagnostic, not authorization to publish it
     if m:
         url = m.group(0).rstrip(").,;")
         res = await _ingest_link(url)
@@ -1474,10 +1494,20 @@ async def wa_verify(request: Request):
 @app.post("/whatsapp/webhook")
 async def wa_incoming(request: Request):
     """Incoming WhatsApp messages. Returns 200 immediately and works in background."""
+    secret = os.environ.get("META_APP_SECRET")
+    if not secret:
+        raise HTTPException(status_code=503, detail="Webhook authentication is not configured")
+    raw = await request.body()
+    if len(raw) > 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Webhook payload too large")
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    expected = "sha256=" + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise HTTPException(status_code=403, detail="Invalid webhook signature")
     try:
-        data = await request.json()
-    except Exception:
-        return {"status": "ignored"}
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid webhook JSON")
     try:
         for entry in data.get("entry", []):
             for change in entry.get("changes", []):
@@ -1708,9 +1738,13 @@ async def carly_search(body: CarlySearchRequest):
             "character": character_out,                  # NUEVO: carácter del modelo
         })
 
+    social = {"social_candidates": [], "social_status": "disabled"}
+    if os.getenv("CARLY_SOCIAL_SEARCH_ENABLED", "0") == "1" and body.country:
+        social = await search_social(body.q, body.country, limit)
     return {"query": body.q, "intent": it.model_dump(),
             "pool_matching": total_matching, "count": len(results),
-            "results": results}
+            "results": results, "social_candidates": social["social_candidates"],
+            "social_status": social["social_status"]}
 
 
 @app.get("/stats")

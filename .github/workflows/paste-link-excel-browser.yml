@@ -1,0 +1,27 @@
+name: Carly Excel Usados live browser acceptance
+# One-time source access test completed. Manual revalidation only.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  one-live-excel-listing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - run: python scripts/paste_link_excel_browser.py
+      - name: Preserve results and screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carly-excel-usados-browser
+          path: /tmp/carly-excel-usados-browser
+          retention-days: 7
+          if-no-files-found: warn

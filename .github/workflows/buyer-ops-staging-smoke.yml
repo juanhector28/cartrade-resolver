@@ -1,0 +1,120 @@
+name: Buyer Ops staging HTTP smoke
+on:
+  pull_request:
+    paths:
+      - .github/workflows/buyer-ops-staging-smoke.yml
+      - app/buyer_ops_demo.py
+      - app/paste_link_staging.py
+      - app/paste_link_manual_fallback.py
+      - scripts/paste_link_manual_fallback_browser_e2e.py
+      - scripts/link_first_browser_e2e.py
+      - assets/cartrade_link_first_request.js
+      - app/buyer_ops_page.py
+      - scripts/buyer_ops_auth_browser_e2e.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging-buyer-ops:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only verification of published staging
+        env:
+          STAGING_URL: https://cartrade-paste-link-staging.onrender.com
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+          from urllib.parse import urljoin
+          root = os.environ["STAGING_URL"]
+          def get(path):
+              request = Request(root + path, headers={"User-Agent": "CarTrade-Staging-Safe-Smoke/1.0"})
+              with urlopen(request, timeout=50) as response:
+                  return response.status, response.headers, response.read().decode("utf-8", errors="replace")
+          response = None
+          for attempt in range(4):
+              try:
+                  response = get("/ops/solicitudes")
+                  break
+              except Exception as exc:
+                  print("Staging cold start/retry", attempt+1, type(exc).__name__, str(exc)[:200])
+                  if attempt == 3:
+                      raise
+                  time.sleep(12)
+          status, headers, body = response
+          assert status == 200
+          assert "no-store" in headers.get("Cache-Control", "")
+          assert "noindex" in headers.get("X-Robots-Tag", "")
+          for marker in ("STAGING · DEMOSTRACIÓN · DATOS FICTICIOS",
+                         "Toyota 4Runner TRD 2019 · ejemplo",
+                         "Vista previa sin autenticación"):
+              assert marker in body, "Missing demo-only marker"
+          assert "SUPABASE_SERVICE_ROLE_KEY" not in body
+          assert "localStorage" not in body
+          assert "sessionStorage" not in body
+          try:
+              get("/ops/api/solicitudes")
+              raise AssertionError("Staging must not expose buyer intent API")
+          except HTTPError as e:
+              assert e.code == 404, f"Unexpected status {e.code}"
+          print("PASS: staging preview 200, fake data only, no private buyer API")
+          PY
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser test dependencies
+        run: |
+          python -m pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - name: 'Browser UI test: only mock data, client-only status update'
+        run: |
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+          url = "https://cartrade-paste-link-staging.onrender.com/ops/solicitudes"
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+              page = browser.new_page(viewport={"width": 1200, "height": 900})
+              writes = []
+              page.on("request", lambda r: writes.append((r.method, r.url)) if r.method in ("POST", "PATCH", "PUT", "DELETE") else None)
+              page.goto(url, wait_until="domcontentloaded", timeout=90000)
+              page.locator("#rows tr").first.wait_for(state="visible", timeout=20000)
+              assert page.locator("#rows tr").count() == 3
+              assert "DATOS FICTICIOS" in page.locator("body").inner_text()
+              assert page.locator("#login").is_hidden()
+              assert page.locator("#app").is_visible()
+              first = page.locator("#rows tr").first
+              assert first.locator("select").input_value() == "received"
+              first.locator("select").select_option("in_review")
+              assert first.locator("select").input_value() == "in_review"
+              assert not writes, f"No server writes permitted in demo: {writes}"
+              page.reload(wait_until="domcontentloaded")
+              page.locator("#rows tr").first.wait_for(state="visible", timeout=20000)
+              assert page.locator("#rows tr").first.locator("select").input_value() == "received"
+              browser.close()
+          print("PASS: 3 fake rows; status UI works; reload resets; 0 remote writes")
+          PY
+      - name: Verify operator OTP and private dashboard browser flow with synthetic credentials
+        run: python scripts/buyer_ops_auth_browser_e2e.py
+      - name: Confirm manual fallback is published in Carly staging
+        run: |
+          python - <<'PY'
+          from urllib.request import Request, urlopen
+          url = "https://cartrade-paste-link-staging.onrender.com/"
+          with urlopen(Request(url, headers={"User-Agent":"CarTrade-Stage-Manual-Fallback-Smoke/1.0"}),timeout=45) as r:
+              assert r.status == 200
+              body = r.read().decode("utf-8")
+          for expected in ('id="manual-helper"', 'Datos ingresados por ti', 'window.CT_manualFallback.show', 'window.CT_manualFallback.reset'):
+              assert expected in body, "Missing deployed feature marker: " + expected
+          print("PASS: live staging contains manual recovery UI and unverified provenance")
+          PY
+      - name: Offline browser test for unsupported vehicle URLs and manual fallback
+        run: python scripts/paste_link_manual_fallback_browser_e2e.py
+      - name: Offline link-first request E2E without scraping
+        run: python scripts/link_first_browser_e2e.py
