@@ -56,3 +56,8 @@ def test_fresh_caption_supersedes_stale_rejection_for_discovery_only():
     assert len(result)==1 and not result[0]['inventory_eligible']
     card['evidence'][0]['text']='Honda camiseta'
     assert not match_candidates([candidate],'Honda','GT')
+
+
+def test_caption_market_contradiction_excluded():
+    assert not match_candidates([row(country='SV',caption='Honda #guatemala')],'Honda','SV')
+    assert not match_candidates([row(caption='Honda en El Salvador')],'Honda','GT')

@@ -49,6 +49,9 @@ def match_candidates(rows, query, country, limit=6):
             if values[k] is None:
                 values[k]=vehicle.get(k)
         evidence=[e.get('text','') for e in card.get('evidence',[]) if e.get('channel') in {'title','caption'}]
+        location_words=words(' '.join([row.get('caption') or '',*evidence]))
+        if (country=='SV' and location_words & {'guatemala','guate'}) or (country=='GT' and 'salvador' in location_words):
+            continue
         if row.get('status')=='rejected_non_vehicle':
             # Fresh, attributed metadata can supersede a legacy rejection for discovery only.
             fresh_vehicle=(row.get('source_type')=='user_contributed' and
