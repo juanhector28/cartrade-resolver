@@ -7,6 +7,9 @@ year/km/price/make from the title.
 from __future__ import annotations
 import re
 import httpx
+from html import unescape
+from urllib.parse import urljoin
+from selectolax.parser import HTMLParser
 from .base import Listing, Field
 from .. import parsers
 
@@ -17,11 +20,14 @@ USER_AGENT = (
 
 
 def _meta(html: str, prop: str) -> str | None:
-    pat = re.compile(
-        rf'<meta[^>]*(?:property|name)=["\']{re.escape(prop)}["\'][^>]*content=["\']([^"\']+)["\']',
-        re.IGNORECASE)
-    m = pat.search(html)
-    return m.group(1) if m else None
+    """Parse meta tags independent of attribute order and quote style."""
+    tree = HTMLParser(html)
+    for node in tree.css("meta"):
+        if (node.attributes.get("property") or node.attributes.get("name") or "").lower() == prop.lower():
+            value = node.attributes.get("content")
+            if value:
+                return unescape(value).strip()
+    return None
 
 
 async def resolve(url: str) -> Listing:
@@ -46,7 +52,9 @@ async def resolve(url: str) -> Listing:
     if og_title:
         listing.title = Field(value=og_title.strip()[:200], confidence="medium")
     if og_image:
-        listing.photos.append(og_image)
+        resolved_image = urljoin(url, og_image)
+        if resolved_image.startswith(("https://", "http://")):
+            listing.photos.append(resolved_image)
     if og_desc:
         listing.description = Field(value=og_desc.strip()[:500], confidence="medium")
 
