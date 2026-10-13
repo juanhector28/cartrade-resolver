@@ -18,12 +18,14 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from . import platforms
+from .social_search import router as social_search_router
 from .social_intake import social_platform, capture_reference
 from .paste_link_source_registry import SOURCES, public_status, source_for_url
 from .paste_link_readiness import get_readiness
 from .resolvers import fallback
 
 app = FastAPI(title="Carly · Pega el link · Staging", docs_url=None, redoc_url=None)
+app.include_router(social_search_router)
 SOURCE_HOST = "carroselsalvador.com"
 AGENT = "CarTrade-Link-Diagnostic/0.1"
 WINDOW = 3600
@@ -183,6 +185,7 @@ input{border:0;outline:0;min-width:0;flex:1;padding:13px;font-size:15px}button{b
 <p class="note">Entorno multisitio: cada fuente tiene reglas individuales. Una muestra exitosa no certifica todos los anuncios ni autoriza reutilizar contenido. La fotografía se verifica directamente en tu navegador.</p>
 <div id="coverage" class="coverage" aria-live="polite">Verificando el registro de pruebas…</div>
 <div id="sources" class="sources" aria-label="Fuentes en pruebas"></div>
+<section aria-label="Buscar publicaciones sociales"><h2>Publicaciones sociales</h2><form id="social-search-form" class="form"><input id="social-query" aria-label="Marca, modelo o año" required placeholder="Ej. Honda"><button type="submit">Buscar</button></form><p id="social-search-status" role="status"></p><div id="social-search-results"></div></section>
 <div id="status" class="status" aria-live="polite"></div>
 <section id="card" class="card"><div class="image"><span id="placeholder">Esperando fotografía…</span><img id="photo" alt="Fotografía del vehículo"></div>
 <div class="content"><div class="meta">Ficha recuperada de la fuente</div><div class="car" id="title"></div><div class="price" id="price"></div>
@@ -190,6 +193,25 @@ input{border:0;outline:0;min-width:0;flex:1;padding:13px;font-size:15px}button{b
 <a class="source" id="source" target="_blank" rel="noopener noreferrer">Ver publicación original ↗</a></div></section></div>
 <script>
 const $=id=>document.getElementById(id);
+$("social-search-form").addEventListener("submit",async event=>{
+ event.preventDefault();const button=event.currentTarget.querySelector("button");button.disabled=true;
+ $("social-search-results").replaceChildren();$("social-search-status").textContent="Buscando publicaciones…";
+ try{
+  const params=new URLSearchParams({q:$("social-query").value,country:$("country").value});
+  const reply=await fetch("/carly/social-search?"+params);
+  const data=await reply.json();if(!reply.ok)throw new Error(data.detail||"No se pudo buscar");
+  if(data.social_status!=="ok")throw new Error("La búsqueda social no está disponible temporalmente.");
+  $("social-search-status").textContent=data.count?data.count+" publicaciones pendientes de verificar":"No encontramos publicaciones con datos suficientes para esta búsqueda.";
+  for(const candidate of data.social_candidates){
+   const box=document.createElement("article");box.style.cssText="background:white;padding:18px;margin:10px 0;border:1px solid #dae1dc;border-radius:12px";
+   const title=document.createElement("strong");title.textContent=[candidate.make,candidate.model,candidate.year].filter(Boolean).join(" ");
+   const note=document.createElement("p");note.textContent=candidate.label+" · "+candidate.platform;
+   const link=document.createElement("a");link.href=candidate.url;link.target="_blank";link.rel="noopener noreferrer";link.textContent="Ver publicación original";
+   box.append(title,note,link);$("social-search-results").append(box);
+  }
+ }catch(error){$("social-search-status").textContent=error.message}
+ finally{button.disabled=false}
+});
 fetch("/api/coverage").then(r=>r.json()).then(d=>{
  const count=Number(d.pilot_candidates||0);
  const samples=Number(d.core_field_samples_verified||0);
