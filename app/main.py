@@ -2923,3 +2923,7 @@ def carly_chat(body: CarlyChatRequest):
 from . import inventory_maintenance as _inventory_maintenance
 import sys as _inventory_sys
 _inventory_maintenance.install(_inventory_sys.modules[__name__])
+
+# Read-only discovery of unverified social posts; kept separate from inventory.
+from .social_search import router as social_search_router
+app.include_router(social_search_router)
