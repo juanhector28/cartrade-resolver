@@ -22,6 +22,7 @@ from .social_search import router as social_search_router
 from .social_intake import social_platform, capture_reference
 from .paste_link_source_registry import SOURCES, public_status, source_for_url
 from .paste_link_readiness import get_readiness
+from .paste_link_56_reference import reference_for_url, reference_coverage
 from .resolvers import fallback
 
 app = FastAPI(title="Carly · Pega el link · Staging", docs_url=None, redoc_url=None)
@@ -90,6 +91,25 @@ def sources():
 def coverage():
     """Static committed QA receipts, not live checks or production clearance."""
     return get_readiness()
+
+
+@app.get("/api/coverage-56")
+def coverage_56():
+    """Read-only census reconciliation, NOT live extraction certification."""
+    return reference_coverage()
+
+
+@app.post("/api/reference")
+async def recognize_reference(body: ResolveBody, request: Request, response: Response):
+    """Identify a known Atlas source without fetching URL or saving buyer data."""
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    peer = request.client.host if request.client else "unrecognized"
+    if not rate_check(peer):
+        raise HTTPException(429, "Límite de pruebas por hora alcanzado.")
+    candidate = reference_for_url(body.url.strip())
+    if candidate is None:
+        raise HTTPException(400, "Dominio fuera del censo de fuentes verificables.")
+    return candidate
 
 
 @app.post("/api/resolve")
@@ -184,6 +204,7 @@ input{border:0;outline:0;min-width:0;flex:1;padding:13px;font-size:15px}button{b
 <button id="send" type="submit">Continuar</button></form>
 <p class="note">Entorno multisitio: cada fuente tiene reglas individuales. Una muestra exitosa no certifica todos los anuncios ni autoriza reutilizar contenido. La fotografía se verifica directamente en tu navegador.</p>
 <div id="coverage" class="coverage" aria-live="polite">Verificando el registro de pruebas…</div>
+<div id="sv56-reference" class="note" aria-live="polite">Revisando los 56 dominios del censo…</div>
 <div id="sources" class="sources" aria-label="Fuentes en pruebas"></div>
 <section aria-label="Buscar publicaciones sociales"><h2>Publicaciones sociales</h2><form id="social-search-form" class="form"><input id="social-query" aria-label="Marca, modelo o año" required placeholder="Ej. Honda"><button type="submit">Buscar</button></form><p id="social-search-status" role="status"></p><div id="social-search-results"></div></section>
 <div id="status" class="status" aria-live="polite"></div>
@@ -218,6 +239,16 @@ fetch("/api/coverage").then(r=>r.json()).then(d=>{
  $("coverage").textContent=count+" fuentes con muestras probadas · "+samples+
   " fichas con campos básicos verificados · Sin activación en producción";
 }).catch(()=>{$("coverage").textContent="Registro de cobertura temporalmente no disponible";});
+
+fetch("/api/coverage-56").then(r=>r.json()).then(d=>{
+ if(d.registered_sources!==56 || d.intake_enabled!==false)throw new Error("Expected safe registry");
+ $("sv56-reference").textContent=
+  "56 fuentes SV reconocibles por su dominio (más Anuto) · "+
+  "10 originales con muestras de extracción probadas · "+
+  "3 adaptadores en revisión · "+
+  "43 sin extracción validada. "+
+  "Reconocer un enlace no significa consultar ni guardar el anuncio.";
+}).catch(()=>{$("sv56-reference").textContent="Estado del censo de 56 fuentes temporalmente no disponible";});
 
 fetch("/api/sources").then(r=>r.json()).then(d=>{
  (d.sources||[]).filter(x=>x.enabled).forEach(x=>{
