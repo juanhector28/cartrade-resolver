@@ -34,6 +34,7 @@ from selectolax.parser import HTMLParser
 from supabase import create_client
 
 from . import cache, rate_limit, platforms
+from .social_search import router as social_search_router, search_social
 from .social_intake import social_platform, capture_reference
 from .buyer_intents import router as buyer_intents_router
 from .buyer_ops import router as buyer_ops_router
@@ -487,6 +488,7 @@ app = FastAPI(title="CarTrade Link Resolver", version="1.5.0", lifespan=lifespan
 # Opt-in buyer requests are isolated from vehicle inventory and disabled by default.
 app.state.buyer_intents_db = supabase
 app.include_router(buyer_intents_router)
+app.include_router(social_search_router)
 app.include_router(buyer_ops_router)
 
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://cartrade.live,https://www.cartrade.live").split(",")
@@ -1736,9 +1738,13 @@ async def carly_search(body: CarlySearchRequest):
             "character": character_out,                  # NUEVO: carácter del modelo
         })
 
+    social = {"social_candidates": [], "social_status": "disabled"}
+    if os.getenv("CARLY_SOCIAL_SEARCH_ENABLED", "0") == "1" and body.country:
+        social = await search_social(body.q, body.country, limit)
     return {"query": body.q, "intent": it.model_dump(),
             "pool_matching": total_matching, "count": len(results),
-            "results": results}
+            "results": results, "social_candidates": social["social_candidates"],
+            "social_status": social["social_status"]}
 
 
 @app.get("/stats")
