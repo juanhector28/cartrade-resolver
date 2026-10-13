@@ -99,6 +99,8 @@ def test_staging_endpoint_recognizes_safe_catalog_without_saving_or_fetching():
 def test_staging_ui_explains_reference_only_and_keeps_manual_fallback():
     from app.paste_link_staging import STAGING_PAGE
     assert '/api/reference' in STAGING_PAGE
+    assert '/api/coverage-56' in STAGING_PAGE
+    assert 'id="sv56-reference"' in STAGING_PAGE
     assert 'recognized_unstored' in STAGING_PAGE
     assert 'id="manual-helper"' in STAGING_PAGE
     assert "no se guardó" in STAGING_PAGE
