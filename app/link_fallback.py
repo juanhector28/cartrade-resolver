@@ -48,7 +48,7 @@ def _contact(value: str, channel: str) -> str:
     if channel == "email" and _EMAIL.fullmatch(value):
         return value
     if channel == "whatsapp" and _PHONE.fullmatch(value) and 8 <= len(re.sub(r"\\D", "", value)) <= 15:
-        return value
+        return re.sub(r"\\D", "", value)
     raise HTTPException(status_code=422, detail="Ingresa un WhatsApp o correo válido.")
 
 
@@ -59,6 +59,8 @@ async def link_interest(body: LinkInterest, request: Request):
     if body.website:
         raise HTTPException(status_code=422, detail="Solicitud no válida.")
     url, country, source = _validated_url(body.listing_url)
+    if country == "unknown":
+        raise HTTPException(status_code=422, detail="No se pudo identificar el país del anuncio.")
     contact = _contact(body.buyer_contact, body.contact_channel)
     # Lightweight per-process guard; keep the DB write private and never expose buyer information.
     import time
@@ -82,7 +84,7 @@ async def link_interest(body: LinkInterest, request: Request):
             "car_name": "Vehículo pendiente de verificar",
             "price_usd": None,
             "country": country,
-            "source": source,
+            "source": "paste_link",
             "consent_to_contact": True,
             "consent_recorded_at": datetime.now(timezone.utc).isoformat(),
             "status": "received"
