@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field
 router = APIRouter()
 _ALLOWED_COUNTRIES = {"el-salvador-es": "sv", "guatemala-es": "gt", "panama-es": "pa",
                       "costa-rica-es": "cr", "honduras-es": "hn", "nicaragua-es": "ni"}
-_PHONE = re.compile(r"^\\+?[0-9][0-9 ()-]{6,22}$")
-_EMAIL = re.compile(r"^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
+_PHONE = re.compile(r"^\+?[0-9][0-9 ()-]{6,22}$")
+_EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 _rate_window: dict[str, list[float]] = {}
 
 
@@ -31,7 +31,7 @@ def _validated_url(value: str) -> tuple[str, str, str]:
         host = (u.hostname or "").lower().removeprefix("www.")
         if u.scheme != "https" or not host or u.username or u.password or u.port or u.fragment:
             raise ValueError()
-        if host == "localhost" or host.endswith(".local") or re.fullmatch(r"\\d+(?:\\.\\d+){3}", host):
+        if host == "localhost" or host.endswith(".local") or re.fullmatch(r"\d+(?:\.\d+){3}", host):
             raise ValueError()
         if not (host == "encuentra24.com" or host.endswith(".encuentra24.com")
                 or (host.count(".") >= 1 and re.fullmatch(r"[a-z0-9.-]+", host))):
@@ -47,8 +47,8 @@ def _contact(value: str, channel: str) -> str:
     value = value.strip()
     if channel == "email" and _EMAIL.fullmatch(value):
         return value
-    if channel == "whatsapp" and _PHONE.fullmatch(value) and 8 <= len(re.sub(r"\\D", "", value)) <= 15:
-        return re.sub(r"\\D", "", value)
+    if channel == "whatsapp" and _PHONE.fullmatch(value) and 8 <= len(re.sub(r"\D", "", value)) <= 15:
+        return re.sub(r"\D", "", value)
     raise HTTPException(status_code=422, detail="Ingresa un WhatsApp o correo válido.")
 
 
