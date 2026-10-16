@@ -1632,7 +1632,15 @@ async def carly_search(body: CarlySearchRequest):
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not connected.")
 
+    from .carly_constraints import parse as parse_constraints, eligible
+    constraints = parse_constraints(body.q)
     it = parse_intent(body.q)
+    # Structured constraints take precedence over the legacy heuristic parser.
+    # In particular, words such as 'Puedo' and 'Muéstrame' are never car models.
+    if constraints["models"]:
+        it.make = None
+    if constraints["body"]:
+        it.body_types = [constraints["body"]]
     q = supabase.table("scraped_listings").select(CARLY_COLS)
 
     if body.addressable_only:
@@ -1664,7 +1672,11 @@ async def carly_search(body: CarlySearchRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Supabase query failed: {e!s}")
 
-    total_matching = len(pool)            # for the transparency line ("de N, estos M")
+    # Reject unknown/mismatching mandatory attributes before ranking.
+    # The current inventory schema does not expose verified drivetrain;
+    # explicit 4x4 queries therefore return no unverified matches.
+    pool = [car for car in pool if eligible(car, constraints)]
+    total_matching = len(pool)
     ranked = _decision_rank(pool, limit)
 
     results = []
