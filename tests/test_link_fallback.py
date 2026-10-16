@@ -28,9 +28,17 @@ def test_guatemala_encuentra24_fallback_records_contact_and_link(monkeypatch):
     response=cli.post("/link-interest",json={"listing_url":url,"buyer_contact":"+502 5555 5555","contact_channel":"whatsapp","consent_to_contact":True})
     assert response.status_code==201
     row=db.q.rows[0]
-    assert row["listing_url"]==url and row["country"]=="gt" and row["source"]=="encuentra24"
+    assert row["listing_url"]==url and row["country"]=="gt" and row["source"]=="paste_link"
     assert row["price_usd"] is None and row["consent_to_contact"] is True
+    assert row["buyer_contact"]=="50255555555"
     assert "buyer_contact" not in response.json()
+
+def test_email_fallback_and_consent(monkeypatch):
+    cli, db=client(monkeypatch)
+    response=cli.post("/link-interest",json={"listing_url":"https://www.encuentra24.com/guatemala-es/autos-usados/porsche-911/33032350","buyer_contact":"buyer@example.com","contact_channel":"email","consent_to_contact":True})
+    assert response.status_code==201
+    assert db.q.rows[0]["buyer_contact"]=="buyer@example.com"
+    assert db.q.rows[0]["contact_channel"]=="email"
 
 def test_consent_required_and_invalid_contact_rejected(monkeypatch):
     cli, db=client(monkeypatch)
@@ -47,6 +55,6 @@ def test_write_failure_not_reported_as_success(monkeypatch):
     class Broken:
         def table(self,n): raise RuntimeError("backend down")
     monkeypatch.setattr(main,"supabase",Broken())
-    response=cli.post("/link-interest",json={"listing_url":"https://example.com/vehicle","buyer_contact":"buyer@example.com","contact_channel":"email","consent_to_contact":True})
+    response=cli.post("/link-interest",json={"listing_url":"https://www.encuentra24.com/guatemala-es/autos-usados/porsche-911/33032350","buyer_contact":"buyer@example.com","contact_channel":"email","consent_to_contact":True})
     assert response.status_code==503
     assert response.json()["detail"].startswith("No se pudo")
