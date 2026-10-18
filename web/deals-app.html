@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CarTrade Deals · acceso seguro</title><link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+<style>:root{font-family:"Hanken Grotesk",system-ui,sans-serif;color:#1f2428;background:#f4f6f8}
+*{box-sizing:border-box}body{margin:0}main{max-width:550px;margin:auto;padding:24px 16px 64px}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:30px}
+h1{font-size:27px;margin:0 0 10px}h2{font-size:19px;margin:0}.muted{color:#64748b}section{background:white;border:1px solid #e5e9ef;border-radius:16px;padding:20px;margin:12px 0}
+label{display:block;font-weight:600;margin:14px 0 6px}input,select{width:100%;border:1px solid #cdd5df;border-radius:10px;padding:12px;font:inherit}
+button{border:none;border-radius:10px;padding:12px 16px;font:inherit;font-weight:700;cursor:pointer;background:#16a34a;color:white}
+button:disabled{opacity:.55;cursor:wait}.outline{background:#fff;color:#1f2428;border:1px solid #cdd5df}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between}.deal{padding:14px;border-bottom:1px solid #e5e9ef}
+.deal:last-child{border-bottom:0}.danger{color:#b91c1c}.good{color:#166534}[hidden]{display:none!important}</style></head>
+<body><main><header><strong>car<span style="color:#16a34a">trade</span> <small>Deals</small></strong><span class="muted">Acceso seguro</span></header>
+<div id="notice" role="status" aria-live="polite" class="muted"></div>
+<section id="sign-in"><h1>Ingresá a CarTrade</h1><p class="muted">Recibirás un enlace de acceso en tu correo.</p><form id="otp-form"><label for="email">Correo electrónico</label><input id="email" type="email" autocomplete="email" required><button id="send" type="submit" style="margin-top:16px">Enviar enlace seguro</button></form></section>
+<div id="private" hidden><section><div class="row"><div><h1>Mis Deals</h1><p id="identity" class="muted"></p></div><button class="outline" id="sign-out">Salir</button></div><p class="muted">Solo aparecen tus expedientes. Los estados bancarios y de cierre no se simulan.</p></section>
+<section><h2>Nuevo expediente</h2><form id="create">
+<label for="market">País</label><select id="market"><option value="sv">El Salvador</option><option value="gt">Guatemala</option></select>
+<label for="actor-role">Tu rol en esta operación</label><select id="actor-role"><option value="broker">Intermediario</option><option value="buyer">Comprador</option><option value="seller">Vendedor</option></select>
+<label for="buyer">Referencia del cliente (opcional)</label><input id="buyer" maxlength="120" autocomplete="off" placeholder="Alias, sin datos sensibles">
+<label for="vehicle">Carro (opcional)</label><input id="vehicle" maxlength="160" autocomplete="off" placeholder="Toyota Corolla 2021">
+<label for="url">Enlace del anuncio (opcional)</label><input id="url" type="url" maxlength="2048" placeholder="https://...">
+<button id="save" type="submit" style="margin-top:16px">Crear Deal</button></form></section>
+<section><div class="row"><h2>Expedientes</h2><button class="outline" id="refresh">Actualizar</button></div><div id="deals" class="muted" style="margin-top:16px"></div></section></div>
+</main><script type="module">
+import {createClient} from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+import {DealsClient} from "./deals-client.js";
+import {config} from "./config.js";
+const $=id=>document.getElementById(id);
+const note=(message,bad=false)=>{$("notice").textContent=message;$("notice").className=bad?"danger":"good";};
+if(!config?.supabaseUrl||!config?.supabasePublishableKey||!config?.apiBase)throw new Error("Public configuration missing");
+const supabase=createClient(config.supabaseUrl,config.supabasePublishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+const api=new DealsClient({supabase,apiBase:config.apiBase});
+const safe=t=>String(t??"");
+async function load(){ $("deals").textContent="Cargando...";try{const {deals}=await api.list();$("deals").replaceChildren();if(!deals.length){$("deals").textContent="Aún no tenés Deals.";return;}
+for(const d of deals){const el=document.createElement("div");el.className="deal";
+const name=document.createElement("strong");name.textContent=safe(d.vehicle_title||d.buyer_label||"Deal sin carro");
+const info=document.createElement("div");info.className="muted";info.textContent=[d.market.toUpperCase(),d.actor_role,d.status,new Date(d.created_at).toLocaleDateString()].join(" · ");
+const id=document.createElement("small");id.className="muted";id.textContent=d.id;el.append(name,info,id);$("deals").append(el);}}
+catch(e){note(e.message,true);$("deals").textContent="No fue posible cargar los Deals.";}}
+async function sync(){const {data:{session}}=await supabase.auth.getSession();$("private").hidden=!session;$("sign-in").hidden=!!session;
+if(session){$("identity").textContent=session.user.email||"Sesión autenticada";await load();}}
+$("otp-form").addEventListener("submit",async e=>{e.preventDefault();$("send").disabled=true;
+try{const email=$("email").value.trim();const {error}=await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+location.pathname,shouldCreateUser:false}});if(error)throw error;note("Revisá tu correo para entrar.");}
+catch(e){note(e.message,true);}finally{$("send").disabled=false;}});
+$("sign-out").addEventListener("click",async()=>{await supabase.auth.signOut();note("Sesión cerrada.");await sync();});
+$("refresh").addEventListener("click",load);
+$("create").addEventListener("submit",async e=>{e.preventDefault();$("save").disabled=true;
+try{const body={market:$("market").value,actor_role:$("actor-role").value};if($("buyer").value.trim())body.buyer_label=$("buyer").value.trim();
+if($("vehicle").value.trim())body.vehicle_title=$("vehicle").value.trim();if($("url").value.trim())body.vehicle_url=$("url").value.trim();
+const {deal}=await api.create(body);note("Deal creado: "+deal.id);$("create").reset();await load();}
+catch(e){note(e.message,true);}finally{$("save").disabled=false;}});
+supabase.auth.onAuthStateChange((_evt,session)=>{$("private").hidden=!session;$("sign-in").hidden=!!session;});
+await sync();
+</script></body></html>
