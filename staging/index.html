@@ -30,10 +30,11 @@ h1{font-size:27px;line-height:1.2;letter-spacing:-.02em;margin:0 0 8px}h2{font-s
 <main>
 <div id="feedback" role="status" aria-live="polite" class="note" hidden></div>
 <section id="login" class="stack"><div><div class="eyebrow">Portable brokerage</div><div class="rule"></div><h1>Una sola Carly. Todos tus deals.</h1><p>Entrá con tu correo para gestionar expedientes reales de manera segura.</p></div>
-<form id="loginform" class="card stack"><div class="field"><label for="email">Correo electrónico</label><input class="input" id="email" type="email" autocomplete="email" required></div><button class="btn full" id="loginbtn" type="submit">Enviar enlace de acceso</button><div class="quiet">Acceso limitado a cuentas habilitadas para staging. No ingresés documentos de identidad, ingresos ni datos financieros sensibles.</div></form></section>
+<form id="loginform" class="card stack"><div class="field"><label for="email">Correo electrónico</label><input class="input" id="email" type="email" autocomplete="email" required></div><button class="btn full" id="loginbtn" type="submit">Enviar enlace de acceso</button><div class="field"><label for="password">¿Ya configuraste una contraseña?</label><input class="input" id="password" type="password" autocomplete="current-password" placeholder="Ingresá tu contraseña"></div><button class="btn ghost full" id="password-login" type="button">Ingresar con contraseña</button><div class="quiet">Acceso limitado a cuentas habilitadas para staging. No ingresés documentos de identidad, ingresos ni datos financieros sensibles.</div></form></section>
 <section id="logged" hidden>
 <div class="eyebrow">CarTrade · Carly Multirol</div><div class="rule"></div>
 <div class="row"><div><h1 id="heading">Tus deals, en la palma de tu mano</h1><p id="subtitle">Carly te acompaña durante cada operación.</p></div><button id="logout" class="btn ghost small">Salir</button></div>
+<details class="card"><summary style="cursor:pointer;font-weight:700">Configurar acceso sin nuevos correos</summary><p class="quiet">Cuando ya hayas ingresado con un enlace válido, podés establecer una contraseña para las próximas pruebas, sin depender del límite de emails de Supabase.</p><div class="field"><label for="new-password">Nueva contraseña (mínimo 12 caracteres)</label><input class="input" type="password" id="new-password" minlength="12" autocomplete="new-password"></div><button class="btn small" style="margin-top:10px" id="set-password" type="button">Guardar contraseña</button></details>
 <div class="tabs" id="roles"><button data-role="buyer" aria-pressed="false">Comprar</button><button data-role="seller" aria-pressed="false">Vender</button><button data-role="broker" aria-pressed="true">Broker</button></div>
 <div class="field"><label for="market">Mercado</label><select id="market" class="input"><option value="sv">El Salvador</option><option value="gt">Guatemala</option></select></div>
 <section id="chatpanel">
@@ -89,6 +90,17 @@ const msg=String(e?.message||"");
 if(e?.status===429||/email rate|rate limit|too many requests/i.test(msg))notice("Supabase agotó temporalmente la cuota de correos del proyecto. No solicités más enlaces por ahora. Esperá a que se renueve la cuota o configurá SMTP propio en Supabase Auth.",true);
 else notice(msg||"No se pudo solicitar el enlace.",true);
 }finally{btn.disabled=false}});
+el("password-login").addEventListener("click",async()=>{const button=el("password-login");button.disabled=true;
+try{const email=el("email").value.trim().toLowerCase();if(!["juan@trustplus.online","juan@nordelia.ca"].includes(email))throw new Error("Cuenta no habilitada para staging.");
+if(!el("password").value)throw new Error("Ingresá tu contraseña.");
+const {error}=await supabase.auth.signInWithPassword({email,password:el("password").value});
+if(error)throw error;el("password").value="";notice("Sesión iniciada correctamente.");await sync();
+}catch(e){notice(e.message||"No se pudo iniciar sesión.",true)}finally{button.disabled=false}});
+el("set-password").addEventListener("click",async()=>{const button=el("set-password");button.disabled=true;try{
+const password=el("new-password").value;if(password.length<12)throw new Error("La contraseña debe tener al menos 12 caracteres.");
+const {error}=await supabase.auth.updateUser({password});if(error)throw error;el("new-password").value="";
+notice("Contraseña configurada. Ahora podrás ingresar sin solicitar nuevos correos.");
+}catch(e){notice(e.message||"No se pudo actualizar la contraseña.",true)}finally{button.disabled=false}});
 el("logout").addEventListener("click",async()=>{await supabase.auth.signOut();chatHistory=[];visibleCars=[];currentCar=null;el("chat").replaceChildren();notice("Sesión cerrada.");await sync()});
 supabase.auth.onAuthStateChange((event)=>{if(["SIGNED_IN","SIGNED_OUT"].includes(event))setTimeout(sync,0)});
 el("navchat").addEventListener("click",()=>showPanel("chat"));el("navdeals").addEventListener("click",()=>showPanel("deals"));
