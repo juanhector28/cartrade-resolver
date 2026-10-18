@@ -65,3 +65,40 @@ def test_created_deal_is_retrievable_in_new_request():
         assert retrieved.json()["deal"]["vehicle_title"] == "Hilux"
     finally:
         app.dependency_overrides.clear()
+
+def test_staging_rejects_uninvited_verified_account(monkeypatch):
+    import app.deals_api as mod
+    from types import SimpleNamespace
+    monkeypatch.setenv("CARTRADE_STAGING","1")
+    monkeypatch.setenv("STAGING_ALLOWED_EMAILS","juan@trustplus.online,juan@nordelia.ca")
+    monkeypatch.setenv("SUPABASE_URL","https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY","public-test-key")
+    class FakeAuth:
+        def __init__(self,email): self.email=email
+        def get_user(self,token): return SimpleNamespace(user=SimpleNamespace(id="123",email=self.email))
+    class FakePostgrest:
+        def auth(self,token): pass
+    class FakeSupabase:
+        def __init__(self,email): self.auth=FakeAuth(email); self.postgrest=FakePostgrest()
+    monkeypatch.setattr(mod,"create_client",lambda url,key:FakeSupabase("intruso@example.com"))
+    response=client.get("/api/deals",headers={"Authorization":"Bearer valid"})
+    assert response.status_code==403
+    assert response.json()["detail"]=="Account not enabled for staging"
+
+def test_staging_allows_invited_verified_account(monkeypatch):
+    import app.deals_api as mod
+    from types import SimpleNamespace
+    monkeypatch.setenv("CARTRADE_STAGING","1")
+    monkeypatch.setenv("STAGING_ALLOWED_EMAILS","juan@trustplus.online,juan@nordelia.ca")
+    monkeypatch.setenv("SUPABASE_URL","https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY","public-test-key")
+    class FakeAuth:
+        def get_user(self,token): return SimpleNamespace(user=SimpleNamespace(id="123",email="juan@nordelia.ca"))
+    class FakePostgrest:
+        def auth(self,token): pass
+    class FakeSupabase:
+        def __init__(self): self.auth=FakeAuth(); self.postgrest=FakePostgrest()
+        def table(self,name): return FakeQuery(FakeDB())
+    monkeypatch.setattr(mod,"create_client",lambda url,key:FakeSupabase())
+    response=client.get("/api/deals",headers={"Authorization":"Bearer valid"})
+    assert response.status_code==200
