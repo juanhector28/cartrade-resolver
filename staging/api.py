@@ -48,10 +48,11 @@ async def broker_chat(payload: BrokerChat, auth=Depends(_client)):
         "seller":"Estoy vendiendo un vehículo. No inventes compradores ni ofertas.",
         "buyer":"Estoy buscando un vehículo para comprar.",
     }[payload.actor_role]
-    messages=[{"role":"user","content":role_context+" Mercado: "+payload.country.upper()+"."}]
-    messages.extend(msgs)
-    if len(messages)>24:
-        messages=messages[-24:]
+    messages=[dict(m) for m in msgs]
+    for message in messages:
+        if message["role"]=="user":
+            message["content"] = "[Contexto de rol: "+role_context+" Mercado: "+payload.country.upper()+".]\\n" + message["content"]
+            break
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(110.0,connect=8.0),follow_redirects=False) as client:
             response=await client.post(UPSTREAM,json={
