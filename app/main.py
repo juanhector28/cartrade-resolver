@@ -30,6 +30,7 @@ from selectolax.parser import HTMLParser
 from supabase import create_client
 
 from . import cache, rate_limit, platforms
+from .deals_api import router as deals_router
 from .link_fallback import router as link_fallback_router
 from .resolvers import encuentra24, olx, facebook, mercadolibre, fallback
 from .resolvers.base import Listing
@@ -478,6 +479,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="CarTrade Link Resolver", version="1.5.0", lifespan=lifespan)
 app.include_router(link_fallback_router)
+app.include_router(deals_router)
 
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://cartrade.live,https://www.cartrade.live").split(",")
 if os.environ.get("RESOLVER_DEV") == "1":
@@ -488,7 +490,7 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["POST", "GET", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
