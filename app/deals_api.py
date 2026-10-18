@@ -35,6 +35,11 @@ def _client(authorization: Optional[str] = Header(default=None)):
         client.postgrest.auth(token)
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid session")
+    if os.getenv("CARTRADE_STAGING") == "1":
+        allowlist = {x.strip().lower() for x in os.getenv("STAGING_ALLOWED_EMAILS", "").split(",") if x.strip()}
+        # Fail closed until staging operator emails are explicitly configured.
+        if (user.email or "").lower() not in allowlist:
+            raise HTTPException(status_code=403, detail="Account not enabled for staging")
     return client, str(user.id)
 
 @router.get("")
