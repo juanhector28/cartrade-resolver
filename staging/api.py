@@ -75,7 +75,7 @@ async def broker_chat(payload: BrokerChat, auth=Depends(_client)):
         raise HTTPException(status_code=502,detail="La respuesta de Carly no tiene el formato esperado.")
     # This is only a suggestion. Explicit button confirmation POSTs /api/deals.
     last=msgs[-1]["content"] if msgs else ""
-    suggestion=bool(re.search(r"\b(?:crea|crear|abre|abrir|registra|registrar)\s+(?:(?:un|el|mi)\s+)?(?:deal|expediente)\b",last,re.I))
+    suggestion=bool(re.search(r"\b(?:crea|creá|crear|abre|abr[ií]|abrir|registra|registrá|registrar)\s+(?:(?:un|el|mi)\s+)?(?:deal|expediente)\b",last,re.I))
     return {"phase":result.get("phase","conversation"),"reply":result["reply"],
             "recommendations":result.get("recommendations",[]),
             "explore":result.get("explore",[]),
