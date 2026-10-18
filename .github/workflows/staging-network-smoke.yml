@@ -1,6 +1,8 @@
 name: Staging network smoke
 on:
   workflow_dispatch:
+  pull_request:
+    paths: ['staging/**','.github/workflows/staging-network-smoke.yml']
   push:
     branches: ['feat/carly-deals-multirol']
     paths: ['staging/**','.github/workflows/staging-network-smoke.yml']
