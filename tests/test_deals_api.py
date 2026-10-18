@@ -5,27 +5,27 @@ from app.deals_api import router, _client
 
 class FakeQuery:
     def __init__(self, rows):
-        self.rows = rows
+        self.db = rows
     def select(self, *_): return self
     def order(self, *_args, **_kwargs): return self
     def limit(self, *_): return self
     def eq(self, name, value):
-        self.rows = [r for r in self.rows if r.get(name) == value]
+        self.db.rows = [r for r in self.db.rows if r.get(name) == value]
         return self
     def insert(self, row):
-        self.rows = [dict(row, id="00000000-0000-0000-0000-000000000001")]
+        self.db.rows.append(dict(row, id="00000000-0000-0000-0000-000000000001"))
         return self
     def execute(self):
         class Reply: pass
         r = Reply()
-        r.data = self.rows
+        r.data = self.db.rows
         return r
 
 class FakeDB:
     def __init__(self): self.rows=[]
     def table(self, name):
         assert name == "ct_deals"
-        return FakeQuery(self.rows)
+        return FakeQuery(self)
 
 app = FastAPI()
 app.include_router(router)
@@ -50,5 +50,18 @@ def test_draft_created_without_client_status():
         r=client.post("/api/deals",json={"market":"sv","actor_role":"broker","status":"closed"})
         assert r.status_code == 201
         assert r.json()["deal"]["status"] == "discovery"
+    finally:
+        app.dependency_overrides.clear()
+
+def test_created_deal_is_retrievable_in_new_request():
+    db = FakeDB()
+    app.dependency_overrides[_client] = lambda: (db, "00000000-0000-0000-0000-000000000002")
+    try:
+        created = client.post("/api/deals",json={"market":"gt","actor_role":"broker","vehicle_title":"Hilux"})
+        assert created.status_code == 201
+        deal_id = created.json()["deal"]["id"]
+        retrieved = client.get("/api/deals/"+deal_id)
+        assert retrieved.status_code == 200
+        assert retrieved.json()["deal"]["vehicle_title"] == "Hilux"
     finally:
         app.dependency_overrides.clear()
