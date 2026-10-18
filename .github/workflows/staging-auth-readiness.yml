@@ -1,0 +1,41 @@
+name: Staging Auth Readiness
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/staging-auth-readiness.yml'
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions: {contents: read}
+    steps:
+      - name: Check public staging config, Supabase email provider and unauthenticated DB access
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+          base="https://carly-deals-api-staging.up.railway.app"
+          def get_json(url, headers=None):
+              with urlopen(Request(url,headers=headers or {}),timeout=20) as r:
+                  return r.status, json.load(r)
+          status,health=get_json(base+"/health")
+          assert status==200 and health.get("status")=="ok" and health.get("auth_configured"), "Staging misconfigured"
+          _,conf=get_json(base+"/api/public-config")
+          assert conf["supabaseUrl"].startswith("https://") and conf["supabaseAnonKey"] and conf["apiBase"]==""
+          project=conf["supabaseUrl"].rstrip("/")
+          key=conf["supabaseAnonKey"]
+          # The public key must never appear in logs.
+          status,settings=get_json(project+"/auth/v1/settings",{"apikey":key})
+          assert status==200 and isinstance(settings,dict)
+          print("Staging: healthy; Supabase settings: readable; email provider:", settings.get("external",{}).get("email"), "signup disabled:",settings.get("disable_signup"))
+          # No access token: anonymous database queries must not retrieve Deals.
+          req=Request(project+"/rest/v1/ct_deals?select=id&limit=1",headers={"apikey":key,"Authorization":"Bearer "+key})
+          try:
+              with urlopen(req,timeout=20) as response:
+                  raise AssertionError("Anonymous query unexpectedly allowed (status "+str(response.status)+")")
+          except HTTPError as e:
+              assert e.code in (401,403), "Expected anonymous Deals denial, got "+str(e.code)
+          print("Anonymous direct Deals query: correctly denied")
+          PY
