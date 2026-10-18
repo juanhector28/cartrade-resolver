@@ -78,7 +78,7 @@ async function request(path,method="GET",payload){const {data:{session}}=await s
  return out;
 }
 function showPanel(name){panel=name;el("chatpanel").hidden=name!=="chat";el("results").hidden=name!=="chat"||!visibleCars.length;el("dealspanel").hidden=name!=="deals";el("navchat").setAttribute("aria-current",name==="chat"?"page":"false");el("navdeals").setAttribute("aria-current",name==="deals"?"page":"false");if(name==="deals")loadDeals();}
-async function sync(){const {data:{session}}=await supabase.auth.getSession();loggedIn=!!session;el("login").hidden=loggedIn;el("logged").hidden=!loggedIn;el("nav").hidden=!loggedIn;el("who").textContent=loggedIn?"Cuenta activa":"Staging";if(loggedIn)await loadDeals();}
+async function sync(){const {data:{session}}=await supabase.auth.getSession();loggedIn=!!session;el("login").hidden=loggedIn;el("logged").hidden=!loggedIn;el("nav").hidden=!loggedIn;el("who").textContent=loggedIn?(session?.user?.email||"Cuenta activa"):"Staging";if(loggedIn)await loadDeals();}
 el("loginform").addEventListener("submit",async ev=>{ev.preventDefault();const btn=el("loginbtn");btn.disabled=true;try{
 const {error}=await supabase.auth.signInWithOtp({email:el("email").value.trim(),options:{emailRedirectTo:location.origin+"/",shouldCreateUser:true}});
 if(error)throw error;notice("Revisá tu correo. El acceso solo se habilitará si tu cuenta está autorizada.");}
