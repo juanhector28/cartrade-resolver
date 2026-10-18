@@ -56,3 +56,11 @@ def test_chat_uses_real_upstream_contract_and_never_forwards_token(monkeypatch):
         assert seen["payload"]["messages"][0]["role"]=="user"
     finally:
         app.dependency_overrides.clear()
+
+def test_staging_provides_password_login_for_verified_users_without_email():
+    html=client.get("/").text
+    assert 'id="password-login"' in html
+    assert 'id="set-password"' in html
+    assert "signInWithPassword" in html
+    assert "supabase.auth.updateUser" in html
+    assert "emailRedirectTo:\"https://carly-deals-api-staging.up.railway.app/\"" in html
