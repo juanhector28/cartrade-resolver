@@ -80,9 +80,15 @@ async function request(path,method="GET",payload){const {data:{session}}=await s
 function showPanel(name){panel=name;el("chatpanel").hidden=name!=="chat";el("results").hidden=name!=="chat"||!visibleCars.length;el("dealspanel").hidden=name!=="deals";el("navchat").setAttribute("aria-current",name==="chat"?"page":"false");el("navdeals").setAttribute("aria-current",name==="deals"?"page":"false");if(name==="deals")loadDeals();}
 async function sync(){const {data:{session}}=await supabase.auth.getSession();loggedIn=!!session;el("login").hidden=loggedIn;el("logged").hidden=!loggedIn;el("nav").hidden=!loggedIn;el("who").textContent=loggedIn?(session?.user?.email||"Cuenta activa"):"Staging";if(loggedIn)await loadDeals();}
 el("loginform").addEventListener("submit",async ev=>{ev.preventDefault();const btn=el("loginbtn");btn.disabled=true;try{
-const {error}=await supabase.auth.signInWithOtp({email:el("email").value.trim(),options:{emailRedirectTo:location.origin+"/",shouldCreateUser:true}});
+const email=el("email").value.trim().toLowerCase();
+if(!["juan@trustplus.online","juan@nordelia.ca"].includes(email))throw new Error("Esta versión de pruebas solamente admite las dos cuentas autorizadas.");
+const {error}=await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:"https://carly-deals-api-staging.up.railway.app/",shouldCreateUser:true}});
 if(error)throw error;notice("Revisá tu correo. El acceso solo se habilitará si tu cuenta está autorizada.");}
-catch(e){notice(e.message,true)}finally{btn.disabled=false}});
+catch(e){
+const msg=String(e?.message||"");
+if(e?.status===429||/email rate|rate limit|too many requests/i.test(msg))notice("Supabase agotó temporalmente la cuota de correos del proyecto. No solicités más enlaces por ahora. Esperá a que se renueve la cuota o configurá SMTP propio en Supabase Auth.",true);
+else notice(msg||"No se pudo solicitar el enlace.",true);
+}finally{btn.disabled=false}});
 el("logout").addEventListener("click",async()=>{await supabase.auth.signOut();chatHistory=[];visibleCars=[];currentCar=null;el("chat").replaceChildren();notice("Sesión cerrada.");await sync()});
 supabase.auth.onAuthStateChange((event)=>{if(["SIGNED_IN","SIGNED_OUT"].includes(event))setTimeout(sync,0)});
 el("navchat").addEventListener("click",()=>showPanel("chat"));el("navdeals").addEventListener("click",()=>showPanel("deals"));
