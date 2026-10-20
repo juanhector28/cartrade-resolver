@@ -1,0 +1,22 @@
+name: Verify real Carly chat once
+on:
+  pull_request:
+    paths: ['.github/workflows/one-shot-carly-chat.yml']
+jobs:
+  verify-live-chat:
+    runs-on: ubuntu-latest
+    permissions: {contents: read}
+    steps:
+      - name: One synthetic non-personal Carly chat
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 110 \
+            -H 'Content-Type: application/json' \
+            -X POST 'https://resolver.cartrade.live/carly/chat' \
+            --data '{"country":"sv","top_n":3,"messages":[{"role":"user","content":"Busco un Toyota Corolla usado en El Salvador."}]}' \
+            -o /tmp/carly-answer.json
+          python - <<'PY'
+          import json
+          data=json.load(open('/tmp/carly-answer.json'))
+          assert isinstance(data,dict) and isinstance(data.get('reply'),str) and data['reply'].strip(), "Carly response missing reply"
+          print("Carly chat contract: valid; phase:", data.get("phase"))
+          PY

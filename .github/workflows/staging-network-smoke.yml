@@ -1,0 +1,28 @@
+name: Staging network smoke
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['staging/**','.github/workflows/staging-network-smoke.yml']
+  push:
+    branches: ['feat/carly-deals-multirol']
+    paths: ['staging/**','.github/workflows/staging-network-smoke.yml']
+jobs:
+  http-smoke:
+    runs-on: ubuntu-latest
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Staging public health
+        run: |
+          curl -fsS --retry 3 --retry-delay 3 --max-time 20 'https://carly-deals-api-staging.up.railway.app/health' > /tmp/health.json
+          python -c "import json; d=json.load(open('/tmp/health.json')); assert d['status']=='ok' and d['mode']=='isolated-staging'"
+      - name: Staging page loads and denies unauthenticated access
+        run: |
+          curl -fsS --max-time 20 'https://carly-deals-api-staging.up.railway.app/' -o /tmp/page.html
+          grep -q 'Confirmar creación del Deal' /tmp/page.html
+          status=$(curl -sS --max-time 20 -o /tmp/reply -w '%{http_code}' 'https://carly-deals-api-staging.up.railway.app/api/deals')
+          test "$status" = '401'
+      - name: Real Carly upstream health is reachable
+        run: |
+          curl -fsS --retry 2 --retry-delay 2 --max-time 20 'https://resolver.cartrade.live/health' -o /tmp/carly-health.json
+          test -s /tmp/carly-health.json
